@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -47,7 +48,7 @@ def request_assignment(payload: AssignmentRequestIn, db: Session = Depends(get_d
         # Admin manages the roster; therapists/supervisors request clinical links.
         raise HTTPException(status_code=403, detail="admin_clinical manages assignments via overrides; therapists request access")
 
-    patient = db.query(User).filter(User.email == payload.patient_email, User.role == "patient").first()
+    patient = db.query(User).filter(func.lower(User.email) == payload.patient_email, User.role == "patient").first()
     if not patient:
         raise HTTPException(status_code=404, detail="No patient with that email")
 

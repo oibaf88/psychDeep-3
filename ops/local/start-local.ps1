@@ -1,20 +1,32 @@
+param(
+    [switch]$Check,
+    [ValidateRange(15, 1800)]
+    [int]$WaitTimeoutSeconds = 180
+)
+
 $ErrorActionPreference = 'Stop'
 Set-Location (Resolve-Path (Join-Path $PSScriptRoot '..\..'))
+. (Join-Path $PSScriptRoot 'common.ps1')
 
 if (-not (Test-Path '.env.local')) {
+    if ($Check) { throw 'Missing .env.local. Copy .env.local.example and set the local secrets first.' }
     Copy-Item '.env.local.example' '.env.local'
     Write-Host 'Created .env.local from template.' -ForegroundColor Yellow
     Write-Host 'Edit LOCAL_DB_PASSWORD and JWT_SECRET, then run this script again.' -ForegroundColor Yellow
     exit 1
 }
 
-if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    throw 'Docker was not found. Install Docker Desktop (or another Docker-compatible runtime) first.'
+$config = Get-PsychDeepComposeConfig
+Assert-PsychDeepLocalSecrets -Config $config
+if ($Check) {
+    Write-Host 'Local Compose configuration and required secrets passed preflight. No services were started.' -ForegroundColor Green
+    return
 }
+Assert-PsychDeepDockerEngine
 
 Write-Host 'Starting PsychDeep local/offline...' -ForegroundColor Cyan
-docker compose --env-file .env.local -f docker-compose.offline.yml up -d --build db backend frontend
-if ($LASTEXITCODE -ne 0) { throw 'Docker Compose failed.' }
+docker compose --env-file .env.local -f docker-compose.offline.yml up -d --build --wait --wait-timeout $WaitTimeoutSeconds db backend frontend
+if ($LASTEXITCODE -ne 0) { throw 'Local services did not become healthy. Inspect docker compose ps and sanitized service logs; preserve the database volume.' }
 
 Write-Host ''
 Write-Host 'PsychDeep local is ready at: http://127.0.0.1:5173' -ForegroundColor Green

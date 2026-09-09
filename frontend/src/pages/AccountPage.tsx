@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type UserOut } from "../api";
 import { useAuth } from "../auth/AuthContext";
+import { newPasswordError } from "../auth/password";
 
 function nameParts(user: UserOut) {
   if (user.first_name || user.last_name) {
@@ -41,6 +42,7 @@ export default function AccountPage() {
 
   async function saveProfile(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setBusy("profile");
     setError(null);
     setNotice(null);
@@ -66,12 +68,15 @@ export default function AccountPage() {
 
   async function savePassword(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setError(null);
     setNotice(null);
     if (newPassword !== confirmPassword) {
       setError("La nueva contraseña y su confirmación no coinciden.");
       return;
     }
+    const passwordError = newPasswordError(newPassword);
+    if (passwordError) { setError(passwordError); return; }
     setBusy("password");
     try {
       await api.post("/api/v1/auth/change-password", {
@@ -108,7 +113,7 @@ export default function AccountPage() {
             </label>
             <label>
               Apellidos
-              <input value={lastName} onChange={(e) => setLastName(e.target.value)} required maxLength={150} autoComplete="family-name" />
+              <input value={lastName} onChange={(e) => setLastName(e.target.value)} maxLength={150} autoComplete="family-name" />
             </label>
           </div>
           <label>
@@ -123,7 +128,7 @@ export default function AccountPage() {
           <div className="account-grid">
             <label>
               Teléfono
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" />
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" />
             </label>
             <label>
               Idioma
@@ -133,7 +138,7 @@ export default function AccountPage() {
               </select>
             </label>
           </div>
-          <button type="submit" disabled={busy === "profile"}>{busy === "profile" ? "Guardando…" : "Guardar datos"}</button>
+          <button type="submit" disabled={!!busy}>{busy === "profile" ? "Guardando…" : "Guardar datos"}</button>
         </form>
       </section>
 
@@ -153,7 +158,7 @@ export default function AccountPage() {
             Confirmar nueva contraseña
             <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={12} maxLength={256} autoComplete="new-password" />
           </label>
-          <button type="submit" disabled={busy === "password"}>{busy === "password" ? "Actualizando…" : "Cambiar contraseña"}</button>
+          <button type="submit" disabled={!!busy}>{busy === "password" ? "Actualizando…" : "Cambiar contraseña"}</button>
         </form>
       </section>
 

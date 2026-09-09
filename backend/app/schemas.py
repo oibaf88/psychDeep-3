@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_serializer
+from pydantic import AfterValidator, BaseModel, EmailStr, Field, StringConstraints, field_serializer
 
 
 def _utc_iso(value: datetime | None) -> str | None:
@@ -14,10 +14,16 @@ def _utc_iso(value: datetime | None) -> str | None:
 
 
 # ---------------------------------------------------------------- auth ----
+# Account identifiers are case-insensitive throughout the application, including
+# older database rows that predate normalization at signup.
+AccountEmail = Annotated[EmailStr, AfterValidator(lambda value: value.lower())]
+AccountDisplayName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+
+
 class UserCreate(BaseModel):
-    email: EmailStr
+    email: AccountEmail
     password: str = Field(min_length=12)
-    display_name: str
+    display_name: AccountDisplayName
     # Public signup always creates a patient. This field is kept only so
     # older clients that still send it do not fail validation.
     role: str = "patient"
@@ -45,12 +51,12 @@ class Token(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: AccountEmail
     password: str
 
 
 class PasswordResetRequest(BaseModel):
-    email: EmailStr
+    email: AccountEmail
 
 class PasswordResetConfirm(BaseModel):
     token: str
@@ -60,9 +66,9 @@ class PasswordResetConfirm(BaseModel):
 class AccountProfileUpdate(BaseModel):
     """Self-service, non-clinical account attributes for any application role."""
 
-    email: Optional[EmailStr] = None
+    email: Optional[AccountEmail] = None
     first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    last_name: Optional[str] = Field(default=None, min_length=1, max_length=150)
+    last_name: Optional[str] = Field(default=None, max_length=150)
     phone: Optional[str] = Field(default=None, max_length=40)
     locale: Optional[str] = Field(default=None, min_length=2, max_length=10)
     # Required only if the login email is changed. Keeping it optional lets a
@@ -242,7 +248,7 @@ class FactOut(BaseModel):
 
 # --------------------------------------------------------- professional ---
 class AssignmentRequestIn(BaseModel):
-    patient_email: EmailStr
+    patient_email: AccountEmail
 
 
 class AssignmentOut(BaseModel):

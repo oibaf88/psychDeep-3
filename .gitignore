@@ -39,3 +39,7 @@ htmlcov/
 # Local Codex/Supabase CLI state. It carries workstation state, never product data.
 .codex/
 supabase/.temp/
+
+# Local account exports are operational data, never application source.
+/users*.csv
+/users_dump.sql

@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { homePathForRole } from "../api";
 import { useAuth } from "../auth/AuthContext";
+import { newPasswordError } from "../auth/password";
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -14,10 +15,14 @@ export default function RegisterPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setError(null);
+    const passwordError = newPasswordError(password);
+    if (passwordError) { setError(passwordError); return; }
+    if (!displayName.trim()) { setError("Escribe tu nombre."); return; }
     setBusy(true);
     try {
-      const user = await register(email, password, displayName);
+      const user = await register(email.trim(), password, displayName.trim());
       navigate(homePathForRole(user.role), { replace: true });
     } catch (err) {
       setError((err as Error).message);
@@ -32,20 +37,20 @@ export default function RegisterPage() {
       <form onSubmit={onSubmit} className="auth-form">
         <label>
           Nombre
-          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
+          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required maxLength={255} autoComplete="name" />
         </label>
         <label>
           Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
         </label>
         <label>
-          Contrasena (minimo 8 caracteres)
-          <input type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required />
+          Contraseña (mínimo 12 caracteres)
+          <input type="password" minLength={12} maxLength={256} value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" />
         </label>
         <p className="info">
           El registro publico crea cuentas de paciente. Las cuentas profesionales se provisionan de forma interna.
         </p>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
         <button type="submit" disabled={busy}>
           {busy ? "Creando..." : "Crear cuenta"}
         </button>

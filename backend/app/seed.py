@@ -16,6 +16,7 @@ Disable by setting SEED_DEMO_DATA=false in .env.
 import random
 from datetime import datetime, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import CheckIn, ConfirmedFact, Consent, PatientProfessionalAssignment, SafetyPlan, User
@@ -25,7 +26,7 @@ DEMO_PASSWORD = "DemoPass123!"
 
 
 def _get_or_create_user(db: Session, email: str, display_name: str, role: str) -> User:
-    user = db.query(User).filter(User.email == email).first()
+    user = db.query(User).filter(func.lower(User.email) == email.lower()).first()
     if user:
         return user
     user = User(email=email, hashed_password=hash_password(DEMO_PASSWORD), display_name=display_name, role=role)
@@ -40,7 +41,7 @@ def _get_or_create_user(db: Session, email: str, display_name: str, role: str) -
 
 
 def seed_demo_data(db: Session) -> None:
-    if db.query(User).filter(User.email == "patient@demo.psychapp.example.com").first():
+    if db.query(User).filter(func.lower(User.email) == "patient@demo.psychapp.example.com").first():
         return  # already seeded
 
     patient = _get_or_create_user(db, "patient@demo.psychapp.example.com", "Paciente Demo", "patient")
