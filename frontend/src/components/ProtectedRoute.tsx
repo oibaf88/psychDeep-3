@@ -14,9 +14,16 @@ export default function ProtectedRoute({
   patientOnly?: boolean;
   roles?: UserRole[];
 }) {
-  const { user, loading } = useAuth();
+  const { user, loading, sessionError, retrySession } = useAuth();
 
   if (loading) return <div className="loading">Cargando...</div>;
+  if (sessionError) return (
+    <div className="page">
+      <h1>No se pudo comprobar tu sesión</h1>
+      <p className="error" role="alert">{sessionError}</p>
+      <button type="button" onClick={() => void retrySession()}>Reintentar conexión</button>
+    </div>
+  );
   if (!user) return <Navigate to="/login" replace />;
   if (professionalOnly && user.role === "patient") return <Navigate to="/" replace />;
   if (patientOnly && user.role !== "patient") return <Navigate to="/professional" replace />;

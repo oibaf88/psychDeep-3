@@ -27,6 +27,30 @@ export function setToken(token: string | null) {
   else localStorage.removeItem("psychapp_token");
 }
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+function errorDetail(body: unknown, fallback: string): string {
+  if (!body || typeof body !== "object" || !("detail" in body)) return fallback;
+  const detail = body.detail;
+  if (typeof detail === "string") return detail;
+  // Validation responses can include the submitted password or clinical text
+  // in `input`. Show only the field and explanation, never the raw response.
+  if (Array.isArray(detail)) {
+    const messages = detail.flatMap((item: unknown) => {
+      if (!item || typeof item !== "object" || !("msg" in item) || typeof item.msg !== "string") return [];
+      const loc = "loc" in item && Array.isArray(item.loc) ? item.loc.filter((part) => part !== "body").join(" · ") : "";
+      return [loc ? `${loc}: ${item.msg}` : item.msg];
+    });
+    if (messages.length) return messages.join(". ");
+  }
+  return fallback;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -36,16 +60,23 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const base = getApiBase();
-  const res = await fetch(`${base}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, { ...options, headers });
+  } catch {
+    throw new ApiError("No se pudo conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.", 0);
+  }
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail = res.status >= 500
+      ? "El servidor no está disponible temporalmente. Inténtalo de nuevo en unos momentos."
+      : `No se pudo completar la solicitud (${res.status}).`;
     try {
       const body = await res.json();
-      detail = body.detail || JSON.stringify(body);
+      detail = errorDetail(body, detail);
     } catch {
       /* ignore */
     }
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    throw new ApiError(detail, res.status);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

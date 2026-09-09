@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { homePathForRole } from "../api";
 import { useAuth } from "../auth/AuthContext";
 
@@ -14,6 +14,8 @@ const DEMO_ACCOUNTS = [
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const notice = typeof location.state?.notice === "string" ? location.state.notice : null;
   const [email, setEmail] = useState(SHOW_LOCAL_DEMO ? "patient@demo.psychapp.example.com" : "");
   const [password, setPassword] = useState(SHOW_LOCAL_DEMO ? "DemoPass123!" : "");
   const [error, setError] = useState<string | null>(null);
@@ -21,10 +23,11 @@ export default function LoginPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setError(null);
     setBusy(true);
     try {
-      const user = await login(email, password);
+      const user = await login(email.trim(), password);
       navigate(homePathForRole(user.role), { replace: true });
     } catch (err) {
       setError((err as Error).message);
@@ -41,15 +44,16 @@ export default function LoginPage() {
         tratamiento.
       </p>
       <form onSubmit={onSubmit} className="auth-form">
+        {notice && <p className="info" role="status">{notice}</p>}
         <label>
           Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
         </label>
         <label>
           Contrasena
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
         </label>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
         <button type="submit" disabled={busy}>
           {busy ? "Entrando..." : "Entrar"}
         </button>

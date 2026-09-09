@@ -10,10 +10,12 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Consent, SafetyPlan, User
+from app.schemas import AccountDisplayName, AccountEmail
 from app.security import hash_password, require_admin, validate_new_password
 from app.services import audit
 
@@ -39,9 +41,9 @@ class AdminUserOut(BaseModel):
 
 
 class AdminUserCreate(BaseModel):
-    email: EmailStr
+    email: AccountEmail
     password: str = Field(min_length=12)
-    display_name: str = Field(min_length=1, max_length=255)
+    display_name: AccountDisplayName
     role: ProfessionalRoleValue = "therapist"
 
 
@@ -124,7 +126,7 @@ def provision_user(
     admin: User = Depends(require_admin),
 ):
     """Create a non-patient account through the internal provisioning path."""
-    existing = db.query(User).filter(User.email == payload.email).first()
+    existing = db.query(User).filter(func.lower(User.email) == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 

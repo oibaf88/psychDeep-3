@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: psychapp
-      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD:-psychapp}
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD:?Set LOCAL_DB_PASSWORD in .env.local}
       POSTGRES_DB: psychapp
     volumes:
       - psychdeep_offline_db:/var/lib/postgresql/data
@@ -25,7 +25,9 @@ services:
     env_file:
       - .env.local
     environment:
-      DATABASE_URL: postgresql://psychapp:${LOCAL_DB_PASSWORD:-psychapp}@db:5432/psychapp
+      # Must override .env.local: the API only reads DATABASE_URL, and the
+      # container reaches Postgres as `db`, not 127.0.0.1:5433.
+      DATABASE_URL: postgresql://psychapp:${LOCAL_DB_PASSWORD:?Set LOCAL_DB_PASSWORD in .env.local}@db:5432/psychapp
       DATABASE_SCHEMA: psychdeep_v12
       APP_ENV: local
       RUNNING_IN_DOCKER: "true"
@@ -37,6 +39,12 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:8001:8000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "4", "http://127.0.0.1:8000/api/v1/health"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 30
 
   frontend:
     build:
@@ -46,9 +54,14 @@ services:
     restart: unless-stopped
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "127.0.0.1:5173:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "--timeout=4", "http://127.0.0.1/api/v1/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
 
   # Disabled by default. Start with --profile sync only after running
   # ops/sync/configure-sync.ps1 and reviewing the generated engine files.

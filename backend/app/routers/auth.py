@@ -6,8 +6,6 @@ from app.database import get_db
 from datetime import datetime, timedelta
 import uuid
 
-from fastapi import Body
-
 from app.config import get_settings
 from app.models import Consent, SafetyPlan, User, PasswordResetToken
 from app.schemas import (
@@ -31,9 +29,17 @@ settings = get_settings()
 PUBLIC_SIGNUP_ROLE = "patient"
 
 
+def _invalidate_password_reset_tokens(db: Session, user_id: uuid.UUID) -> None:
+    """Old recovery links must not undo a later password or email change."""
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user_id,
+        PasswordResetToken.is_used.is_(False),
+    ).update({PasswordResetToken.is_used: True}, synchronize_session="fetch")
+
+
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == payload.email).first()
+    existing = db.query(User).filter(func.lower(User.email) == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -99,7 +105,7 @@ def update_my_profile(
         if value is None:
             continue
         cleaned = value.strip()
-        if field != "phone" and not cleaned:
+        if field not in ("phone", "last_name") and not cleaned:
             raise HTTPException(status_code=422, detail=f"{field} no puede estar vacío.")
         if len(cleaned) > limit:
             raise HTTPException(status_code=422, detail=f"{field} supera la longitud permitida.")
@@ -113,6 +119,8 @@ def update_my_profile(
             user.display_name = " ".join(display_parts)
 
     if changed:
+        if "email" in changed:
+            _invalidate_password_reset_tokens(db, user.id)
         user.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(user)
@@ -147,6 +155,7 @@ def change_password(
     user.hashed_password = hash_password(payload.new_password)
     user.auth_version = (user.auth_version or 1) + 1
     user.updated_at = datetime.utcnow()
+    _invalidate_password_reset_tokens(db, user.id)
     db.commit()
     audit.log(
         db,
@@ -162,7 +171,7 @@ def change_password(
 
 @router.post("/login", response_model=Token)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email).first()
+    user = db.query(User).filter(func.lower(User.email) == payload.email).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:
@@ -176,7 +185,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/password-reset-request")
 def password_reset_request(payload: PasswordResetRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email).first()
+    user = db.query(User).filter(func.lower(User.email) == payload.email).first()
     if not user:
         # Don't reveal if user exists or not
         return {"message": "If the email exists, a reset link has been sent."}
@@ -227,7 +236,7 @@ def password_reset_confirm(payload: PasswordResetConfirm, db: Session = Depends(
         raise HTTPException(status_code=422, detail=str(exc)) from None
     user.hashed_password = hash_password(payload.new_password)
     user.auth_version = (user.auth_version or 1) + 1
-    reset_token.is_used = True
+    _invalidate_password_reset_tokens(db, user.id)
     db.commit()
 
     audit.log(db, actor_id=user.id, actor_role=user.role, action="password_reset_completed", entity_type="user", entity_id=user.id)
@@ -264,10 +273,10 @@ def google_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Missing token")
 
     # We will simulate decoding by just accepting the token as the email (FOR DEMO ONLY)
-    email = payload.id_token
+    email = payload.id_token.lower()
     display_name = payload.id_token.split('@')[0] if '@' in payload.id_token else payload.id_token
 
-    user = db.query(User).filter(User.email == email).first()
+    user = db.query(User).filter(func.lower(User.email) == email).first()
 
     if not user:
         user = User(

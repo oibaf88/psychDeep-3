@@ -156,6 +156,17 @@ checks(sort_key, check_name, failures) as (
                   where relation.relname = 'llm_endpoint_configs'
                     and c.conname = 'ck_llm_endpoint_timeout'
                     and pg_get_constraintdef(c.oid) like '%5000%'))
+
+    union all
+    select 12, 'users email is unique ignoring case',
+           (select count(*) from (select 1) as one
+             where not exists (
+                 select 1 from pg_indexes, settings
+                  where pg_indexes.schemaname = settings.target_schema
+                    and pg_indexes.tablename = 'users'
+                    and pg_indexes.indexname = 'ix_users_email_lower'
+                    and pg_indexes.indexdef ilike '%unique%'
+                    and pg_indexes.indexdef ilike '%lower%email%'))
 )
 select check_name,
        case when failures = 0 then 'ok' else 'FAILED' end as status,

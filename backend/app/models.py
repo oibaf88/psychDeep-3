@@ -31,6 +31,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -78,6 +79,8 @@ class User(Base):
             "role IN ('patient','therapist','supervisor','admin_clinical')",
             name="ck_users_role",
         ),
+        CheckConstraint("auth_version >= 1", name="ck_users_auth_version"),
+        Index("ix_users_email_lower", func.lower(email), unique=True),
     )
 
 

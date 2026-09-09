@@ -41,7 +41,7 @@ jobs:
         run: python -m pytest tests/ -q
 
   frontend:
-    name: Frontend (tsc + vite build)
+    name: Frontend (tests + tsc + vite build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +55,10 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Run frontend regression tests
+        working-directory: frontend
+        run: npm test
 
       # `npm run build` is `tsc -b && vite build`, so this is the type check
       # and the bundle in one step.
