@@ -1,22 +1,8 @@
-"""Check that both Claude agents actually work, without touching the database.
+"""Smoke-check the selected Claude or Gemma 2 provider without database writes.
 
-Agent 2 failures are swallowed at runtime by design (the chat keeps
-answering and the risk engine just proceeds without a fresh linguistic
-signal), so a broken analyst is invisible from the UI. This script calls
-both agents directly and prints what came back.
-
-It makes NO database writes and seeds no data — it only sends two short
-strings to the Anthropic API, so it costs two small requests.
-
-Run from the backend/ directory with ANTHROPIC_API_KEY set:
-
-    python scripts/smoke_llm.py
-
-Or inside the running container:
-
-    docker compose exec backend python scripts/smoke_llm.py
-
-Exit code is 0 only if both agents succeed.
+Run from ``backend/`` against Claude via the server secret, local LM Studio,
+or the authenticated Cloudflare Tunnel endpoint. It sends two short synthetic
+strings only and exits non-zero if chat or structured analysis fails.
 """
 import json
 import sys
@@ -24,74 +10,48 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.config import get_settings  # noqa: E402
-from app.content.prompts import (  # noqa: E402
-    AGENT1_SYSTEM_PROMPT,
-    AGENT2_SYSTEM_PROMPT,
-    AGENT2_TOOL_SCHEMA,
-)
+from app.content.prompts import AGENT1_SYSTEM_PROMPT, AGENT2_SYSTEM_PROMPT, AGENT2_TOOL_SCHEMA  # noqa: E402
+from app.services import llm_config  # noqa: E402
 from app.services.llm import get_llm_provider  # noqa: E402
 
-# Deliberately mild: enough signal for the analyst to return non-zero
-# values, nothing that should trip a safety classifier.
-SAMPLE_TEXT = (
-    "Llevo toda la semana durmiendo fatal y dándole vueltas a lo mismo. "
-    "No es nada grave, ya se me pasará, pero estoy cansado de intentarlo."
-)
-
+SAMPLE_TEXT = "He dormido poco esta semana y estoy cansado, pero hoy quiero descansar y pedir apoyo."
 EXPECTED_FIELDS = set(AGENT2_TOOL_SCHEMA["input_schema"]["properties"])
 
 
 def main() -> int:
-    settings = get_settings()
-    if not settings.anthropic_api_key:
-        print("FAIL  ANTHROPIC_API_KEY is not set — nothing to test.")
+    active = llm_config.resolve()
+    if active.provider == llm_config.PROVIDER_ANTHROPIC and not active.api_key:
+        print("FAIL  Configura ANTHROPIC_API_KEY como secreto del servidor antes de ejecutar la prueba.")
+        return 1
+    if active.provider == llm_config.PROVIDER_LOCAL and (not active.base_url or not active.api_key):
+        print("FAIL  Configura la URL /v1 y el token de LM Studio para Gemma 2 antes de ejecutar la prueba.")
         return 1
 
-    print(f"chat model     : {settings.anthropic_chat_model} (effort {settings.anthropic_chat_effort})")
-    print(f"analysis model : {settings.anthropic_analysis_model} (effort {settings.anthropic_analysis_effort})")
-    print()
-
+    print(f"chat model     : {active.chat_model}")
+    print(f"analysis model : {active.analysis_model}")
     provider = get_llm_provider()
     ok = True
 
-    # --- Agent 1: conversational -------------------------------------
     try:
-        reply = provider.chat(
-            AGENT1_SYSTEM_PROMPT,
-            [{"role": "user", "content": SAMPLE_TEXT}],
-            max_tokens=300,
-        )
-        if not reply.strip():
+        reply = provider.chat(AGENT1_SYSTEM_PROMPT, [{"role": "user", "content": SAMPLE_TEXT}], max_tokens=300)
+        if not reply.text.strip():
             raise RuntimeError("empty reply")
-        print("PASS  Agent 1 (conversational)")
-        print(f"      {reply.strip()[:300]}")
+        print(f"PASS  Agent 1 ({active.provider} conversation)")
     except Exception as exc:  # noqa: BLE001
         ok = False
-        print(f"FAIL  Agent 1 (conversational): {type(exc).__name__}: {exc}")
+        print(f"FAIL  Agent 1: {type(exc).__name__}: {exc}")
 
-    print()
-
-    # --- Agent 2: structured linguistic analysis ----------------------
     try:
         analysis = provider.analyze_structured(AGENT2_SYSTEM_PROMPT, SAMPLE_TEXT, AGENT2_TOOL_SCHEMA)
-        result = analysis.value
-        missing = EXPECTED_FIELDS - set(result)
+        missing = EXPECTED_FIELDS - set(analysis.value)
         if missing:
-            raise RuntimeError(f"missing fields in response: {sorted(missing)}")
-        print("PASS  Agent 2 (linguistic analysis)")
-        print(
-            f"      model={analysis.metadata.response_model or analysis.metadata.requested_model} "
-            f"request_id={analysis.metadata.request_id or 'n/a'} "
-            f"tokens={analysis.metadata.input_tokens or 0}+{analysis.metadata.output_tokens or 0} "
-            f"latency_ms={analysis.metadata.latency_ms or 0}"
-        )
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+            raise RuntimeError(f"missing fields: {sorted(missing)}")
+        print(f"PASS  Agent 2 ({active.provider} structured analysis)")
+        print(json.dumps(analysis.value, ensure_ascii=False, indent=2))
     except Exception as exc:  # noqa: BLE001
         ok = False
-        print(f"FAIL  Agent 2 (linguistic analysis): {type(exc).__name__}: {exc}")
+        print(f"FAIL  Agent 2: {type(exc).__name__}: {exc}")
 
-    print()
     print("RESULT:", "both agents OK" if ok else "at least one agent is broken")
     return 0 if ok else 1
 

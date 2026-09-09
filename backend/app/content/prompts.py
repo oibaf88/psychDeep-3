@@ -13,8 +13,8 @@ deliberately separate roles with separate, narrow contracts:
 
 Both prompts are transcribed from the docs almost verbatim (originally
 written for a locally fine-tuned open model per doc 8/19) and adapted
-here for use with Claude via the Anthropic Messages API, per the explicit
-project brief. See README "Assumptions" for why Claude was used instead
+here for Claude by the server-only Anthropic API or for Gemma 2 through the
+authenticated OpenAI-compatible endpoint defined by the Local · Offline · Tunnel · Sync architecture. See README for the
 of the fine-tuned local model the docs originally sketched.
 """
 

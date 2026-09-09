@@ -9,25 +9,8 @@ import {
   type LLMEndpointTestOut,
 } from "../api";
 
-/**
- * Settings, available in every profile.
- *
- * Two different things live here and must not be confused, which is why they
- * are separate cards with different affordances:
- *
- *   * **The API server** is where this frontend sends its own requests. It is
- *     fixed at deploy time and deliberately not editable — a browser-side
- *     override was the source of a whole class of "it works on my machine"
- *     support cases.
- *   * **The model endpoint** is where the *backend* sends inference calls.
- *     That one is editable, because pointing the app at a model you run
- *     yourself is the only way to see how it behaves on one.
- */
-
-type Provider = "anthropic" | "openai_compatible";
-
 interface FormState {
-  provider: Provider;
+  provider: "anthropic" | "openai_compatible";
   baseUrl: string;
   chatModel: string;
   analysisModel: string;
@@ -38,58 +21,34 @@ interface FormState {
   label: string;
 }
 
-// Defaults that match what the common local runtimes actually serve, so the
-// form is a starting point rather than a blank page.
-const PRESETS: { id: string; name: string; baseUrl: string; model: string; hint: string; localOnly: boolean }[] = [
-  {
-    id: "ollama",
-    name: "Ollama",
-    baseUrl: "http://127.0.0.1:11434/v1",
-    model: "llama3.1:8b",
-    hint: "El nombre del modelo es el de «ollama list». Solo válido si FastAPI corre en este mismo equipo.",
-    localOnly: true,
-  },
+const PRESETS = [
   {
     id: "lmstudio",
-    name: "LM Studio",
-    baseUrl: "http://127.0.0.1:1234/v1",
-    model: "local-model",
-    hint: "Activa el servidor en LM Studio (Developer / Local Server). URI: http://127.0.0.1:1234/v1",
-    localOnly: true,
-  },
-  {
-    id: "llamacpp",
-    name: "llama.cpp",
-    baseUrl: "http://127.0.0.1:8080/v1",
-    model: "gguf-model",
-    hint: "Levántalo con «llama-server -m modelo.gguf --port 8080».",
-    localOnly: true,
+    name: "LM Studio local",
+    baseUrl: "http://host.docker.internal:1234/v1",
+    hint: "Gemma 2 en el PC. El backend Docker accede mediante host.docker.internal.",
   },
   {
     id: "tunnel",
-    name: "Túnel HTTPS",
+    name: "Cloudflare Tunnel",
     baseUrl: "https://tu-tunel.ejemplo.com/v1",
-    model: "local-model",
-    hint: "Cloudflare Tunnel o ngrok autenticado. Es la única forma de usar LM Studio cuando el backend está en Render.",
-    localOnly: false,
+    hint: "Para Render: URL HTTPS protegida por Cloudflare Access, nunca una IP de LAN.",
   },
 ];
 
 function formFromStatus(status: LLMEndpointStatusOut): FormState {
   const active = status.active;
+  const provider = active.provider === "anthropic" ? "anthropic" : "openai_compatible";
   return {
-    provider: (active.provider === "openai_compatible" ? "openai_compatible" : "anthropic") as Provider,
+    provider,
     baseUrl: active.base_url || "",
-    chatModel: active.chat_model || "",
-    analysisModel: active.analysis_model || "",
-    // The *explicit* value, not the resolved one. Prefilling with the
-    // resolved model would silently pin the copilot to whatever chat was,
-    // so changing the chat model later would leave the copilot behind.
+    chatModel: active.chat_model || (provider === "anthropic" ? "claude-opus-5" : "gemma-2-2b-it"),
+    analysisModel: active.analysis_model || (provider === "anthropic" ? "claude-opus-5" : "gemma-2-2b-it"),
     copilotModel: active.copilot_model_explicit || "",
     apiKey: "",
     maxTokens: active.max_tokens,
     timeoutSeconds: active.timeout_seconds,
-    label: active.label || "",
+    label: active.label || (provider === "anthropic" ? "Claude / Anthropic" : "Gemma 2"),
   };
 }
 
@@ -98,7 +57,6 @@ export default function SettingsPage() {
   const [legacyOverride, setLegacyOverride] = useState("");
   const [apiStatus, setApiStatus] = useState<string | null>(null);
   const [apiBusy, setApiBusy] = useState(false);
-
   const [status, setStatus] = useState<LLMEndpointStatusOut | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -118,33 +76,18 @@ export default function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    llmSettingsApi
-      .read()
+    llmSettingsApi.read()
       .then((value) => {
-        if (cancelled) return;
-        setStatus(value);
-        setForm(formFromStatus(value));
+        if (!cancelled) {
+          setStatus(value);
+          setForm(formFromStatus(value));
+        }
       })
-      .catch((e: Error) => !cancelled && setLoadError(e.message));
+      .catch((error: Error) => !cancelled && setLoadError(error.message));
     return () => {
       cancelled = true;
     };
   }, []);
-
-  async function testApiConnection() {
-    setApiBusy(true);
-    setApiStatus(null);
-    try {
-      const res = await fetch(`${apiBase}/api/v1/health`, { method: "GET" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = await res.json();
-      setApiStatus(`Conexión OK: ${JSON.stringify(body)}`);
-    } catch (e) {
-      setApiStatus(`No se pudo conectar con la API configurada: ${(e as Error).message}.`);
-    } finally {
-      setApiBusy(false);
-    }
-  }
 
   function patch(changes: Partial<FormState>) {
     setForm((current) => (current ? { ...current, ...changes } : current));
@@ -152,18 +95,37 @@ export default function SettingsPage() {
     setSaveError(null);
   }
 
-  function applyPreset(id: string) {
-    const preset = PRESETS.find((item) => item.id === id);
-    if (!preset) return;
+  function preset(id: string) {
+    const item = PRESETS.find((candidate) => candidate.id === id);
+    if (!item) return;
     patch({
       provider: "openai_compatible",
-      baseUrl: preset.baseUrl,
-      chatModel: preset.model,
-      analysisModel: preset.model,
-      // Left blank so it follows chat: a local runtime usually has one model
-      // loaded, and pinning it here would survive a later change of chat model.
+      baseUrl: item.baseUrl,
+      chatModel: "gemma-2-2b-it",
+      analysisModel: "gemma-2-2b-it",
       copilotModel: "",
-      label: preset.name,
+      label: item.id === "lmstudio" ? "Gemma 2 en LM Studio" : "Gemma 2 por Cloudflare Tunnel",
+    });
+    setTestResult(null);
+  }
+
+  function chooseProvider(provider: FormState["provider"]) {
+    patch(provider === "anthropic" ? {
+      provider,
+      baseUrl: "",
+      apiKey: "",
+      chatModel: "claude-opus-5",
+      analysisModel: "claude-opus-5",
+      copilotModel: "",
+      label: "Claude / Anthropic",
+    } : {
+      provider,
+      baseUrl: "http://host.docker.internal:1234/v1",
+      apiKey: "",
+      chatModel: "gemma-2-2b-it",
+      analysisModel: "gemma-2-2b-it",
+      copilotModel: "",
+      label: "Gemma 2 en LM Studio",
     });
     setTestResult(null);
   }
@@ -174,36 +136,38 @@ export default function SettingsPage() {
       base_url: current.provider === "openai_compatible" ? current.baseUrl : null,
       chat_model: current.chatModel,
       analysis_model: current.analysisModel,
-      // Blank is a real answer: the backend reads it as "same as chat".
       copilot_model: current.copilotModel,
-      // An untouched field means "keep the stored key", never "clear it":
-      // the current key is never sent to the browser, so a blank box here
-      // carries no information about it.
-      api_key: current.provider === "anthropic" ? null : current.apiKey ? current.apiKey : null,
+      // Claude's key is read only from ANTHROPIC_API_KEY on the server.
+      api_key: current.provider === "openai_compatible" ? (current.apiKey || null) : null,
       max_tokens: current.maxTokens,
       timeout_seconds: current.timeoutSeconds,
       label: current.label,
     };
   }
 
-  async function runTest() {
+  async function testApiConnection() {
+    setApiBusy(true);
+    setApiStatus(null);
+    try {
+      const response = await fetch(`${apiBase}/api/v1/health`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setApiStatus("Conexión con la API de PsychDeep correcta.");
+    } catch (error) {
+      setApiStatus(`No se pudo conectar con la API configurada: ${(error as Error).message}.`);
+    } finally {
+      setApiBusy(false);
+    }
+  }
+
+  async function testEndpoint() {
     if (!form) return;
     setBusy("test");
     setTestResult(null);
     setSaveError(null);
     try {
-      const result = await llmSettingsApi.test({
-        provider: form.provider,
-        base_url: form.provider === "openai_compatible" ? form.baseUrl : null,
-        chat_model: form.chatModel,
-        analysis_model: form.analysisModel || form.chatModel,
-        copilot_model: form.copilotModel || form.chatModel,  // the test needs a concrete name
-        api_key: form.provider === "anthropic" ? null : form.apiKey || null,
-        timeout_seconds: Math.min(form.timeoutSeconds, 60),
-      });
-      setTestResult(result);
-    } catch (e) {
-      setSaveError((e as Error).message);
+      setTestResult(await llmSettingsApi.test({ ...payload(form), timeout_seconds: Math.min(form.timeoutSeconds, 60) }));
+    } catch (error) {
+      setSaveError((error as Error).message);
     } finally {
       setBusy("");
     }
@@ -213,14 +177,13 @@ export default function SettingsPage() {
     if (!form) return;
     setBusy("save");
     setSaveError(null);
-    setSaved(null);
     try {
       const next = await llmSettingsApi.save(payload(form));
       setStatus(next);
       setForm(formFromStatus(next));
-      setSaved("Guardado. Las próximas conversaciones y análisis usarán este modelo.");
-    } catch (e) {
-      setSaveError((e as Error).message);
+      setSaved(`Guardado. Las nuevas conversaciones y análisis usarán ${form.provider === "anthropic" ? "Claude por la API de Anthropic" : "Gemma 2 en este endpoint"}.`);
+    } catch (error) {
+      setSaveError((error as Error).message);
     } finally {
       setBusy("");
     }
@@ -229,321 +192,108 @@ export default function SettingsPage() {
   async function reset() {
     setBusy("reset");
     setSaveError(null);
-    setSaved(null);
     try {
       const next = await llmSettingsApi.reset();
       setStatus(next);
       setForm(formFromStatus(next));
       setTestResult(null);
-      setSaved("Se ha vuelto al modelo configurado en el despliegue.");
-    } catch (e) {
-      setSaveError((e as Error).message);
+      setSaved("Se ha vuelto al proveedor configurado en el despliegue.");
+    } catch (error) {
+      setSaveError((error as Error).message);
     } finally {
       setBusy("");
     }
   }
 
   const active = status?.active;
-  // Two different reasons the form can be read-only, and they need different
-  // instructions: the deployment has the feature off, or this account is not
-  // an administrator. `notice` above already explains which.
-  const disabledByDeployment = Boolean(status && !status.override_allowed);
   const locked = Boolean(status && !status.can_edit);
 
   return (
     <div className="page">
       <h1>Ajustes</h1>
       <p className="subtitle">
-        Dos cosas distintas: la <strong>API de PsychDeep</strong> (este frontend habla con FastAPI) y el{" "}
-        <strong>endpoint del modelo</strong> (FastAPI habla con Claude o con un servidor OpenAI-compatible).
+        La API de PsychDeep atiende esta interfaz. Claude/Anthropic es el proveedor conectado por defecto; Gemma 2 en LM Studio es la alternativa local u offline.
       </p>
 
       <section className="card">
         <h2>API de PsychDeep</h2>
-        <p>
-          <code>{apiBase || "mismo origen"}</code>
-        </p>
-        <p className="meta">
-          Es donde esta interfaz envía sus peticiones. Se fija en el despliegue ({status?.backend_runtime_label || "servidor"})
-          y no se puede cambiar desde el navegador. No es el endpoint del modelo.
-        </p>
-        {legacyOverride && (
-          <p className="info">
-            Se encontró y limpió una URL antigua guardada localmente: <code>{legacyOverride}</code>
-          </p>
-        )}
-        <div className="alert-actions">
-          <button type="button" className="btn-secondary" disabled={apiBusy} onClick={testApiConnection}>
-            {apiBusy ? "Probando..." : "Probar conexión"}
-          </button>
-        </div>
+        <p><code>{apiBase || "mismo origen"}</code></p>
+        <p className="meta">La URL se fija al desplegar y no puede redirigirse desde este navegador.</p>
+        {legacyOverride && <p className="info">Se limpió una URL de API antigua: <code>{legacyOverride}</code></p>}
+        <button type="button" className="btn-secondary" disabled={apiBusy} onClick={testApiConnection}>
+          {apiBusy ? "Probando…" : "Probar conexión"}
+        </button>
         {apiStatus && <p className="info">{apiStatus}</p>}
       </section>
 
       <section className="card">
-        <h2>Endpoint del modelo</h2>
+        <h2>Proveedor de inferencia</h2>
         <p className="meta">
-          Es el modelo al que el <strong>backend ({status?.backend_runtime_label || "servidor"})</strong> envía las
-          llamadas del Agente 1 (conversación) y del Agente 2 y 4 (análisis). Claude usa la clave{" "}
-          <code>ANTHROPIC_API_KEY</code> del servidor; no se pide aquí.
+          Claude mediante Anthropic es el valor conectado por defecto. Gemma 2 usa LM Studio mediante un endpoint compatible con OpenAI. Todo cambio está restringido a administración clínica y queda auditado porque el proveedor recibe texto de inferencia.
         </p>
-
-        {loadError && <p className="error">No se pudo leer la configuración del modelo: {loadError}</p>}
+        {loadError && <p className="error">No se pudo leer la configuración: {loadError}</p>}
 
         {active && (
           <div className="llm-active">
-            <div>
-              <span className="llm-active-label">En uso ahora</span>
-              <strong>{active.chat_model}</strong>
-              <span className="meta"> · {active.provider_label}</span>
-            </div>
+            <span className="llm-active-label">En uso ahora</span>
+            <strong>{active.chat_model}</strong><span className="meta"> · {active.provider_label}</span>
             <dl className="llm-active-grid">
-              <div>
-                <dt>Modelo de análisis</dt>
-                <dd>{active.analysis_model}</dd>
-              </div>
-              <div>
-                <dt>Modelo del copiloto</dt>
-                <dd>{active.copilot_model || active.chat_model}</dd>
-              </div>
-              <div>
-                <dt>Endpoint</dt>
-                <dd>{active.base_url ? <code>{active.base_url}</code> : "API oficial de Anthropic (clave del servidor)"}</dd>
-              </div>
-              <div>
-                <dt>Clave</dt>
-                <dd>
-                  {active.uses_server_api_key
-                    ? status?.anthropic_api_key_configured
-                      ? "ANTHROPIC_API_KEY del entorno (Render)"
-                      : "Falta ANTHROPIC_API_KEY en el servidor"
-                    : active.has_api_key
-                      ? "Guardada en el backend"
-                      : "Sin clave (normal en un modelo propio)"}
-                </dd>
-              </div>
-              <div>
-                <dt>Origen</dt>
-                <dd>{active.source === "runtime" ? "Configurado desde esta pantalla" : "Configuración del despliegue"}</dd>
-              </div>
-              <div>
-                <dt>Desde</dt>
-                <dd>{active.updated_at ? new Date(active.updated_at).toLocaleString() : "Inicio del despliegue"}</dd>
-              </div>
+              <div><dt>Análisis</dt><dd>{active.analysis_model}</dd></div>
+              <div><dt>Copiloto</dt><dd>{active.copilot_model || active.chat_model}</dd></div>
+              <div><dt>Endpoint</dt><dd>{active.base_url ? <code>{active.base_url}</code> : active.provider === "anthropic" ? "API de Anthropic" : "Sin endpoint configurado"}</dd></div>
+              <div><dt>Clave</dt><dd>{active.uses_server_api_key ? (active.has_api_key ? "Sólo en el servidor" : "Falta ANTHROPIC_API_KEY en el servidor") : active.has_api_key ? "Guardada en el backend" : "Sin clave configurada"}</dd></div>
+              <div><dt>Origen</dt><dd>{active.source === "runtime" ? "Configurado por administración" : "Configuración del despliegue"}</dd></div>
+              <div><dt>Desde</dt><dd>{active.updated_at ? new Date(active.updated_at).toLocaleString() : "Inicio del despliegue"}</dd></div>
             </dl>
           </div>
         )}
 
-        {status?.ignored_override && (
-          <p className="warning">
-            Había un modelo propio guardado en <code>{status.ignored_override.base_url}</code>, pero este backend no
-            puede alcanzarlo. Mientras tanto se usa Claude. Cámbialo abajo o pulsa «Volver al modelo del despliegue».
-          </p>
-        )}
-
+        {status?.ignored_override && <p className="warning">Un endpoint local no es alcanzable desde este backend; se usa el proveedor configurado en el despliegue.</p>}
         {status?.notice && <p className={status.is_local || status.ignored_override ? "warning" : "info"}>{status.notice}</p>}
-
-        {disabledByDeployment && (
-          <p className="meta">
-            Para habilitarlo, arranca el backend con <code>LLM_ALLOW_RUNTIME_OVERRIDE=true</code>. Viene desactivado a
-            propósito: en un despliegue compartido, quien usa la aplicación no es quien la administra.
-          </p>
-        )}
+        {status && !status.override_allowed && <p className="meta">El despliegue compartido bloquea cambios de endpoint (`LLM_ALLOW_RUNTIME_OVERRIDE=false`).</p>}
 
         {form && !locked && (
           <>
-            <div className="llm-provider-choice">
-              <label className={form.provider === "anthropic" ? "llm-option is-selected" : "llm-option"}>
-                <input
-                  type="radio"
-                  name="llm-provider"
-                  checked={form.provider === "anthropic"}
-                  onChange={() => patch({ provider: "anthropic" })}
-                />
-                <span>
-                  <strong>Claude (API de Anthropic)</strong>
-                  <span className="meta">
-                    Usa <code>ANTHROPIC_API_KEY</code> del servidor. No se pide en este formulario.
-                  </span>
-                </span>
-              </label>
-              <label className={form.provider === "openai_compatible" ? "llm-option is-selected" : "llm-option"}>
-                <input
-                  type="radio"
-                  name="llm-provider"
-                  checked={form.provider === "openai_compatible"}
-                  onChange={() => patch({ provider: "openai_compatible" })}
-                />
-                <span>
-                  <strong>Modelo propio</strong>
-                  <span className="meta">
-                    {status?.local_endpoint_supported
-                      ? "URI de LM Studio / Ollama en este equipo, p. ej. http://127.0.0.1:1234/v1"
-                      : "Solo un túnel HTTPS público: Render (Frankfurt) no alcanza tu IP local."}
-                  </span>
-                </span>
-              </label>
-            </div>
-
-            {form.provider === "openai_compatible" && (
-              <>
-                <div className="llm-presets">
-                  <span className="meta">Rellenar con los valores de:</span>
-                  {PRESETS.filter((preset) => status?.local_endpoint_supported || !preset.localOnly).map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      className="btn-chip"
-                      onClick={() => applyPreset(preset.id)}
-                      title={preset.hint}
-                    >
-                      {preset.name}
-                    </button>
-                  ))}
-                </div>
-
-                {!status?.local_endpoint_supported && (
-                  <p className="warning">
-                    FastAPI está en {status?.backend_runtime_label || "la nube"}. No puede hacer GET/POST a{" "}
-                    <code>192.168.x</code> ni a <code>127.0.0.1</code> de tu casa: no hay ruta. Si quieres un modelo en
-                    tu equipo, publica LM Studio con un túnel HTTPS autenticado y pega esa URI aquí. Si no, usa Claude.
-                  </p>
-                )}
-
-                <label className="field">
-                  <span>URI del servidor del modelo</span>
-                  <input
-                    type="url"
-                    value={form.baseUrl}
-                    placeholder={
-                      status?.local_endpoint_supported
-                        ? "http://127.0.0.1:1234/v1"
-                        : "https://tu-tunel.ejemplo.com/v1"
-                    }
-                    onChange={(e) => patch({ baseUrl: e.target.value })}
-                  />
-                  <span className="meta">
-                    Se llama tal cual, sin Docker. LM Studio: <code>http://127.0.0.1:1234/v1</code> (solo si FastAPI
-                    corre en el mismo equipo). Sufijo <code>/v1</code>, no <code>/api/v1/chat</code>.
-                  </span>
-                </label>
-              </>
-            )}
-
-            <div className="field-row">
-              <label className="field">
-                <span>Modelo de conversación (Agente 1)</span>
-                <input
-                  type="text"
-                  value={form.chatModel}
-                  onChange={(e) => patch({ chatModel: e.target.value })}
-                />
-              </label>
-              <label className="field">
-                <span>Modelo de análisis (Agentes 2 y 4)</span>
-                <input
-                  type="text"
-                  value={form.analysisModel}
-                  onChange={(e) => patch({ analysisModel: e.target.value })}
-                />
-              </label>
-            </div>
-
-            <div className="field-row">
-              <label className="field">
-                <span>Modelo del copiloto clínico (Agente 3)</span>
-                <input
-                  type="text"
-                  value={form.copilotModel}
-                  placeholder={form.chatModel || "Igual que el de conversación"}
-                  onChange={(e) => patch({ copilotModel: e.target.value })}
-                />
-                <span className="meta">
-                  Déjalo vacío para usar el mismo que la conversación. Lee expedientes largos para un
-                  profesional que no está esperando delante de la pantalla, así que admite un ajuste más
-                  lento y más a fondo.
-                </span>
-              </label>
-            </div>
-
-            <div className="field-row">
-              {form.provider === "openai_compatible" ? (
-                <label className="field">
-                  <span>API key (opcional, casi nunca hace falta)</span>
-                  <input
-                    type="password"
-                    value={form.apiKey}
-                    placeholder={active?.has_api_key ? "Guardada — déjalo vacío para conservarla" : "Sin clave"}
-                    onChange={(e) => patch({ apiKey: e.target.value })}
-                  />
-                </label>
-              ) : (
-                <label className="field">
-                  <span>API key de Anthropic</span>
-                  <input type="password" value="" disabled placeholder="Se lee de ANTHROPIC_API_KEY en el servidor" />
-                  <span className="meta">
-                    {status?.anthropic_api_key_configured
-                      ? "Secreto de entorno presente. No se introduce ni se muestra aquí."
-                      : "El servidor no tiene ANTHROPIC_API_KEY. Configúrala en Render, no en este menú."}
-                  </span>
-                </label>
-              )}
-              <label className="field">
-                <span>Tokens máximos</span>
-                <input
-                  type="number"
-                  min={256}
-                  max={32768}
-                  value={form.maxTokens}
-                  onChange={(e) => patch({ maxTokens: Number(e.target.value) })}
-                />
-              </label>
-              <label className="field">
-                <span>Espera de inferencia (s)</span>
-                <input
-                  type="number"
-                  min={5}
-                  max={5000}
-                  value={form.timeoutSeconds}
-                  onChange={(e) => patch({ timeoutSeconds: Number(e.target.value) })}
-                />
-                <span className="meta">
-                  Fallo rápido de conexión: 10 s. Hasta 5.000 s solo una vez establecida. Un timeout no significa que
-                  Frankfurt haya hablado con tu LAN.
-                </span>
-              </label>
-            </div>
-
             <label className="field">
-              <span>Nombre para identificarlo</span>
-              <input
-                type="text"
-                value={form.label}
-                placeholder="Mi Llama 3.1 en el portátil"
-                onChange={(e) => patch({ label: e.target.value })}
-              />
+              <span>Proveedor</span>
+              <select value={form.provider} onChange={(event) => chooseProvider(event.target.value as FormState["provider"])}>
+                <option value="anthropic">Claude / API de Anthropic (predeterminado)</option>
+                <option value="openai_compatible">Gemma 2 / LM Studio (local u offline)</option>
+              </select>
+              <span className="meta">Claude toma su clave exclusivamente de <code>ANTHROPIC_API_KEY</code> en el servidor. Nunca se escribe ni se devuelve en esta pantalla.</span>
             </label>
-
-            <div className="alert-actions">
-              <button type="button" className="btn-secondary" disabled={busy !== ""} onClick={runTest}>
-                {busy === "test" ? "Probando..." : "Probar el endpoint"}
-              </button>
-              <button type="button" disabled={busy !== ""} onClick={save}>
-                {busy === "save" ? "Guardando..." : "Guardar y usar este modelo"}
-              </button>
-              {active?.source === "runtime" && (
-                <button type="button" className="btn-secondary" disabled={busy !== ""} onClick={reset}>
-                  {busy === "reset" ? "Restaurando..." : "Volver al modelo del despliegue"}
-                </button>
-              )}
+            {form.provider === "anthropic" && <p className="info">Claude usará la API de Anthropic con la clave de servidor. No se guarda una URL ni una clave en la configuración de ejecución.</p>}
+            {form.provider === "openai_compatible" && <>
+            <div className="llm-presets">
+              <span className="meta">Valores iniciales:</span>
+              {PRESETS.map((item) => <button key={item.id} type="button" className="btn-chip" title={item.hint} onClick={() => preset(item.id)}>{item.name}</button>)}
             </div>
-
-            {testResult && (
-              <p className={testResult.ok ? "info" : "error"}>
-                {testResult.ok ? "El endpoint responde. " : ""}
-                {testResult.detail}
-              </p>
-            )}
+            {!status?.local_endpoint_supported && <p className="warning">Render no puede alcanzar una IP privada. Usa un hostname HTTPS de Cloudflare Tunnel protegido con Access, nunca `127.0.0.1` o `192.168.x`.</p>}
+            <label className="field">
+              <span>URI de LM Studio / túnel</span>
+              <input type="url" value={form.baseUrl} placeholder={status?.local_endpoint_supported ? "http://host.docker.internal:1234/v1" : "https://tu-tunel.ejemplo.com/v1"} onChange={(event) => patch({ baseUrl: event.target.value })} />
+              <span className="meta">Siempre termina en <code>/v1</code>. Local Docker: <code>http://host.docker.internal:1234/v1</code>.</span>
+            </label>
+            </>}
+            <div className="field-row">
+              <label className="field"><span>{form.provider === "anthropic" ? "Claude — conversación" : "Gemma 2 — conversación"}</span><input value={form.chatModel} onChange={(event) => patch({ chatModel: event.target.value })} /></label>
+              <label className="field"><span>{form.provider === "anthropic" ? "Claude — análisis" : "Gemma 2 — análisis"}</span><input value={form.analysisModel} onChange={(event) => patch({ analysisModel: event.target.value })} /></label>
+            </div>
+            <div className="field-row">
+              <label className="field"><span>{form.provider === "anthropic" ? "Claude — copiloto clínico" : "Gemma 2 — copiloto clínico"}</span><input value={form.copilotModel} placeholder={form.chatModel || "Igual que conversación"} onChange={(event) => patch({ copilotModel: event.target.value })} /></label>
+              {form.provider === "openai_compatible" && <label className="field"><span>Token de LM Studio</span><input type="password" value={form.apiKey} placeholder={active?.has_api_key ? "Guardado — vacío conserva el existente" : "Requerido si LM Studio exige autenticación"} onChange={(event) => patch({ apiKey: event.target.value })} /></label>}
+            </div>
+            <div className="field-row">
+              <label className="field"><span>Tokens máximos</span><input type="number" min={256} max={32768} value={form.maxTokens} onChange={(event) => patch({ maxTokens: Number(event.target.value) })} /></label>
+              <label className="field"><span>Espera de inferencia (s)</span><input type="number" min={5} max={5000} value={form.timeoutSeconds} onChange={(event) => patch({ timeoutSeconds: Number(event.target.value) })} /></label>
+              <label className="field"><span>Nombre de configuración</span><input value={form.label} placeholder={form.provider === "anthropic" ? "Claude / Anthropic" : "Gemma 2 en LM Studio"} onChange={(event) => patch({ label: event.target.value })} /></label>
+            </div>
+            <div className="alert-actions">
+              <button type="button" className="btn-secondary" disabled={busy !== ""} onClick={testEndpoint}>{busy === "test" ? "Probando…" : "Probar endpoint"}</button>
+              <button type="button" disabled={busy !== ""} onClick={save}>{busy === "save" ? "Guardando…" : `Guardar ${form.provider === "anthropic" ? "Claude" : "Gemma 2"}`}</button>
+              {active?.source === "runtime" && <button type="button" className="btn-secondary" disabled={busy !== ""} onClick={reset}>{busy === "reset" ? "Restaurando…" : "Volver al despliegue"}</button>}
+            </div>
+            {testResult && <p className={testResult.ok ? "info" : "error"}>{testResult.ok ? "El endpoint responde. " : ""}{testResult.detail}</p>}
             {saveError && <p className="error">{saveError}</p>}
             {saved && <p className="info">{saved}</p>}
           </>
@@ -551,35 +301,12 @@ export default function SettingsPage() {
       </section>
 
       <section className="card">
-        <h2>Qué cambia y qué no</h2>
+        <h2>Garantías</h2>
         <ul className="plain-list">
-          <li>
-            <strong>Queda registrado qué modelo produjo cada cosa.</strong> Cada respuesta del chat y cada análisis
-            guarda su proveedor, su modelo y su endpoint. El historial de un paciente se lee igual aunque una parte se
-            grabara con Claude y otra con tu modelo local: cada entrada dice de dónde salió.
-          </li>
-          <li>
-            <strong>El motor de riesgo no cambia.</strong> Los niveles de alerta se calculan con reglas deterministas
-            sobre datos guardados. Ningún modelo, ni Claude ni el tuyo, decide un nivel.
-          </li>
-          <li>
-            <strong>La detección lingüística sí depende del modelo.</strong> Un modelo más débil puede pasar por alto
-            una señal que Claude sí marca. Las señales que sí detecte entran en el motor exactamente igual.
-          </li>
-          <li>
-            <strong>El texto del paciente viaja al servidor que indiques.</strong> Con Claude, va a la API de Anthropic
-            con la clave del servidor. Con un modelo en tu equipo, FastAPI tiene que poder abrir esa URI: si FastAPI
-            está en Frankfurt, tu IP local no existe en esa red.
-          </li>
+          <li>La procedencia de cada respuesta/análisis queda registrada, incluidos proveedores históricos, para que los datos clínicos antiguos sigan siendo legibles.</li>
+          <li>Ni Claude ni Gemma 2 deciden niveles de alerta: el motor de riesgo usa reglas deterministas y trazables.</li>
+          <li>Las claves nunca vuelven al navegador. Claude usa <code>ANTHROPIC_API_KEY</code> sólo en el servidor; en Render, Gemma 2 requiere HTTPS protegido por Cloudflare Access.</li>
         </ul>
-      </section>
-
-      <section className="card">
-        <h2>Sesión</h2>
-        <p className="meta">
-          Si el navegador conserva datos antiguos, cierra sesión y vuelve a entrar. La dirección de API ya no depende de
-          valores escritos manualmente.
-        </p>
       </section>
     </div>
   );

@@ -3,8 +3,8 @@
 /* =====================================================================
  * PsychDeep design system — style layer only.
  *
- * This file carries the PsychDeep colour and type system exported from
- * Claude Design. It deliberately changes nothing about the app's
+ * This file carries the PsychDeep colour and type system. It deliberately
+ * changes nothing about the app's
  * structure or behaviour: no markup, no routes, no logic, no copy. Where
  * the design system and the product's needs disagree, the product wins —
  * the places that happens are marked SEMANTIC, PRODUCT or A11Y below.
@@ -431,6 +431,114 @@ button:disabled {
   text-align: center;
 }
 
+/* The expanded exercise deliberately becomes the temporary foreground. It
+   is still escapeable by a visible action, Escape, or the empty backdrop. */
+.breathing-immersive-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 47%, rgba(82, 184, 172, 0.2), transparent 31%),
+    rgba(6, 13, 22, 0.94);
+}
+
+.breathing-immersive-stage {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  width: min(100%, 760px);
+  min-height: min(88vh, 760px);
+  align-content: center;
+  isolation: isolate;
+}
+
+.breathing-immersive-kicker,
+.breathing-immersive-label,
+.breathing-immersive-ratio,
+.breathing-immersive-hint {
+  position: relative;
+  z-index: 3;
+}
+
+.breathing-immersive-kicker {
+  margin: 0 0 12px;
+  color: var(--ink-soft);
+  letter-spacing: 0.13em;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.breathing-mark--immersive {
+  position: relative;
+  z-index: 2;
+  width: min(72vw, 570px);
+  height: min(72vw, 570px);
+  min-width: 260px;
+  min-height: 260px;
+  margin: 0;
+  box-shadow: 0 0 0 16px rgba(111, 218, 195, 0.1), 0 0 100px rgba(108, 152, 244, 0.2);
+}
+
+.breathing-mark--immersive .pd-mark__curve {
+  transform-origin: 32px 32px;
+  animation: pd-curve-dance var(--pd-mark-duration, 4s) ease-in-out infinite alternate;
+  animation-delay: calc(var(--pd-mark-shift, 0) * -140ms);
+}
+
+.breathing-halo {
+  position: absolute;
+  z-index: 1;
+  width: min(80vw, 650px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(135, 225, 211, 0.22);
+  border-radius: 48% 52% 43% 57% / 54% 44% 56% 46%;
+  pointer-events: none;
+  animation: pd-halo-drift 12s ease-in-out infinite alternate;
+}
+
+.breathing-halo-two {
+  width: min(92vw, 730px);
+  border-color: rgba(108, 152, 244, 0.2);
+  animation-duration: 15s;
+  animation-delay: -5s;
+}
+
+.breathing-halo-three {
+  width: min(104vw, 820px);
+  border-color: rgba(169, 237, 218, 0.13);
+  animation-duration: 18s;
+  animation-delay: -9s;
+}
+
+.breathing-immersive-label {
+  margin: 18px 0 0;
+  font-size: clamp(1.25rem, 3vw, 1.75rem);
+  font-weight: 700;
+}
+
+.breathing-immersive-ratio {
+  margin: 2px 0 18px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3em;
+}
+
+.breathing-immersive-close {
+  position: relative;
+  z-index: 3;
+}
+
+.breathing-immersive-hint {
+  margin: 12px 0 0;
+  color: var(--ink-faint);
+  font-size: 0.82rem;
+}
+
 /* --- the breathing mark -------------------------------------------------
  * PRODUCT: the pacer is the PsychDeep mark, not an ornament next to it. The
  * patient learns one shape — the wave disc on their home screen — and that
@@ -522,6 +630,15 @@ button:disabled {
   .breathing-mark[data-phase="rest"] {
     opacity: 0.6;
   }
+
+  .breathing-mark--immersive .pd-mark__curve,
+  .breathing-halo,
+  .wave-back,
+  .wave-mid,
+  .wave-front,
+  .wave-foam {
+    animation: none;
+  }
 }
 
 .breathing-label {
@@ -564,6 +681,12 @@ button:disabled {
   animation: wave-drift var(--wave-back-duration, 14s) linear infinite reverse;
 }
 
+.wave-mid {
+  fill: url(#waveMidGradient);
+  opacity: 0.9;
+  animation: wave-drift calc(var(--wave-back-duration, 14s) * 0.76) linear infinite;
+}
+
 .wave-front {
   fill: url(#waveFrontGradient);
   animation: wave-drift var(--wave-duration, 9s) linear infinite;
@@ -574,7 +697,27 @@ button:disabled {
   stroke: rgba(214, 230, 255, 0.72);
   stroke-width: 2.8;
   stroke-linecap: round;
-  animation: wave-drift var(--wave-duration, 9s) linear infinite;
+  stroke-dasharray: 10 6;
+  animation: wave-foam-drift var(--wave-crest-duration, 6s) linear infinite;
+}
+
+.wave-visual--rising .wave-foam {
+  stroke-width: 3.6;
+}
+
+.wave-visual--storm {
+  background:
+    radial-gradient(ellipse at 50% 10%, rgba(202, 233, 255, 0.24), transparent 35%),
+    linear-gradient(180deg, #253b57 0%, #172437 42%, #0f1419 100%);
+}
+
+.wave-visual--storm .wave-front {
+  filter: saturate(1.25) contrast(1.1);
+}
+
+.wave-visual--storm .wave-foam {
+  stroke: rgba(238, 249, 255, 0.95);
+  stroke-width: 4.4;
 }
 
 @keyframes wave-drift {
@@ -583,6 +726,54 @@ button:disabled {
   }
   to {
     transform: translateX(-96px);
+  }
+}
+
+@keyframes wave-foam-drift {
+  from {
+    transform: translateX(0);
+    stroke-dashoffset: 0;
+  }
+  to {
+    transform: translateX(-74px);
+    stroke-dashoffset: -64;
+  }
+}
+
+@keyframes pd-curve-dance {
+  from {
+    transform: translateY(calc(var(--pd-mark-shift, 0) * var(--pd-mark-travel, 0px))) rotate(-1.8deg);
+  }
+  to {
+    transform: translateY(calc(var(--pd-mark-shift, 0) * var(--pd-mark-travel, 0px))) rotate(2.4deg) scale(1.015);
+  }
+}
+
+@keyframes pd-halo-drift {
+  0% {
+    transform: rotate(0deg) scale(0.91);
+    border-radius: 48% 52% 43% 57% / 54% 44% 56% 46%;
+    opacity: 0.8;
+  }
+  25% {
+    transform: rotate(90deg) scale(1.15);
+    border-radius: 40% 60% 50% 50% / 55% 45% 55% 45%;
+    opacity: 1;
+  }
+  50% {
+    transform: rotate(180deg) scale(0.95);
+    border-radius: 58% 42% 55% 45% / 43% 57% 43% 57%;
+    opacity: 0.9;
+  }
+  75% {
+    transform: rotate(270deg) scale(1.2);
+    border-radius: 50% 50% 30% 70% / 60% 40% 60% 40%;
+    opacity: 0.7;
+  }
+  100% {
+    transform: rotate(360deg) scale(0.91);
+    border-radius: 48% 52% 43% 57% / 54% 44% 56% 46%;
+    opacity: 0.8;
   }
 }
 
@@ -2708,4 +2899,191 @@ tr.row-highlight {
 
 .thread-list li button {
   margin-left: auto;
+}
+
+/* Account and clinical-administration screens ------------------------- */
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-users-workspace {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.78fr) minmax(0, 1.22fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 16px;
+}
+
+.admin-user-list-items {
+  display: grid;
+  gap: 8px;
+  max-height: 560px;
+  margin-top: 12px;
+  overflow-y: auto;
+}
+
+.admin-user-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--ink);
+  text-align: left;
+}
+
+.admin-user-row:hover,
+.admin-user-row.is-selected {
+  border-color: var(--primary);
+  background: var(--accent-bg);
+}
+
+.admin-user-row span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.admin-user-row strong,
+.admin-user-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-user-row small {
+  color: var(--ink-muted);
+}
+
+.admin-user-options-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.admin-user-options-heading h2 {
+  margin: 2px 0 0;
+}
+
+.admin-user-options-heading p {
+  overflow-wrap: anywhere;
+  margin: 3px 0;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.status-active,
+.status-revoked {
+  display: inline-block;
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid;
+  border-radius: var(--radius-pill);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.status-active {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success-ink);
+}
+
+.status-revoked {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.permission-list {
+  margin: 8px 0 16px;
+  padding-left: 1.25rem;
+}
+
+.permission-list li {
+  margin: 7px 0;
+}
+
+.admin-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+.admin-user-actions label {
+  display: grid;
+  min-width: 190px;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.print-only {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .account-grid,
+  .admin-users-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-user-options-heading {
+    flex-direction: column;
+  }
+
+  .breathing-mark--immersive {
+    width: min(82vw, 460px);
+    height: min(82vw, 460px);
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .permissions-print,
+  .permissions-print * {
+    visibility: visible;
+  }
+
+  .permissions-print {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    min-height: 100%;
+    border: 0;
+    background: #fff;
+    color: #111;
+    box-shadow: none;
+  }
+
+  .permissions-print .meta,
+  .permissions-print p,
+  .permissions-print li {
+    color: #333;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
 }

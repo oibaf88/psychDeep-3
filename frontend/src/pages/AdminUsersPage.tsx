@@ -8,10 +8,20 @@ interface AdminUserOut {
   id: string;
   email: string;
   display_name: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  phone?: string | null;
   role: UserRole;
   locale: string;
   is_active: boolean;
   created_at: string;
+}
+
+interface AdminUserPermissionsOut {
+  user: AdminUserOut;
+  permissions: string[];
+  can_revoke: boolean;
+  can_restore: boolean;
 }
 
 const ALL_ROLES: UserRole[] = ["patient", "therapist", "supervisor", "admin_clinical"];
@@ -20,7 +30,8 @@ const PROVISIONABLE_ROLES: ProvisionableRole[] = ["therapist", "supervisor", "ad
 export default function AdminUsersPage() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<AdminUserOut[]>([]);
-  const [draftRoles, setDraftRoles] = useState<Record<string, UserRole>>({});
+  const [selected, setSelected] = useState<AdminUserPermissionsOut | null>(null);
+  const [draftRole, setDraftRole] = useState<UserRole>("patient");
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -34,9 +45,7 @@ export default function AdminUsersPage() {
   async function load() {
     setError(null);
     try {
-      const data = await api.get<AdminUserOut[]>("/api/v1/admin/users");
-      setUsers(data);
-      setDraftRoles(Object.fromEntries(data.map((item) => [item.id, item.role])));
+      setUsers(await api.get<AdminUserOut[]>("/api/v1/admin/users"));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -46,8 +55,23 @@ export default function AdminUsersPage() {
     void load();
   }, []);
 
-  async function provision(e: FormEvent) {
-    e.preventDefault();
+  async function selectUser(user: AdminUserOut) {
+    setBusy(`select:${user.id}`);
+    setError(null);
+    setNotice(null);
+    try {
+      const document = await api.get<AdminUserPermissionsOut>(`/api/v1/admin/users/${user.id}/permissions`);
+      setSelected(document);
+      setDraftRole(document.user.role);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function provision(event: FormEvent) {
+    event.preventDefault();
     setBusy("provision");
     setError(null);
     setNotice(null);
@@ -59,12 +83,12 @@ export default function AdminUsersPage() {
         role: provisionRole,
       });
       setUsers((current) => [created, ...current]);
-      setDraftRoles((current) => ({ ...current, [created.id]: created.role }));
       setDisplayName("");
       setEmail("");
       setPassword("");
       setProvisionRole("therapist");
       setNotice(`Cuenta profesional creada para ${created.email}.`);
+      await selectUser(created);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -72,29 +96,60 @@ export default function AdminUsersPage() {
     }
   }
 
-  async function saveRole(target: AdminUserOut) {
-    const nextRole = draftRoles[target.id] ?? target.role;
-    if (nextRole === target.role) return;
-    if (target.id === currentUser?.id) {
+  async function saveRole() {
+    if (!selected || draftRole === selected.user.role) return;
+    if (selected.user.id === currentUser?.id) {
       setError("No puedes cambiar tu propio rol administrativo desde esta pantalla.");
       return;
     }
+    if (!window.confirm(`Cambiar ${selected.user.email} a ${ROLE_LABELS[draftRole]}? Se cerrarán sus sesiones actuales.`)) return;
 
-    const confirmed = window.confirm(
-      `Cambiar ${target.email} de ${ROLE_LABELS[target.role]} a ${ROLE_LABELS[nextRole]}?`,
-    );
-    if (!confirmed) return;
-
-    setBusy(target.id);
+    setBusy("role");
     setError(null);
     setNotice(null);
     try {
-      const updated = await api.put<AdminUserOut>(`/api/v1/admin/users/${target.id}/role`, { role: nextRole });
+      const updated = await api.put<AdminUserOut>(`/api/v1/admin/users/${selected.user.id}/role`, { role: draftRole });
       setUsers((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      setDraftRoles((current) => ({ ...current, [updated.id]: updated.role }));
+      const document = await api.get<AdminUserPermissionsOut>(`/api/v1/admin/users/${updated.id}/permissions`);
+      setSelected(document);
+      setDraftRole(document.user.role);
       setNotice(`Rol actualizado: ${updated.email} → ${ROLE_LABELS[updated.role]}.`);
     } catch (e) {
-      setDraftRoles((current) => ({ ...current, [target.id]: target.role }));
+      setDraftRole(selected.user.role);
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function changeAccess(action: "revoke" | "restore") {
+    if (!selected) return;
+    const verb = action === "revoke" ? "revocar" : "restaurar";
+    if (!window.confirm(`${verb[0].toUpperCase()}${verb.slice(1)} el acceso de ${selected.user.email}?`)) return;
+    setBusy(action);
+    setError(null);
+    setNotice(null);
+    try {
+      const document = await api.post<AdminUserPermissionsOut>(`/api/v1/admin/users/${selected.user.id}/${action}`);
+      setSelected(document);
+      setUsers((current) => current.map((item) => (item.id === document.user.id ? document.user : item)));
+      setNotice(action === "revoke" ? "Acceso revocado y sesiones invalidadas." : "Acceso restaurado; la persona debe iniciar sesión de nuevo.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function printPermissions() {
+    if (!selected) return;
+    setBusy("print");
+    setError(null);
+    try {
+      const document = await api.post<AdminUserPermissionsOut>(`/api/v1/admin/users/${selected.user.id}/permissions/print`);
+      setSelected(document);
+      window.print();
+    } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(null);
@@ -110,124 +165,110 @@ export default function AdminUsersPage() {
           ROLE_LABELS[item.role].toLowerCase().includes(normalizedQuery),
       )
     : users;
+  const selectedIsSelf = selected?.user.id === currentUser?.id;
 
   return (
     <div className="page">
       <h1>Gestión de usuarios</h1>
       <p className="subtitle">
-        El registro público continúa creando exclusivamente pacientes. Desde aquí un administrador clínico puede
-        provisionar cuentas profesionales o cambiar el perfil de una cuenta existente.
+        Selecciona una cuenta para ver únicamente sus opciones de acceso y su documento de permisos. No se muestra aquí ningún dato clínico.
       </p>
 
-      {error && <p className="error">{error}</p>}
-      {notice && <p className="info">{notice}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
+      {notice && <p className="info" role="status">{notice}</p>}
 
       <section className="card">
         <h2>Crear cuenta profesional</h2>
-        <p className="meta">
-          La contraseña se almacena únicamente como hash. Entrega las credenciales iniciales al profesional por un canal
-          adecuado; la aplicación no muestra contraseñas guardadas.
-        </p>
+        <p className="meta">La contraseña inicial se guarda sólo como hash. Entrégala por un canal seguro y pide cambiarla en el primer acceso.</p>
         <form className="auth-form" onSubmit={provision}>
           <label>
-            Nombre
+            Nombre mostrado
             <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required maxLength={255} />
           </label>
           <label>
-            Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            Correo
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
           </label>
           <label>
             Contraseña inicial
-            <input
-              type="password"
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <input type="password" minLength={12} maxLength={256} value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" />
           </label>
           <label>
             Perfil
-            <select
-              value={provisionRole}
-              onChange={(e) => setProvisionRole(e.target.value as ProvisionableRole)}
-            >
-              {PROVISIONABLE_ROLES.map((role) => (
-                <option key={role} value={role}>
-                  {ROLE_LABELS[role]}
-                </option>
-              ))}
+            <select value={provisionRole} onChange={(e) => setProvisionRole(e.target.value as ProvisionableRole)}>
+              {PROVISIONABLE_ROLES.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
             </select>
           </label>
-          <button type="submit" disabled={busy === "provision"}>
-            {busy === "provision" ? "Creando..." : "Crear cuenta profesional"}
-          </button>
+          <button type="submit" disabled={busy === "provision"}>{busy === "provision" ? "Creando…" : "Crear cuenta profesional"}</button>
         </form>
       </section>
 
-      <section className="card">
-        <h2>Usuarios existentes</h2>
-        <label>
-          Buscar
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Nombre, email o perfil"
-          />
-        </label>
-        <p className="meta">
-          Los cambios de rol quedan registrados en auditoría. Promover a un paciente no borra sus datos; si una cuenta
-          vuelve a paciente, se crea su plan de seguridad solo si faltaba.
-        </p>
-      </section>
+      <section className="admin-users-workspace" aria-label="Cuentas y permisos">
+        <div className="card admin-user-list">
+          <h2>Usuarios</h2>
+          <label>
+            Buscar
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nombre, correo o perfil" />
+          </label>
+          <div className="admin-user-list-items">
+            {visibleUsers.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={selected?.user.id === item.id ? "admin-user-row is-selected" : "admin-user-row"}
+                onClick={() => void selectUser(item)}
+                disabled={busy === `select:${item.id}`}
+              >
+                <span><strong>{item.display_name}</strong><small>{ROLE_LABELS[item.role]}</small></span>
+                <span className={item.is_active ? "status-active" : "status-revoked"}>{item.is_active ? "Activa" : "Revocada"}</span>
+              </button>
+            ))}
+            {visibleUsers.length === 0 && <p className="info">No hay usuarios que coincidan con la búsqueda.</p>}
+          </div>
+        </div>
 
-      <div className="stack">
-        {visibleUsers.map((item) => {
-          const isSelf = item.id === currentUser?.id;
-          const draftRole = draftRoles[item.id] ?? item.role;
-          return (
-            <article className="card" key={item.id}>
-              <h2>{item.display_name}</h2>
-              <p>
-                <strong>{item.email}</strong>
-              </p>
-              <p className="meta">
-                Perfil actual: <strong>{ROLE_LABELS[item.role]}</strong> · Cuenta {item.is_active ? "activa" : "inactiva"}
-                {" · "}Creada: {new Date(item.created_at).toLocaleString()}
-              </p>
+        <section className="card admin-user-options permissions-print" aria-live="polite">
+          {!selected ? (
+            <p className="meta">Elige una cuenta de la lista para ver sus opciones.</p>
+          ) : (
+            <>
+              <div className="admin-user-options-heading">
+                <div>
+                  <p className="eyebrow">Cuenta seleccionada</p>
+                  <h2>{selected.user.display_name}</h2>
+                  <p>{selected.user.email}</p>
+                </div>
+                <span className={selected.user.is_active ? "status-active" : "status-revoked"}>{selected.user.is_active ? "Cuenta activa" : "Acceso revocado"}</span>
+              </div>
+              <p className="meta">Idioma: {selected.user.locale} · creada: {new Date(selected.user.created_at).toLocaleString()}</p>
 
-              <div className="alert-actions">
+              <h3>Permisos efectivos</h3>
+              <ul className="permission-list">
+                {selected.permissions.map((permission) => <li key={permission}>{permission}</li>)}
+              </ul>
+
+              <div className="admin-user-actions no-print">
                 <label>
-                  Nuevo perfil
-                  <select
-                    value={draftRole}
-                    disabled={isSelf || busy === item.id}
-                    onChange={(e) =>
-                      setDraftRoles((current) => ({ ...current, [item.id]: e.target.value as UserRole }))
-                    }
-                  >
-                    {ALL_ROLES.map((role) => (
-                      <option key={role} value={role}>
-                        {ROLE_LABELS[role]}
-                      </option>
-                    ))}
+                  Perfil de acceso
+                  <select value={draftRole} disabled={selectedIsSelf || busy !== null} onChange={(e) => setDraftRole(e.target.value as UserRole)}>
+                    {ALL_ROLES.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
                   </select>
                 </label>
-                <button
-                  type="button"
-                  disabled={isSelf || busy === item.id || draftRole === item.role}
-                  onClick={() => void saveRole(item)}
-                >
-                  {busy === item.id ? "Guardando..." : "Guardar rol"}
+                <button type="button" disabled={selectedIsSelf || busy !== null || draftRole === selected.user.role} onClick={() => void saveRole()}>
+                  {busy === "role" ? "Guardando…" : "Guardar perfil"}
                 </button>
+                <button type="button" className="btn-secondary" disabled={busy !== null} onClick={() => void printPermissions()}>
+                  {busy === "print" ? "Preparando…" : "Imprimir / guardar PDF"}
+                </button>
+                {selected.can_revoke && <button type="button" className="btn-danger" disabled={busy !== null} onClick={() => void changeAccess("revoke")}>Revocar acceso</button>}
+                {selected.can_restore && <button type="button" disabled={busy !== null} onClick={() => void changeAccess("restore")}>Restaurar acceso</button>}
               </div>
-              {isSelf && <p className="meta">Tu propio rol administrativo está bloqueado para evitar un auto-bloqueo.</p>}
-            </article>
-          );
-        })}
-        {visibleUsers.length === 0 && <p className="info">No hay usuarios que coincidan con la búsqueda.</p>}
-      </div>
+              {selectedIsSelf && <p className="meta no-print">Tu propio acceso y rol están protegidos para evitar un bloqueo administrativo accidental.</p>}
+              <p className="print-only meta">Documento generado desde PsychDeep. No contiene datos clínicos ni contraseñas.</p>
+            </>
+          )}
+        </section>
+      </section>
     </div>
   );
 }

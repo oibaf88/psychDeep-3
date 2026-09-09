@@ -55,6 +55,8 @@ export const api = {
   get: <T,>(path: string) => request<T>(path, { method: "GET" }),
   post: <T,>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
+  patch: <T,>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined }),
   put: <T,>(path: string, body?: unknown) =>
     request<T>(path, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined }),
   del: <T,>(path: string) => request<T>(path, { method: "DELETE" }),
@@ -71,8 +73,12 @@ export interface UserOut {
   id: string;
   email: string;
   display_name: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  phone?: string | null;
   role: UserRole;
   locale: string;
+  is_active?: boolean;
 }
 
 export interface CheckInIn {
@@ -865,8 +871,8 @@ export const FACT_CATEGORIES = [
 ];
 
 // ------------------------------------------------ runtime LLM endpoint ----
-// PsychDeep ships pointed at Claude. These types back the Settings screen,
-// where the two inference agents can be aimed at a model you host yourself.
+// Claude is the connected-service default; Gemma 2 through an
+// OpenAI-compatible endpoint remains the local/offline alternative.
 
 export interface LLMEndpointSummary {
   provider: "anthropic" | "openai_compatible" | string;
@@ -905,7 +911,6 @@ export interface LLMEndpointStatusOut {
   backend_runtime_label?: string;
   local_endpoint_supported?: boolean;
   ignored_override?: LLMEndpointSummary | null;
-  anthropic_api_key_configured?: boolean;
 }
 
 export interface LLMEndpointConfigIn {
@@ -950,8 +955,7 @@ export const llmSettingsApi = {
 /**
  * How one stored interaction names the model behind it.
  *
- * History spans endpoints: a reply from March may have come from Claude and
- * one from April from a local Llama. Rows written before provenance was
+ * History spans endpoints. Rows written before provenance was
  * recorded say so plainly rather than inheriting whatever is configured
  * today — presenting today's setting as though it were the record would be
  * the one genuinely misleading option.
@@ -967,7 +971,7 @@ export function modelProvenanceLabel(source: {
     const host = hostOf(source.provider_base_url);
     return host ? `${model} · servidor propio (${host})` : `${model} · servidor propio`;
   }
-  if (source.provider === "anthropic") return `${model} · API de Anthropic`;
+  if (source.provider === "anthropic") return `${model} · Claude / Anthropic`;
   return model;
 }
 

@@ -1,8 +1,9 @@
 """
 Which model serves this deployment, and how that choice is recorded.
 
-The deployment default comes from the environment (``ANTHROPIC_*``). This
-module lets it be overridden at runtime by a row in ``llm_endpoint_configs``,
+The deployment default is Claude through Anthropic's API. Gemma 2 through an
+OpenAI-compatible endpoint remains the offline/local alternative. This module lets an authorized operator select one
+of those two providers at runtime by a row in ``llm_endpoint_configs``,
 so an operator can point Agent 1 and Agent 2 at a model they run themselves
 and see how the app behaves on it, without redeploying.
 
@@ -12,8 +13,8 @@ Two properties matter more than the convenience:
 configuration is resolved once per call and travels with the result as
 ``ProviderMetadata`` — provider, requested model, the model the server said
 answered, and the endpoint. That is what makes a patient's history readable
-after the endpoint changed: an analysis from March under Claude and one from
-April under a local Llama are both legible, and distinguishable, because
+after the endpoint changed: historical records and current Claude/Gemma 2 calls are
+both legible and distinguishable, because
 each carries its own provenance rather than inheriting today's setting.
 
 **Changing it is an audited act.** Rows are never updated in place. Setting
@@ -48,7 +49,7 @@ logger = logging.getLogger("psychapp.llm_config")
 
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_LOCAL = "openai_compatible"
-PROVIDERS = (PROVIDER_ANTHROPIC, PROVIDER_LOCAL)
+PROVIDERS = (PROVIDER_LOCAL, PROVIDER_ANTHROPIC)
 
 CACHE_TTL_SECONDS = 30.0
 
@@ -95,12 +96,9 @@ class ResolvedConfig:
         """The token budget a runtime override actually asked for.
 
         None for the environment default. `max_tokens` is always populated —
-        the environment fills it from ANTHROPIC_MAX_TOKENS — so passing it
-        into a provider unconditionally made that shared value shadow the
-        per-role settings on every ordinary call, and
-        ANTHROPIC_MAX_TOKENS_CHAT / _ANALYSIS did nothing at all. A stored
-        override carries one budget for both roles by design; the
-        environment does not, and must not pretend to.
+        the environment fills it from the selected provider configuration. A stored
+        override carries one budget for all roles; the environment does not,
+        and must not pretend to.
         """
         return self.max_tokens if self.source == "runtime" else None
 
@@ -112,15 +110,16 @@ class ResolvedConfig:
     def public_dict(self) -> dict:
         """Everything the UI may see. Never the key."""
         settings = get_settings()
-        anthropic_key_present = bool(settings.anthropic_api_key)
-        if self.provider == PROVIDER_ANTHROPIC:
-            has_key = anthropic_key_present
-        else:
-            has_key = bool(self.api_key)
+        # Claude's secret is deliberately never copied into a runtime row:
+        # a saved Claude selection must nevertheless report the availability
+        # of the deployment secret accurately, without serialising it.
+        has_key = bool(settings.anthropic_api_key) if self.provider == PROVIDER_ANTHROPIC else bool(self.api_key)
         return {
             "provider": self.provider,
             "provider_label": (
-                "Claude (API oficial de Anthropic)" if self.provider == PROVIDER_ANTHROPIC else "Modelo propio (API compatible con OpenAI)"
+                "Claude / API de Anthropic"
+                if self.provider == PROVIDER_ANTHROPIC
+                else "Gemma 2 / API compatible con OpenAI"
             ),
             "label": self.label,
             "base_url": self.base_url,
@@ -212,9 +211,8 @@ def endpoint_reachability(url: str | None) -> dict:
             "reason": (
                 f"Este backend corre en {backend_runtime_label()} y no tiene ruta a "
                 f"{host}. Una IP de LAN (127.0.0.1, 192.168.x, 10.x) no es un endpoint "
-                "alcanzable desde Frankfurt. Usa Claude (la clave ANTHROPIC_API_KEY ya "
-                "está en el servidor) o un túnel HTTPS público autenticado "
-                "(Cloudflare Tunnel, ngrok) que apunte a tu LM Studio."
+                "alcanzable desde Frankfurt. Usa un túnel HTTPS público autenticado "
+                "por Cloudflare Access que apunte a tu LM Studio."
             ),
         }
     if parsed.scheme != "https":
@@ -255,14 +253,31 @@ def invalidate_cache() -> None:
 def environment_config() -> ResolvedConfig:
     """The deployment default, from environment variables."""
     settings = get_settings()
+    if settings.llm_default_provider == PROVIDER_ANTHROPIC:
+        return ResolvedConfig(
+            provider=PROVIDER_ANTHROPIC,
+            chat_model=settings.anthropic_chat_model,
+            analysis_model=settings.anthropic_analysis_model,
+            copilot_model=settings.copilot_model,
+            copilot_model_explicit=settings.anthropic_copilot_model.strip(),
+            api_key=settings.anthropic_api_key,
+            max_tokens=settings.anthropic_max_tokens,
+            timeout_seconds=settings.llm_openai_compatible_timeout_seconds,
+            label="Claude configurado en el despliegue",
+            source="environment",
+        )
+    base_url = settings.llm_openai_compatible_base_url.strip() or None
     return ResolvedConfig(
-        provider=PROVIDER_ANTHROPIC,
-        chat_model=settings.anthropic_chat_model,
-        analysis_model=settings.anthropic_analysis_model,
-        copilot_model=settings.copilot_model,
-        copilot_model_explicit=settings.anthropic_copilot_model.strip(),
-        max_tokens=settings.anthropic_max_tokens,
-        label="Configuración del despliegue",
+        provider=PROVIDER_LOCAL,
+        chat_model=settings.llm_openai_compatible_chat_model,
+        analysis_model=settings.llm_openai_compatible_analysis_model,
+        copilot_model=settings.local_copilot_model,
+        copilot_model_explicit=settings.llm_openai_compatible_copilot_model.strip(),
+        base_url=base_url,
+        api_key=settings.llm_openai_compatible_api_key,
+        max_tokens=settings.llm_openai_compatible_max_tokens,
+        timeout_seconds=settings.llm_openai_compatible_timeout_seconds,
+        label="Gemma 2 configurado en el despliegue",
         source="environment",
     )
 
@@ -336,7 +351,7 @@ def resolve(db: Session | None = None) -> ResolvedConfig:
         stored = _from_row(row) if row else None
         if stored is None:
             config = environment_config()
-        elif _is_unreachable_local(stored):
+        elif stored.provider == PROVIDER_LOCAL and _is_unreachable_local(stored):
             # Keep the stored row (the Settings screen still shows it) but do
             # not send inference there: hanging for minutes on an unroutable
             # LAN address is how production looked broken.
@@ -361,10 +376,9 @@ def resolve(db: Session | None = None) -> ResolvedConfig:
 def normalise_base_url(raw: str) -> str:
     """Accept what people actually paste, reject what cannot work.
 
-    Local runtimes are usually given as ``http://localhost:11434`` (Ollama),
-    ``http://localhost:1234/v1`` (LM Studio) or ``http://127.0.0.1:8080/v1``
-    (llama.cpp). The provider appends ``/chat/completions``, so the stored
-    value is normalised to end at ``/v1``.
+    PsychDeep 3 uses LM Studio locally or a protected Cloudflare hostname in
+    the cloud. The provider appends ``/chat/completions``, so the stored value
+    is normalised to end at ``/v1``.
     """
     url = (raw or "").strip().rstrip("/")
     if not url:
@@ -399,7 +413,7 @@ def validate(
     copilot_model: str | None = None,
 ) -> dict:
     if provider not in PROVIDERS:
-        raise LLMConfigError(f"Proveedor no soportado: {provider}")
+        raise LLMConfigError("Selecciona Gemma 2 por API compatible con OpenAI o Claude mediante la API de Anthropic.")
     if not chat_model.strip() or not analysis_model.strip():
         raise LLMConfigError("Indica el nombre del modelo para el chat y para el análisis.")
     if not MAX_TOKENS_MIN <= max_tokens <= MAX_TOKENS_MAX:
@@ -407,13 +421,21 @@ def validate(
     if not TIMEOUT_MIN <= timeout_seconds <= TIMEOUT_MAX:
         raise LLMConfigError(f"El tiempo de espera tiene que estar entre {TIMEOUT_MIN} y {TIMEOUT_MAX} segundos.")
 
-    if provider == PROVIDER_LOCAL:
-        normalised = normalise_base_url(base_url or "")
-        reach = endpoint_reachability(normalised)
-        if not reach["ok"]:
-            raise LLMConfigError(reach["reason"])
-    else:
-        normalised = None
+    if provider == PROVIDER_ANTHROPIC:
+        return {
+            "provider": provider,
+            "base_url": None,
+            "chat_model": chat_model.strip(),
+            "analysis_model": analysis_model.strip(),
+            "copilot_model": (copilot_model or "").strip(),
+            "max_tokens": max_tokens,
+            "timeout_seconds": timeout_seconds,
+        }
+
+    normalised = normalise_base_url(base_url or "")
+    reach = endpoint_reachability(normalised)
+    if not reach["ok"]:
+        raise LLMConfigError(reach["reason"])
     return {
         "provider": provider,
         "base_url": normalised,
@@ -457,15 +479,11 @@ def set_active(
     )
 
     previous = active_row(db)
-    # Anthropic always authenticates with ANTHROPIC_API_KEY from the server
-    # environment (Render secret). A key typed in the browser is ignored so
-    # it can never shadow or leak the deployment credential.
-    if fields["provider"] == PROVIDER_ANTHROPIC:
-        effective_key = None
-    else:
-        # An empty key on an update means "leave it alone", not "clear it": the
-        # UI never receives the stored key, so it cannot echo it back.
-        effective_key = api_key if api_key is not None else (previous.api_key if previous else None)
+    # An empty key on an update means "leave it alone", not "clear it": the
+    # UI never receives the stored key, so it cannot echo it back.
+    effective_key = (
+        api_key if api_key is not None else (previous.api_key if previous else None)
+    ) if fields["provider"] == PROVIDER_LOCAL else None
 
     now = datetime.utcnow()
     for row in (

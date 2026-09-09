@@ -1,9 +1,9 @@
 """
 Runtime LLM endpoint configuration, from the Settings screen.
 
-PsychApp ships pointed at Claude. This lets whoever is running it point the
-inference agents at a model they host themselves and see how the app behaves
-on it — the reason the endpoint is editable at all.
+PsychDeep 3 defaults to Claude through Anthropic's server-keyed API. An
+authorized local operator can instead choose the authenticated Gemma 2
+LM Studio/tunnel endpoint.
 
 Who may change it
 -----------------
@@ -58,10 +58,13 @@ logger = logging.getLogger("psychapp.llm_settings")
 router = APIRouter(prefix="/api/v1/settings/llm", tags=["settings"])
 
 WARNING_LOCAL = (
-    "Con un modelo propio, el texto clínico del paciente se envía al servidor que indiques y no a "
-    "la API de Anthropic. La calidad de la detección de señales lingüísticas del Agente 2 pasa a "
+    "El texto de inferencia se envía al servidor Gemma 2 que indiques. La calidad de la detección de señales lingüísticas del Agente 2 pasa a "
     "depender de ese modelo. El motor de riesgo es determinista y no cambia: ningún modelo decide "
     "un nivel de alerta."
+)
+WARNING_ANTHROPIC_KEY = (
+    "Claude es el proveedor seleccionado, pero falta ANTHROPIC_API_KEY en el servidor. "
+    "La clave sólo puede configurarse como secreto del despliegue y nunca desde el navegador."
 )
 WARNING_DISABLED = (
     "El cambio de endpoint está desactivado en este despliegue (LLM_ALLOW_RUNTIME_OVERRIDE=false). "
@@ -92,14 +95,15 @@ def _status(db: Session, user: User) -> LLMEndpointStatusOut:
 
     if ignored:
         notice = (
-            f"Hay un modelo propio guardado en {stored.base_url}, pero este backend "
-            f"corre en {runtime_label} y no puede alcanzarlo. Se está usando Claude "
-            f"(configuración del despliegue) para no quedarse colgado en un timeout. "
+            f"Había un endpoint local no alcanzable ({stored.base_url}), pero este backend "
+            f"corre en {runtime_label}. Se está usando el proveedor del despliegue para no quedarse colgado en un timeout. "
             "Para un modelo en tu equipo: o bien FastAPI corre en el mismo equipo, "
             "o bien publicas LM Studio detrás de un túnel HTTPS autenticado."
         )
     elif active.is_local:
         notice = WARNING_LOCAL
+    elif active.provider == llm_config.PROVIDER_ANTHROPIC and not active.api_key:
+        notice = WARNING_ANTHROPIC_KEY
     elif not allowed:
         notice = WARNING_DISABLED
     elif not is_admin:
@@ -128,7 +132,6 @@ def _status(db: Session, user: User) -> LLMEndpointStatusOut:
         backend_runtime_label=runtime_label,
         local_endpoint_supported=runtime == "local",
         ignored_override=ignored.public_dict() if ignored else None,
-        anthropic_api_key_configured=bool(settings.anthropic_api_key),
     )
 
 
@@ -243,7 +246,9 @@ def test_llm_endpoint(
         analysis_model=fields["analysis_model"],
         copilot_model=fields["copilot_model"],
         base_url=fields["base_url"],
-        api_key="" if fields["provider"] == llm_config.PROVIDER_ANTHROPIC else (payload.api_key or ""),
+        # A Claude selection obtains its key exclusively from the deployment
+        # secret. A value sent by a browser must never substitute it.
+        api_key=(payload.api_key or "") if fields["provider"] == LOCAL_PROVIDER else "",
         max_tokens=512,
         timeout_seconds=payload.timeout_seconds,
     )
@@ -272,17 +277,16 @@ def test_llm_endpoint(
             base_url=candidate.base_url,
         )
     except RuntimeError as exc:
-        # AnthropicProvider raises this when ANTHROPIC_API_KEY is missing
-        # from the server environment — never from the settings form.
         logger.warning("LLM endpoint test failed: %s", exc)
+        detail = (
+            "Falta ANTHROPIC_API_KEY en el secreto del servidor."
+            if candidate.provider == llm_config.PROVIDER_ANTHROPIC
+            else "Revisa el token de LM Studio y la configuración segura del endpoint Gemma 2."
+        )
         return LLMEndpointTestOut(
             ok=False,
-            detail=(
-                "La clave de Anthropic se lee del entorno del servidor "
-                "(ANTHROPIC_API_KEY en Render), no de este formulario. "
-                "Revisa el secreto del servicio psychdeep-api."
-            ),
-            error_code="api_key_not_configured",
+            detail=detail,
+            error_code="api_key_not_configured" if candidate.provider == LOCAL_PROVIDER else "anthropic_api_key_not_configured",
             base_url=candidate.base_url,
         )
     except Exception as exc:  # noqa: BLE001
@@ -312,10 +316,10 @@ def _test_failure_detail(safe_kind: str, error_code: str | None) -> str:
             return (
                 f"Este backend corre en {llm_config.backend_runtime_label()} y no alcanzó el "
                 "servidor del modelo. Una IP de tu red local no es enrutable desde Frankfurt. "
-                "Usa Claude (la clave ya está en el servidor) o un túnel HTTPS público."
+                "Usa un túnel HTTPS público protegido por Cloudflare Access."
             )
         return (
-            "No se llegó al servidor del modelo. Comprueba que LM Studio / Ollama está "
+            "No se llegó al servidor del modelo. Comprueba que LM Studio está "
             "arrancado y que la URI es exactamente la que escucha (por ejemplo "
             "http://127.0.0.1:1234/v1)."
         )
@@ -327,7 +331,7 @@ def _test_failure_detail(safe_kind: str, error_code: str | None) -> str:
         )
     if error_code == "api_key_not_configured":
         return (
-            "ANTHROPIC_API_KEY no está configurada en el servidor. Se lee del secreto "
+            "El token de LM Studio no está configurado en el servidor. Se lee del secreto "
             "de entorno de Render, no de este formulario."
         )
     if error_code == "http_404":

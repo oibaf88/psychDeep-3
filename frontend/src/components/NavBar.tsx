@@ -78,7 +78,8 @@ export default function NavBar() {
             <Link to="/notifications">Avisos</Link>
           </>
         )}
-        <Link to="/settings">Ajustes</Link>
+        <Link to="/account">Mi cuenta</Link>
+        <Link to="/settings">Ajustes del modelo</Link>
       </div>
       <div className="navbar-user">
         <span>

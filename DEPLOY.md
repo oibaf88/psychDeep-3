@@ -1,339 +1,153 @@
-# Deploying PsychDeep 1.2 (Render + Supabase + Claude)
+# Deploy PsychDeep 3
 
-Target: **https://psychapp.bfab.io**
+This is the single runbook for the **PsychDeep 3 Local · Offline · Tunnel · Sync** architecture. Claude through Anthropic is the connected-service default; Gemma 2 through LM Studio is the autonomous/offline alternative. A green local test does not prove Supabase, Render, Anthropic, Cloudflare Access, or the Gemma 2 tunnel is live.
 
-Architecture:
+## Target architecture
 
-| Piece | Runs on | Notes |
+| Component | Service | Boundary |
 |---|---|---|
-| Frontend (React/Vite) | Render **static site** | `psychdeep-web` |
-| Backend (FastAPI) | Render **web service** (Docker) | `psychdeep-api` |
-| Database | **Supabase** Postgres (`psychdeep`, eu-north-1) | project ref `ifwexmoltnybvmrsuwtu` |
-| Agent 1 — conversation | **Anthropic API** | `ANTHROPIC_CHAT_MODEL` |
-| Agent 2 — linguistic analysis | **Anthropic API** | `ANTHROPIC_ANALYSIS_MODEL` |
+| Browser client | Render static site `psychdeep-web` | Public HTTPS; API base is baked at build time |
+| API | Render Docker service `psychdeep-api` | No direct laptop/LAN route |
+| Cloud data | Supabase PostgreSQL, `psychdeep_v12` | TLS, RLS/FORCE RLS, backend role |
+| Local data | Docker PostgreSQL 17 | `127.0.0.1:5433` only |
+| Local model | LM Studio, Gemma 2 | Authenticated OpenAI-compatible `…/v1` |
+| LLM bridge | Cloudflare named Tunnel + Access | Outbound PC connection; LLM endpoint only |
+| Cloud/local alignment | SymmetricDS 3.18 | Opt-in 19-table allowlist; laptop initiated |
 
-Both agents default to the Claude API (`ANTHROPIC_API_KEY` is a Render
-secret, never a field in the Settings form). A local OpenAI-compatible
-model can be selected from Settings **only if FastAPI can actually reach
-that URI**. Render Frankfurt has no route to `127.0.0.1` / `192.168.x`;
-those URLs are rejected immediately instead of hanging until timeout.
-A public HTTPS tunnel (Cloudflare Tunnel, ngrok) is the only way to
-point production at a model running on your laptop.
+[`render.yaml`](render.yaml) is the Render source of truth: repository `oibaf88/psychDeep-3`, branch `master`, Claude as default with a server-only Anthropic secret, Gemma 2 fallback values, and no Render database.
 
----
+## 0. Preflight
 
-## 0. The leaked API key — resolved
+```powershell
+git remote -v
+git branch --show-current
+docker compose --env-file .env.local -f docker-compose.offline.yml config --quiet
 
-A real Anthropic API key was once committed to `.env.example` and is still
-present in this repository's git history (commit `b6059d0` onwards).
+Set-Location backend
+.\.venv\Scripts\python.exe -m pytest tests -q
 
-**It was revoked and replaced within about 30 seconds of being published,
-and the replacement has never been committed.** Nothing further is needed.
-
-The dead key remains visible in history; that is harmless now, but it is
-the reason keys live only in Render's environment settings and never in a
-tracked file.
-
----
-
-## 1. Supabase
-
-The `psychdeep` project (`ifwexmoltnybvmrsuwtu`, eu-north-1) is
-`ACTIVE_HEALTHY` and holds everything in one schema, `psychdeep_v12`.
-
-The production backend does **not** run SQLAlchemy `create_all()`. It checks
-the schema at startup and refuses to serve a half-migrated database, so the
-Supabase step always comes **before** the Render release — deploy Render first
-and the new release fails its startup check while Render keeps the old
-instance alive.
-
-### What is in `supabase/migrations/`
-
-Filename order is apply order, and the eleven files together are the whole
-schema:
-
-| File | Adds |
-|---|---|
-| `00000000000000_bootstrap_psychdeep_schema.sql` | The `psychdeep_backend` role, the `psychdeep_v12` schema, the 17 base tables, and the hardening pass over every table in the schema. |
-| `20260815120000_add_risk_explanations_agent2_tracking.sql` | `agent2_analysis_traces` and the risk-assessment lineage columns. |
-| `20260815160000_add_therapist_copilot_messages.sql` | `therapist_copilot_messages`, behind the clinical copilot. |
-| `20260815180000_add_psychosocial_observations.sql` | `agent2_analysis_traces.agent_role` and `psychosocial_observations`, which stores a bounded verbatim fragment of the patient's own text. |
-| `20260818120000_add_llm_endpoint_config.sql` | `llm_endpoint_configs` and the provider/model provenance columns on chat turns and analysis traces. |
-| `20260825120000_add_copilot_model.sql` | `llm_endpoint_configs.copilot_model`, so Agent 3 can be pinned separately. Nullable: NULL keeps meaning "same model as chat", which is what every earlier row meant. |
-| `20260825130000_widen_provenance_model_columns.sql` | Widens `requested_model` / `response_model` to `varchar(160)` — the length the endpoint config already accepts. At 128 a valid long model name produced a reply the database then refused to record. |
-| `20260825140000_widen_agent_role_for_merged_analyzer.sql` | Lets `agent2_analysis_traces.agent_role` hold `analyzer_merged`, the single analyser that replaced Agents 2 and 4. Still accepts the two retired values, which existing rows carry. |
-| `20260825160000_add_patient_profiles.sql` | `patient_profiles`: the per-patient linguistic baseline and accumulated portrait, so a reading is judged against that person rather than a constant. |
-| `20260903190000_expand_llm_timeout_to_5000.sql` | Raises `llm_endpoint_configs.timeout_seconds` CHECK from 600 s to 5.000 s (inference wait; connect stays fail-fast). |
-| `20260903191000_drop_unused_mobile_telemetry.sql` | Drops empty `biometric_data` and `app_usage_data`. Aborts if either table has rows. |
-
-Every file is idempotent and opens its own transaction: re-running is a no-op,
-and a failure rolls that file back instead of leaving the schema half applied.
-Applying all eleven to an empty database reproduces exactly the model graph in
-`backend/app/models.py`.
-
-All four of the `20260825*` files are expand-only — a nullable column, three
-widened types, a widened CHECK and one new table — so they are safe to apply
-**before** the code that uses them is deployed, which is the order you want:
-the schema grows first, the application catches up second. Nothing is
-backfilled, because an absent value in these columns already means something
-exact and writing a guess into it would turn that absence into a decision
-nobody made.
-
-The `Tests` workflow applies all eleven to a throwaway Postgres on every pull
-request, re-applies every file to prove they are idempotent, and runs
-`verify.sql` against the result — under the same role model as the real
-project, with `postgres` deliberately not a superuser.
-
-### Apply them
-
-From the project root:
-
-```bash
-SUPABASE_DB_URL='postgresql://postgres:PASSWORD@HOST:5432/postgres?sslmode=require' \
-  supabase/deploy.sh
+Set-Location ..\frontend
+npm ci
+npm test
+npm run build
+Set-Location ..
 ```
 
-Connect as the project's **`postgres`** user, not as `psychdeep_backend`: the
-migrations take the backend role temporarily and hand it back before they
-commit, which postgres has the rights to do and the backend role does not.
-`supabase/deploy.sh --dry-run` lists the apply order without connecting to
-anything.
+Expected authority is `https://github.com/oibaf88/psychDeep-3.git` on `master`. Resolve unrelated local changes before pushing; do not reset or discard a worktree that may contain data-operation work.
 
-Without `psql` to hand, paste each file into the Supabase **SQL Editor** in
-the same order. The editor already runs a statement batch in a transaction,
-so the files' own `begin`/`commit` are harmless there.
+## 1. Supabase — expand first, preserve history
 
-### On a project that has never run this app
+Project: `psychdeep` (`ifwexmoltnybvmrsuwtu`). Schema: `psychdeep_v12`.
 
-Two things the migrations deliberately leave to you:
+1. Take a current Supabase backup/snapshot.
+2. Review `supabase/migrations/20260909062808_add_user_account_security.sql`. It is one transaction, adds only `users.first_name`, `last_name`, `phone`, `auth_version`, and `updated_at`, and does not delete, rename, rebuild, or reinterpret clinical tables/rows.
+3. With an authenticated, linked Supabase CLI, inspect migration state:
 
-1. **The backend role's password.** The bootstrap creates
-   `psychdeep_backend` without one, so no credential ever reaches a tracked
-   file. Set it in the SQL Editor before the first deploy:
-
-   ```sql
-   alter role psychdeep_backend with password '<generated>';
+   ```powershell
+   npx --yes supabase migration list --linked
    ```
 
-2. **`DATABASE_URL`.** Point it at that role and that schema (below).
+4. Apply the pending migration using the approved project migration workflow: Supabase CLI `db push --linked` or the Supabase SQL Editor migration batch. Use an owner-capable migration operator, never the app backend role. Never commit a database password.
+5. Run the read-only [`supabase/verify.sql`](supabase/verify.sql). Every row must be `ok`: required columns, ownership, RLS/FORCE RLS, backend policy, no PostgREST read grants, and no application tables in `public`.
+6. Run a read-only count/UUID/provenance check against established clinical tables before/after. Do not export clinical text. A failure must roll back as a unit; never hand-edit partial state.
 
-### Check before you deploy Render
+## 2. Cloudflare — publish only LM Studio inference
 
-```bash
-psql "$SUPABASE_DB_URL" -f supabase/verify.sql
-```
+1. In Cloudflare Zero Trust create a **named** Tunnel. Do not use a disposable quick tunnel.
+2. Map a hostname such as `llm.example.org` only to `http://host.docker.internal:1234` on the PC running Docker Desktop and LM Studio.
+3. Put Cloudflare Access in front of the hostname and create the necessary machine/service authorization for the Render API boundary.
+4. Load Gemma 2 in LM Studio, enable API-token authentication, start the server, and confirm the exact name from `GET /v1/models` (initially `gemma-2-2b-it`).
+5. On the PC run:
 
-Ten rows, every one `ok`. It re-runs the API's own startup contract plus the
-hardening the migrations should have left: every table owned by
-`psychdeep_backend`, RLS enabled **and forced**, a `backend_full_access`
-policy, nothing readable by `anon`, `authenticated` or `service_role`, and no
-application table stranded in `public`. A `FAILED` row is a Render deploy that
-would refuse to start — cheaper to see here.
-
-FORCE RLS is what makes the policy mean anything: without it the owning role
-bypasses RLS entirely, and the backend owns every table.
-
-### The connection string
-
-Supabase Dashboard → *Connect* → copy the **connection pooler** URI (Session
-mode).
-
-> Use the pooler host, not `db.<ref>.supabase.co`. The direct host is
-> IPv6-only and Render cannot reach it.
-
-Shape actually in use:
-
-```
-postgresql+psycopg2://USER:PASSWORD@aws-0-eu-north-1.pooler.supabase.com:5432/postgres?sslmode=require&options=-csearch_path%3Dpsychdeep_v12
-```
-
-Three parts matter:
-
-| Part | Why |
-|---|---|
-| `postgresql+psycopg2://` | Names the driver explicitly. Plain `postgresql://` also works — SQLAlchemy defaults to psycopg2 — but being explicit avoids surprises if the driver ever changes. |
-| `sslmode=require` | Supabase requires TLS. |
-| `options=-csearch_path%3D<schema>` | Puts the tables in a dedicated schema instead of `public`. `%3D` is the URL-encoded `=`. |
-
-**Use a dedicated schema.** Supabase exposes `public` through PostgREST, so
-tables created there are reachable with the publishable anon key unless
-locked down. A schema like `psychdeep_v12` is not exposed at all, which is
-a stronger and simpler guarantee. The bootstrap migration creates it, so
-there is nothing to create by hand any more.
-
-`DATABASE_SCHEMA=psychdeep_v12` is an equivalent alternative to the
-`options=` parameter. Set one or the other, not both.
-
-Already applied for you — migration `lock_public_schema_from_postgrest_roles`:
-revokes the default privileges Supabase would otherwise grant `anon` and
-`authenticated` on new tables in `public`. Without it, anyone holding the
-publishable anon key could read every patient record over PostgREST.
-
----
-
-## 2. Render
-
-Render Dashboard → **New → Blueprint** → select this repository. It reads
-[`render.yaml`](./render.yaml) and creates both services.
-
-> **What a blueprint is.** `render.yaml` is infrastructure-as-code: it
-> declares both services (runtime, region, build command, health check,
-> plan, non-secret environment variables) so they are created identically
-> every time instead of being clicked together by hand. It is also the
-> record of *why* the services are configured that way. You can ignore it
-> and create the two services manually — the blueprint just saves the
-> clicking and keeps the config in git.
-
-### If Render did not prompt for the secrets
-
-Depending on the flow, Render may create the services without asking for
-the `sync: false` values, leaving them unset. The API will then fail to
-start (no `DATABASE_URL`) and the frontend will build against nothing.
-
-Set them per service, in the dashboard:
-
-**`psychdeep-api`** → *Environment* → **Add Environment Variable**:
-
-| Key | Value |
-|---|---|
-| `DATABASE_URL` | the Supabase pooler URI from step 1 |
-| `ANTHROPIC_API_KEY` | your current key |
-
-**`psychdeep-web`** → *Environment*:
-
-| Key | Value |
-|---|---|
-| `VITE_API_BASE_URL` | the `psychdeep-api` URL, e.g. `https://psychdeep-api.onrender.com` |
-
-Saving triggers a redeploy of the API. The frontend needs an explicit
-**Manual Deploy → Clear build cache & deploy**, because `VITE_API_BASE_URL`
-is baked in at build time — a restart will not pick it up.
-
-Everything not marked `sync: false` (models, effort levels, `APP_ENV`,
-`SEED_DEMO_DATA=false`, `CORS_ORIGINS`) comes from `render.yaml` and is
-already set. `JWT_SECRET` is generated by Render.
-
-### Reference: the values Render would have asked for
-
-| Service | Variable | Value |
-|---|---|---|
-| `psychdeep-api` | `DATABASE_URL` | the Supabase pooler URI from step 1 |
-| `psychdeep-api` | `ANTHROPIC_API_KEY` | the **new** key from step 0 |
-| `psychdeep-api` | `SMTP_*` | optional; alerts work without it |
-| `psychdeep-web` | `VITE_API_BASE_URL` | the API URL, e.g. `https://psychdeep-api.onrender.com` |
-
-`JWT_SECRET` is generated by Render. `SEED_DEMO_DATA` is pinned to
-`false` — the four demo accounts have well-known passwords and must never
-exist in a public deployment.
-
-`VITE_API_BASE_URL` is baked in at **build time**. Changing it requires a
-redeploy of the static site, not just a restart.
-
-### Domain
-
-Point `psychapp.bfab.io` at **`psychdeep-web`** (Render → service →
-Settings → Custom Domains, then the CNAME it gives you).
-
-If you also give the API a custom domain, update `CORS_ORIGINS` on
-`psychdeep-api` to match the frontend origin exactly — in
-`APP_ENV=production` the API does not fall back to permissive origin
-regexes.
-
----
-
-## 3. After the first successful deploy
-
-1. Check `https://<api-url>/api/v1/health`. Expected:
-
-   ```json
-   {
-     "status": "ok",
-     "llm_configured": true,
-     "llm_provider": "anthropic",
-     "chat_model": "claude-opus-5",
-     "analysis_model": "claude-opus-5",
-     "risk_engine_version": "risk-engine-v1.2",
-     "risk_explanation_schema": "risk-explanation-v1",
-     "agent2_tracking": true,
-     "release": "<deployed-git-sha>"
-   }
+   ```powershell
+   ./ops/local/start-tunnel.ps1
    ```
 
-2. Verify both Claude agents, from the `psychdeep-api` service's
-   **Shell** tab:
+6. Test the protected public URL from an authorized operator context. It must be HTTPS and end in `/v1`.
 
-   ```bash
-   python scripts/smoke_llm.py
-   ```
+Never publish `5432`, `5433`, `31415`, Docker, the local web UI, or an unauthenticated LM Studio server. Rotate any exposed tunnel/LM Studio token.
 
-   It calls Agent 1 and Agent 2 once each and prints what came back,
-   exiting non-zero if either fails. No database writes, no seeded data.
+## 3. Render Blueprint and secret values
 
-   Agent 2 fails safely at runtime — the deterministic engine continues and
-   the attempt remains visible with a sanitized status in the clinical tracking
-   screen. The smoke script confirms the provider/model independently.
+In Render: **New → Blueprint**, select `oibaf88/psychDeep-3`, choose the intended workspace, and let Render read [`render.yaml`](render.yaml). Do not create a competing service/database architecture manually.
 
-   > Locally the equivalent is `docker compose exec backend python
-   > scripts/smoke_llm.py`, run **from the project root**. Run from
-   > anywhere else and Docker reports `no configuration file provided:
-   > not found`, because it looks for `docker-compose.yml` in the current
-   > directory.
+Set the Render `psychdeep-api` values marked `sync: false`:
 
-3. Re-run [`supabase/verify.sql`](./supabase/verify.sql) — the same ten
-   checks you ran before the deploy, now against a database the live API has
-   connected to and written through.
+| Key | Exact value shape |
+|---|---|
+| `DATABASE_URL` | Supabase session-pooler SQLAlchemy URI with TLS and `search_path=psychdeep_v12` |
+| `ANTHROPIC_API_KEY` | Anthropic API key stored only as a Render secret; required by the default Claude route |
+| `LLM_OPENAI_COMPATIBLE_BASE_URL` | `https://<protected-cloudflare-host>/v1` |
+| `LLM_OPENAI_COMPATIBLE_API_KEY` | LM Studio API token; supply Access authorization at the proxy boundary when required |
+| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` | Optional; only for outbound alert email |
 
-   [`supabase/harden.sql`](./supabase/harden.sql) is the fallback for a
-   deployment whose tables did *not* come from these migrations: it enables
-   RLS and strips the PostgREST roles across a whole schema, whoever created
-   the tables. **Edit `TARGET_SCHEMA` at the top first** so it matches the
-   schema in your `DATABASE_URL` — pointed at the wrong one it reports success
-   against an empty schema, and `Success. No rows returned` against `public`
-   means it found nothing, not that everything is fine. Its final `select`
-   scans every schema for exactly that reason.
+The tracked blueprint sets:
 
-4. With synthetic accounts, verify the clinical UI as both an assigned
-   therapist and a supervisor:
+```dotenv
+LLM_DEFAULT_PROVIDER=anthropic
+ANTHROPIC_CHAT_MODEL=claude-opus-5
+ANTHROPIC_ANALYSIS_MODEL=claude-opus-5
+LLM_OPENAI_COMPATIBLE_CHAT_MODEL=gemma-2-2b-it
+LLM_OPENAI_COMPATIBLE_ANALYSIS_MODEL=gemma-2-2b-it
+LLM_OPENAI_COMPATIBLE_COPILOT_MODEL=gemma-2-2b-it
+LLM_ALLOW_RUNTIME_OVERRIDE=false
+SEED_DEMO_DATA=false
+```
 
-   - **Motor de riesgo** shows all 11 evaluated rules, the selected rule,
-     formulas, baseline/recent values, z-scores, thresholds, sleep slope,
-     persistence dates and the stored conclusion.
-   - **Agent 2** shows the exact source text, validated JSON response, source /
-     signal / correlation / assessment identifiers, whether the signal was
-     actually consumed, model/provider metadata, tokens, latency and sanitized
-     failure fields.
-   - An unassigned therapist, a patient and `admin_clinical` receive `403` for
-     the clinical trace endpoints.
+For `psychdeep-web`, set `VITE_API_BASE_URL` to the public `psychdeep-api` URL, for example `https://psychdeep-api.onrender.com`. Vite compiles that value into the static bundle, so redeploy `psychdeep-web` after changing it. Set API `CORS_ORIGINS` to the exact static-site/custom-domain origins; never use a wildcard in production.
 
-5. Remove every synthetic row and account used by the smoke test. The
-   per-table state that used to be checked by hand here — owner, RLS, FORCE
-   RLS, the `backend_full_access` policy, no privileges for the PostgREST
-   roles — is what `verify.sql` covers in step 3, for all 22 tables rather
-   than just `agent2_analysis_traces`.
+Render generates `JWT_SECRET`. Do not seed demo accounts in a public/cloud environment.
 
----
+## 4. Release sequence
 
-## Notes and trade-offs
+1. Supabase backup, migration, and verification complete.
+2. `ANTHROPIC_API_KEY` is configured as a Render secret for the default Claude route; if Gemma 2 is selected, its Cloudflare Tunnel endpoint is authenticated and reachable from the cloud boundary.
+3. Render secrets, CORS, and static API base are configured.
+4. Deploy `psychdeep-api` and wait for a healthy release.
+5. Deploy/redeploy `psychdeep-web`.
+6. Exercise the hosted flow only with non-clinical test accounts first.
 
-**Render plan.** `render.yaml` pins both services to `free` so nothing is
-billed without you choosing it. The free web service spins down after
-~15 minutes idle and cold-starts in roughly a minute; the backend's
-database wait-loop makes that noticeable. Switch `plan: free` to
-`plan: starter` on `psychdeep-api` for an always-on instance.
+Health endpoint:
 
-**Model choice and cost.** Both agents default to `claude-opus-5`. Agent 2
-runs at `high` effort because its output drives alert levels; Agent 1 runs
-at `medium`. Every model and effort level is an environment variable, so
-you can tune cost without a code change. Lower Agent 2's effort only
-against your own evaluation set — it is the safety-critical path.
+```text
+https://<psychdeep-api>/api/v1/health
+```
 
-**Refusals.** Claude's safety classifiers can decline a request; the
-provider raises `RefusalError` in that case. The crisis flow already
-returns the server-owned safety templates whenever the LLM call raises,
-so a refusal degrades to the same safe output as a network error — the
-crisis path never depends on the model succeeding.
+It proves API health/configuration, not successful model inference. Use the authorized administrator endpoint test and inspect sanitized Render logs to test the protected LLM route.
 
-**Static site cannot proxy `/api`.** The Docker Compose setup uses nginx
-to proxy `/api` to the backend on the same origin. A Render static site
-cannot do that, which is why the frontend calls the API cross-origin via
-`VITE_API_BASE_URL` and the backend allows it via `CORS_ORIGINS`.
+## 5. Post-release acceptance
+
+- [ ] Public `/api/v1/health` succeeds.
+- [ ] Static web points at the API without CORS errors.
+- [ ] Claude/Anthropic is effective by default and its key is a Render secret; if Gemma 2 is selected, its endpoint is protected HTTPS and not a LAN/loopback address from Render.
+- [ ] Deterministic risk remains available when the model/tunnel fails; no LLM controls alert levels.
+- [ ] Patient, therapist, supervisor, and clinical admin receive only authorized data/routes.
+- [ ] **Mi cuenta** works for every profile; password change requires fresh login.
+- [ ] Selected-user permissions view/print excludes clinical data; revoke blocks existing tokens; restore requires new login.
+- [ ] Existing clinical history, risk traces, timelines, and historic model provenance remain readable.
+- [ ] `supabase/verify.sql` remains all `ok`.
+- [ ] Logs contain no clinical prompt, secret, tunnel token, or raw provider error body.
+
+## 6. Enable sync only after cloud acceptance
+
+Synchronization does not start on Render or in `start-local.ps1`. On the local PC, after backup, explicit operator review, and a disposable non-clinical test:
+
+```powershell
+./ops/sync/configure-sync.ps1
+./ops/sync/start-sync.ps1 -Initialize
+```
+
+The configuration stores the `psychdeep_sync` credential under Git-ignored `ops/local/secrets/`. Initialization performs the cloud preflight, creates SymmetricDS metadata in `psychdeep_sync`, installs the fixed 19-table allowlist, opens a narrowly scoped registration, and starts the local node.
+
+Check `127.0.0.1:31415`, container logs, queued batches, and cloud/local audit markers. Do not use a clinical record to test. If concurrent mutable account/admin changes conflict, retain audit facts, resolve to the latest authorized update under clinical governance, and record the resolution—never silently discard a clinical decision.
+
+## 7. Incident posture
+
+- **Model/tunnel failure:** stop/disable the tunnel; deterministic features remain safe. Never point Render to `localhost` or a private LAN IP.
+- **Render failure after migration:** retain the prior healthy service while investigating. Do not roll back additive fields that a new release may already use; forward-fix after backup.
+- **Sync issue:** stop only the `symmetricds` profile, retain the local Docker volume and cloud DB, inspect batches/audit state, then resolve. Never run `down -v`.
+- **Secret exposure:** rotate the relevant Cloudflare, LM Studio, Supabase, SMTP, or Render credential and redeploy.
+
+## Change control
+
+`psychDeep-3`/`master` is authoritative. Schema/security changes are reviewed and deployed explicitly, then evidenced in the live environment. The local stack is a real autonomous copy—not a browser mockup of the Render service.

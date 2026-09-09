@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -9,8 +10,18 @@ from fastapi import Body
 
 from app.config import get_settings
 from app.models import Consent, SafetyPlan, User, PasswordResetToken
-from app.schemas import LoginRequest, Token, UserCreate, UserOut, PasswordResetRequest, PasswordResetConfirm, GoogleLoginRequest
-from app.security import create_access_token, get_current_user, hash_password, verify_password
+from app.schemas import (
+    AccountProfileUpdate,
+    GoogleLoginRequest,
+    LoginRequest,
+    PasswordChangeRequest,
+    PasswordResetConfirm,
+    PasswordResetRequest,
+    Token,
+    UserCreate,
+    UserOut,
+)
+from app.security import create_access_token, get_current_user, hash_password, validate_new_password, verify_password
 from app.services import audit
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -25,6 +36,11 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+
+    try:
+        validate_new_password(payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
     user = User(
         email=payload.email,
@@ -45,13 +61,103 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
 
     audit.log(db, actor_id=user.id, actor_role=user.role, action="register", entity_type="user", entity_id=user.id)
 
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user.id, user.role, user.auth_version or 1)
     return Token(access_token=token, user=UserOut.model_validate(user))
 
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return UserOut.model_validate(user)
+
+
+@router.patch("/me/profile", response_model=UserOut)
+def update_my_profile(
+    payload: AccountProfileUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Update the signed-in user's account data without exposing clinical data."""
+    changed: list[str] = []
+
+    if payload.email is not None:
+        next_email = str(payload.email).strip().lower()
+        if next_email != user.email.lower():
+            if not payload.current_password or not verify_password(payload.current_password, user.hashed_password):
+                raise HTTPException(status_code=401, detail="Confirma tu contraseña actual para cambiar el correo.")
+            existing = (
+                db.query(User)
+                .filter(func.lower(User.email) == next_email, User.id != user.id)
+                .first()
+            )
+            if existing:
+                raise HTTPException(status_code=400, detail="Ese correo ya pertenece a otra cuenta.")
+            user.email = next_email
+            changed.append("email")
+
+    for field, limit in (("first_name", 100), ("last_name", 150), ("phone", 40), ("locale", 10)):
+        value = getattr(payload, field)
+        if value is None:
+            continue
+        cleaned = value.strip()
+        if field != "phone" and not cleaned:
+            raise HTTPException(status_code=422, detail=f"{field} no puede estar vacío.")
+        if len(cleaned) > limit:
+            raise HTTPException(status_code=422, detail=f"{field} supera la longitud permitida.")
+        if getattr(user, field) != (cleaned or None):
+            setattr(user, field, cleaned or None)
+            changed.append(field)
+
+    if "first_name" in changed or "last_name" in changed:
+        display_parts = [part for part in (user.first_name, user.last_name) if part]
+        if display_parts:
+            user.display_name = " ".join(display_parts)
+
+    if changed:
+        user.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(user)
+        audit.log(
+            db,
+            actor_id=user.id,
+            actor_role=user.role,
+            action="account_profile_updated",
+            entity_type="user",
+            entity_id=user.id,
+            # Keep the audit trail useful without duplicating contact details.
+            extra={"fields": sorted(changed)},
+        )
+    return UserOut.model_validate(user)
+
+
+@router.post("/change-password")
+def change_password(
+    payload: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="La contraseña actual no es correcta.")
+    if verify_password(payload.new_password, user.hashed_password):
+        raise HTTPException(status_code=422, detail="Elige una contraseña distinta de la actual.")
+    try:
+        validate_new_password(payload.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    user.hashed_password = hash_password(payload.new_password)
+    user.auth_version = (user.auth_version or 1) + 1
+    user.updated_at = datetime.utcnow()
+    db.commit()
+    audit.log(
+        db,
+        actor_id=user.id,
+        actor_role=user.role,
+        action="account_password_changed",
+        entity_type="user",
+        entity_id=user.id,
+    )
+    # The version increment invalidates all existing JWTs, including this one.
+    return {"message": "Contraseña actualizada. Vuelve a iniciar sesión en todos los dispositivos."}
 
 
 @router.post("/login", response_model=Token)
@@ -64,7 +170,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     audit.log(db, actor_id=user.id, actor_role=user.role, action="login", entity_type="user", entity_id=user.id)
 
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user.id, user.role, user.auth_version or 1)
     return Token(access_token=token, user=UserOut.model_validate(user))
 
 
@@ -112,10 +218,15 @@ def password_reset_confirm(payload: PasswordResetConfirm, db: Session = Depends(
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
 
     user = db.query(User).filter(User.id == reset_token.user_id).first()
-    if not user:
+    if not user or not user.is_active:
         raise HTTPException(status_code=400, detail="User not found")
 
+    try:
+        validate_new_password(payload.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     user.hashed_password = hash_password(payload.new_password)
+    user.auth_version = (user.auth_version or 1) + 1
     reset_token.is_used = True
     db.commit()
 
@@ -181,5 +292,5 @@ def google_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
 
     audit.log(db, actor_id=user.id, actor_role=user.role, action="login_google", entity_type="user", entity_id=user.id)
 
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user.id, user.role, user.auth_version or 1)
     return Token(access_token=token, user=UserOut.model_validate(user))

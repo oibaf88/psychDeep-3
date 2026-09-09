@@ -41,6 +41,12 @@ set source_node_group_id = excluded.source_node_group_id,
     router_type = excluded.router_type,
     last_update_time = current_timestamp;
 
+insert into psychdeep_sync.sym_channel
+    (channel_id, processing_order, max_batch_size, enabled, description)
+values
+    ('default', 1, 100000, 1, 'Default channel')
+on conflict (channel_id) do nothing;
+
 -- Explicit allowlist. Runtime credentials/configuration are deliberately not
 -- present here: password_reset_tokens and llm_endpoint_configs never replicate.
 -- SymmetricDS's own psychdeep_sync.* tables are also outside this list.

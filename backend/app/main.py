@@ -24,7 +24,6 @@ from app.routers import (
     professional,
     safety,
     timeline,
-    metrics,
 )
 from app.services import llm_config
 from app.services.risk_engine import MODEL_VERSION as RISK_ENGINE_VERSION
@@ -39,7 +38,7 @@ app = FastAPI(
     description=(
         "Self-regulation & self-awareness companion (Level A/B MVP, see README). "
         "Not a medical device. Conversational and linguistic-analysis features are "
-        "powered by Claude via the Anthropic API and require ANTHROPIC_API_KEY."
+        "configured through the documented model endpoint; the deterministic risk engine remains independent."
     ),
     version="0.2.0",
 )
@@ -96,6 +95,11 @@ def _verify_production_schema() -> None:
         ("psychosocial_observations", "evidence_quote"),
         ("patient_profiles", "id"),
         ("patient_profiles", "linguistic_baseline"),
+        ("users", "first_name"),
+        ("users", "last_name"),
+        ("users", "phone"),
+        ("users", "auth_version"),
+        ("users", "updated_at"),
     }
     with engine.connect() as conn:
         rows = conn.execute(
@@ -148,6 +152,31 @@ def on_startup():
         logger.info("Production database migration contract verified.")
     else:
         Base.metadata.create_all(bind=engine)
+        # A local Docker volume survives upgrades. SQLAlchemy can create a
+        # missing table but cannot add columns to an existing one, so keep this
+        # small, idempotent compatibility step beside create_all(). Production
+        # uses the explicit Supabase migration above instead.
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE users
+                        ADD COLUMN IF NOT EXISTS first_name varchar(100),
+                        ADD COLUMN IF NOT EXISTS last_name varchar(150),
+                        ADD COLUMN IF NOT EXISTS phone varchar(40),
+                        ADD COLUMN IF NOT EXISTS auth_version integer NOT NULL DEFAULT 1,
+                        ADD COLUMN IF NOT EXISTS updated_at timestamp without time zone NOT NULL DEFAULT now()
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE users DROP CONSTRAINT IF EXISTS ck_users_auth_version"
+                )
+            )
+            conn.execute(
+                text("ALTER TABLE users ADD CONSTRAINT ck_users_auth_version CHECK (auth_version >= 1)")
+            )
         logger.info("Local database schema ensured (create_all).")
 
     from app.maintenance.refresh_risk_v14 import run_configured_startup_refresh
@@ -173,10 +202,20 @@ def on_startup():
         finally:
             db.close()
 
-    if not settings.anthropic_api_key:
+    active_llm = llm_config.resolve()
+    if active_llm.provider == llm_config.PROVIDER_ANTHROPIC and not active_llm.api_key:
         logger.warning(
-            "ANTHROPIC_API_KEY is not set. The app will run, but /api/v1/chat and the "
-            "linguistic-analysis (Agent 2) features will fail until you set it in .env."
+            "Claude is selected but ANTHROPIC_API_KEY is not configured as a server secret. "
+            "Do not put this key in the browser or in a runtime configuration row."
+        )
+    elif active_llm.provider == llm_config.PROVIDER_LOCAL and not active_llm.base_url:
+        logger.warning(
+            "Gemma 2 endpoint is not configured. The app will run, but LLM features will fail until the local/tunnel configuration is completed."
+        )
+    elif active_llm.provider == llm_config.PROVIDER_LOCAL and not active_llm.api_key:
+        logger.warning(
+            "Gemma 2 is reachable but LM Studio API-token authentication is not configured. "
+            "Local inference can work on loopback, but do not enable a Cloudflare tunnel until a least-privilege token is configured."
         )
 
 
@@ -189,7 +228,12 @@ def health():
     active = llm_config.resolve()
     return {
         "status": "ok",
-        "llm_configured": bool(settings.anthropic_api_key) or active.is_local,
+        "llm_configured": bool(
+            active.chat_model
+            and active.analysis_model
+            and (active.api_key if active.provider == llm_config.PROVIDER_ANTHROPIC else active.base_url)
+        ),
+        "llm_authentication_configured": bool(active.api_key),
         "llm_provider": active.provider,
         "chat_model": active.chat_model,
         "analysis_model": active.analysis_model,
@@ -213,5 +257,4 @@ app.include_router(assignments.router)
 app.include_router(professional.router)
 app.include_router(notifications.router)
 app.include_router(audit.router)
-app.include_router(metrics.router)
 app.include_router(llm_settings.router)

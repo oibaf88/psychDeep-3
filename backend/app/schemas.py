@@ -16,7 +16,7 @@ def _utc_iso(value: datetime | None) -> str | None:
 # ---------------------------------------------------------------- auth ----
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=12)
     display_name: str
     # Public signup always creates a patient. This field is kept only so
     # older clients that still send it do not fail validation.
@@ -27,8 +27,12 @@ class UserOut(BaseModel):
     id: uuid.UUID
     email: EmailStr
     display_name: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
     role: str
     locale: str
+    is_active: bool = True
 
     class Config:
         from_attributes = True
@@ -50,7 +54,25 @@ class PasswordResetRequest(BaseModel):
 
 class PasswordResetConfirm(BaseModel):
     token: str
-    new_password: str = Field(min_length=8)
+    new_password: str = Field(min_length=12)
+
+
+class AccountProfileUpdate(BaseModel):
+    """Self-service, non-clinical account attributes for any application role."""
+
+    email: Optional[EmailStr] = None
+    first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    last_name: Optional[str] = Field(default=None, min_length=1, max_length=150)
+    phone: Optional[str] = Field(default=None, max_length=40)
+    locale: Optional[str] = Field(default=None, min_length=2, max_length=10)
+    # Required only if the login email is changed. Keeping it optional lets a
+    # user correct their name/contact data without ever re-entering a secret.
+    current_password: Optional[str] = Field(default=None, max_length=256)
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
 
 
 class GoogleLoginRequest(BaseModel):
@@ -78,45 +100,6 @@ class ConsentOut(BaseModel):
     class Config:
         from_attributes = True
 
-
-
-# ------------------------------------------------------------- metrics ---
-class BiometricDataIn(BaseModel):
-    device_type: str
-    heart_rate_avg: Optional[float] = None
-    heart_rate_variability: Optional[float] = None
-    sleep_duration_hours: Optional[float] = None
-    sleep_quality_score: Optional[float] = None
-    deep_sleep_hours: Optional[float] = None
-    rem_sleep_hours: Optional[float] = None
-    steps: Optional[int] = None
-    active_calories: Optional[float] = None
-    measured_at: datetime = Field(default_factory=datetime.utcnow)
-
-class BiometricDataOut(BiometricDataIn):
-    id: uuid.UUID
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class AppUsageDataIn(BaseModel):
-    apps_usage_stats: dict
-    screen_time_minutes: Optional[int] = None
-    measured_at: datetime = Field(default_factory=datetime.utcnow)
-
-class AppUsageDataOut(AppUsageDataIn):
-    id: uuid.UUID
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class DeepStatisticalAnalysisOut(BaseModel):
-    biometrics: list[BiometricDataOut]
-    app_usage: list[AppUsageDataOut]
-    insights: list[str]
 
 
 # ------------------------------------------------------------- check-ins ---
@@ -778,7 +761,6 @@ class PatientDossierOut(BaseModel):
     alerts: list[AlertOut]
     signals: list[SignalOut]
     agent2_traces: list[Agent2AnalysisTraceOut]
-    deep_analysis: Optional[DeepStatisticalAnalysisOut] = None
     safety_plan: Optional[SafetyPlanOut] = None
     professional_protocol: dict[str, str]
 
@@ -834,4 +816,3 @@ class LLMEndpointStatusOut(BaseModel):
     backend_runtime_label: str = "este equipo"
     local_endpoint_supported: bool = True
     ignored_override: Optional[dict[str, Any]] = None
-    anthropic_api_key_configured: bool = False

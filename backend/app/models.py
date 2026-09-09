@@ -57,11 +57,21 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Account information is intentionally kept separate from the clinical
+    # patient profile. Every role owns these fields; no role needs access to a
+    # patient portrait just to update their name or contact details.
+    first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default=UserRole.patient.value)
     locale: Mapped[str] = mapped_column(String(10), default="es-ES")
     phone_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Bumping this version invalidates every pre-existing JWT for the account.
+    # It is changed on password rotation, role changes and revocation.
+    auth_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
         CheckConstraint(
@@ -464,7 +474,7 @@ class Agent2AnalysisTrace(Base):
     )
 
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="started")
-    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="anthropic")
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="openai_compatible")
     # Where the call went. Once the endpoint is configurable, the model name
     # alone stops identifying anything: two deployments can both say
     # "llama-3.1-8b" and mean different weights on different machines.
@@ -525,10 +535,8 @@ class Agent2AnalysisTrace(Base):
 class LLMEndpointConfig(Base):
     """Which model actually serves this deployment, changeable at runtime.
 
-    PsychApp defaults to Claude over the Anthropic API. This table lets an
-    operator point the two inference agents at a model they host themselves —
-    llama.cpp, Ollama, LM Studio, vLLM — without redeploying, so a local
-    model can be tried against the real app and the real data.
+    PsychDeep 3 uses Claude by default and Gemma 2 through authenticated LM Studio endpoints as the local alternative. This
+    table records an authorized local/tunnel endpoint without redeploying.
 
     Exactly one row is active at a time. Superseded rows are kept, never
     updated in place: a patient's history can span several models, and
@@ -541,8 +549,8 @@ class LLMEndpointConfig(Base):
     __tablename__ = "llm_endpoint_configs"
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="anthropic")
-    # anthropic | openai_compatible
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="openai_compatible")
+    # Both Claude/Anthropic and Gemma/OpenAI-compatible rows are valid.
     label: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     chat_model: Mapped[str] = mapped_column(String(160), nullable=False)
@@ -564,7 +572,8 @@ class LLMEndpointConfig(Base):
 
     __table_args__ = (
         CheckConstraint("provider IN ('anthropic','openai_compatible')", name="ck_llm_endpoint_provider"),
-        # A local endpoint without a URL is unusable; a hosted one has none.
+        # Gemma 2 endpoints require a URL; Claude is server-keyed and has none.
+        # accepted solely so historical rows never become unreadable.
         CheckConstraint(
             "(provider = 'anthropic' AND base_url IS NULL) OR "
             "(provider = 'openai_compatible' AND base_url IS NOT NULL)",

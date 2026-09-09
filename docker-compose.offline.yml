@@ -49,8 +49,6 @@ services:
         condition: service_started
     ports:
       - "127.0.0.1:5173:80"
-    volumes:
-      - ./mobile-dist:/usr/share/nginx/html/download:ro
 
   # Disabled by default. Start with --profile sync only after running
   # ops/sync/configure-sync.ps1 and reviewing the generated engine files.

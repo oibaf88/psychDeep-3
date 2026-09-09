@@ -33,6 +33,11 @@ class _FakeQuery:
             return list(self.session.users.values())
         return []
 
+    def count(self):
+        if self.model is User:
+            return len(self.session.users)
+        return 0
+
 
 class _FakeSession:
     def __init__(self, users=None, existing_user=None, safety_plan=None):
@@ -91,6 +96,10 @@ class AdminUserProvisioningTest(unittest.TestCase):
             admin_users.list_users,
             admin_users.provision_user,
             admin_users.change_user_role,
+            admin_users.get_user_permissions,
+            admin_users.print_user_permissions,
+            admin_users.revoke_user_access,
+            admin_users.restore_user_access,
         ):
             dependency = inspect.signature(endpoint).parameters["admin"].default
             self.assertIsInstance(dependency, Depends)
@@ -178,6 +187,49 @@ class AdminUserProvisioningTest(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(admin.role, "admin_clinical")
+
+    def test_selected_permissions_exclude_clinical_state_and_are_audited(self):
+        admin = _user("admin_clinical", email="admin@example.com")
+        patient = _user("patient", email="patient@example.com")
+        plan = SafetyPlan(user_id=patient.id, reasons_to_live="private")
+        db = _FakeSession(users=[admin, patient], safety_plan=plan)
+
+        document = admin_users.get_user_permissions(patient.id, db=db, admin=admin)
+
+        self.assertEqual(document.user.id, patient.id)
+        self.assertTrue(document.permissions)
+        self.assertNotIn("reasons_to_live", document.model_dump_json())
+        self.assertTrue(any(isinstance(item, AuditLog) and item.action == "user_permissions_viewed" for item in db.added))
+
+    def test_print_and_revoke_are_audited_and_revoke_invalidates_sessions(self):
+        admin = _user("admin_clinical", email="admin@example.com")
+        patient = _user("patient", email="patient@example.com")
+        patient.auth_version = 1
+        db = _FakeSession(users=[admin, patient])
+
+        printed = admin_users.print_user_permissions(patient.id, db=db, admin=admin)
+        revoked = admin_users.revoke_user_access(patient.id, db=db, admin=admin)
+
+        self.assertEqual(printed.user.id, patient.id)
+        self.assertFalse(patient.is_active)
+        self.assertEqual(patient.auth_version, 2)
+        self.assertTrue(revoked.can_restore)
+        actions = [item.action for item in db.added if isinstance(item, AuditLog)]
+        self.assertIn("user_permissions_print_requested", actions)
+        self.assertIn("user_access_revoked", actions)
+
+    def test_restore_requires_a_fresh_session_version(self):
+        admin = _user("admin_clinical", email="admin@example.com")
+        patient = _user("patient", email="patient@example.com")
+        patient.is_active = False
+        patient.auth_version = 4
+        db = _FakeSession(users=[admin, patient])
+
+        document = admin_users.restore_user_access(patient.id, db=db, admin=admin)
+
+        self.assertTrue(patient.is_active)
+        self.assertEqual(patient.auth_version, 5)
+        self.assertFalse(document.can_restore)
 
 
 if __name__ == "__main__":

@@ -20,47 +20,34 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 12  # 12h, local/demo convenience
 
-    # --- LLM (Anthropic / Claude) ---------------------------------------
-    # Every agent runs on the Anthropic API. No Claude model can run fully
-    # offline: there are no downloadable weights. This app is "self-hosted"
-    # in the sense that the server, database and UI run on infrastructure
-    # you control, but the agents call the Anthropic API over the network.
-    #
-    # Three roles, three settings. They are separate so each can be pinned
-    # to what its job needs: the analyst is safety-critical and slow-path,
-    # the conversational agent has a person waiting on it, and the copilot
-    # reads a long dossier for a clinician who is not waiting on a chat
-    # bubble.
+    # --- LLM --------------------------------------------------------------
+    # Claude through Anthropic is the connected-service default. Gemma 2
+    # through an OpenAI-compatible server (LM Studio locally, the
+    # authenticated Cloudflare hostname from Render) is the offline/local
+    # alternative.
+    # Claude is the primary connected-service default.  A local/offline
+    # deployment explicitly overrides this to Gemma 2 in `.env.local`.
+    llm_default_provider: str = "anthropic"
+    llm_openai_compatible_base_url: str = ""
+    llm_openai_compatible_api_key: str = ""
+    llm_openai_compatible_chat_model: str = "gemma-2-2b-it"
+    llm_openai_compatible_analysis_model: str = "gemma-2-2b-it"
+    llm_openai_compatible_copilot_model: str = ""
+    llm_openai_compatible_timeout_seconds: int = 300
+    llm_openai_compatible_max_tokens: int = 8192
+
+    # Optional remote alternative.  The key is deployment-only: runtime
+    # configuration may select Claude but can never receive or replace it.
     anthropic_api_key: str = ""
-
-    # Agent 1 — the conversational reply the patient reads.
     anthropic_chat_model: str = "claude-opus-5"
-    anthropic_chat_effort: str = "medium"
-
-    # The analyst — structured analysis feeding the risk engine.
-    # Accuracy here drives alert levels, so it defaults to high effort.
     anthropic_analysis_model: str = "claude-opus-5"
-    anthropic_analysis_effort: str = "high"
-
-    # Agent 3 — the therapist's clinical copilot. Empty means "same as the
-    # conversational agent", which is what it silently did before it had a
-    # setting of its own; naming it makes that a choice instead of an
-    # accident, and lets it be pinned separately.
     anthropic_copilot_model: str = ""
-    anthropic_copilot_effort: str = ""
-
-    # Caps thinking + response text together, so leave headroom.
-    #
-    # One shared value used to be the whole story, but it only ever reached
-    # the analyst: LLMProvider.chat() had a truthy `max_tokens=1024` default,
-    # so `max_tokens or self._max_tokens` never fell through. Raising
-    # ANTHROPIC_MAX_TOKENS therefore did nothing at all to Agent 1. The two
-    # specific settings below fix that and make the split explicit; either
-    # left at 0 falls back to the shared value, so existing deployments that
-    # set only ANTHROPIC_MAX_TOKENS keep working.
     anthropic_max_tokens: int = 8192
     anthropic_max_tokens_chat: int = 0
     anthropic_max_tokens_analysis: int = 0
+    anthropic_chat_effort: str = "medium"
+    anthropic_analysis_effort: str = "high"
+    anthropic_copilot_effort: str = ""
 
     @property
     def copilot_model(self) -> str:
@@ -77,6 +64,10 @@ class Settings(BaseSettings):
     @property
     def max_tokens_analysis(self) -> int:
         return self.anthropic_max_tokens_analysis or self.anthropic_max_tokens
+
+    @property
+    def local_copilot_model(self) -> str:
+        return self.llm_openai_compatible_copilot_model.strip() or self.llm_openai_compatible_chat_model
 
     # --- Runtime LLM endpoint override ----------------------------------
     # Lets the two inference agents be pointed at a model you host yourself

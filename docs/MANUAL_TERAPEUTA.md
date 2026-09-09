@@ -30,13 +30,13 @@ y cómo auditar cualquier decisión del sistema hasta la frase que la produjo.
 | **Check-ins** | El paciente puntúa a diario ánimo, craving, sueño y autoeficacia. | Paciente |
 | **Diario** | Texto libre del paciente. | Paciente |
 | **Chat** | Conversación del paciente con el Agente 1. | Paciente |
-| **Agente 1** | Responde al paciente. Nunca calcula riesgo. | LLM (Claude) |
-| **Agente 2** | Lee cada texto (diario y chat) y devuelve señales estructuradas. | LLM (Claude) |
+| **Agente 1** | Responde al paciente. Nunca calcula riesgo. | LLM (Claude por defecto; Gemma 2 local) |
+| **Agente 2** | Lee cada texto (diario y chat) y devuelve señales estructuradas. | LLM (Claude por defecto; Gemma 2 local) |
 | **Score estructural** | Compara los últimos 7 días de check-ins con la línea base de 21 días del propio paciente. | Estadística local, sin IA |
 | **Motor de riesgo** | Decide el nivel 0–4 aplicando reglas fijas en orden. | **Código determinista, sin IA** |
 | **Alertas** | Se crean automáticamente en niveles 3 y 4. | Motor determinista |
-| **Agente 3 (copiloto)** | Te resume y responde preguntas sobre un paciente. Solo lectura. | LLM (Claude) |
-| **Agente 4** | Extrae determinantes sociales (vivienda, apoyo, dinero, pérdidas…) de lo que el paciente escribe. | LLM (Claude) |
+| **Agente 3 (copiloto)** | Te resume y responde preguntas sobre un paciente. Solo lectura. | LLM (Claude por defecto; Gemma 2 local) |
+| **Agente 4** | Extrae determinantes sociales (vivienda, apoyo, dinero, pérdidas…) de lo que el paciente escribe. | LLM (Claude por defecto; Gemma 2 local) |
 | **Índice psicosocial** | Pondera esos determinantes con pesos fijos. | Aritmética local, sin IA |
 
 Lo importante: **ningún modelo de lenguaje decide el nivel de alarma**. Los
@@ -526,8 +526,8 @@ como no verificada.** Es un modelo de lenguaje: puede equivocarse al leer.
 - Los datos viven en tu propia infraestructura (Supabase/Postgres). El
   esquema no está expuesto vía PostgREST y las tablas sensibles tienen
   `FORCE ROW LEVEL SECURITY` con acceso solo para el rol del backend.
-- Lo único que sale a un tercero es el **texto que se envía a la API de
-  Anthropic** para los agentes 1, 2 y 3. No hay modelos Claude descargables.
+- Lo único que sale a un tercero es el **texto que se envía al proveedor LLM
+  seleccionado**: Claude por la API de Anthropic (predeterminado conectado) o Gemma 2 mediante LM Studio y un endpoint compatible con OpenAI (alternativa local/túnel). Ambas rutas se autentican y quedan sujetas a la arquitectura indicada en README.
 - Las trazas del Agente 2 **no duplican** el texto: apuntan al mensaje o
   entrada original.
 - Los mensajes de error del proveedor nunca se guardan en crudo: solo una

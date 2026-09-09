@@ -2,6 +2,8 @@ remote-credentials.txt
 frontend/.htpasswd
 .env
 .env.local
+.env.cloud
+.local/
 remote-url.txt
 
 # Local/offline deployment secrets and generated replication credentials.
@@ -33,3 +35,7 @@ frontend/tsconfig.tsbuildinfo
 coverage.xml
 htmlcov/
 .pytest_cache/
+
+# Local Codex/Supabase CLI state. It carries workstation state, never product data.
+.codex/
+supabase/.temp/

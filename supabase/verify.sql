@@ -53,6 +53,11 @@ required_columns(table_name, column_name) as (values
     ('llm_endpoint_configs', 'copilot_model'),
     ('patient_profiles', 'id'),
     ('patient_profiles', 'linguistic_baseline'),
+    ('users', 'first_name'),
+    ('users', 'last_name'),
+    ('users', 'phone'),
+    ('users', 'auth_version'),
+    ('users', 'updated_at'),
     ('chat_messages', 'provider'),
     ('chat_messages', 'model'),
     ('chat_messages', 'provider_base_url')

@@ -1,9 +1,4 @@
-"""LLM provider factory.
-
-PsychApp's agents run on whichever provider is configured. Anthropic calls
-also receive a metadata-only usage recorder so every billable request can be
-reconciled independently of the clinical tables.
-"""
+"""Gemma 2 local provider factory with Claude as a server-keyed alternative."""
 from app.services.llm.anthropic_provider import AnthropicProvider
 from app.services.llm.base import (
     ChatResult,
@@ -33,7 +28,7 @@ def build_provider(config) -> LLMProvider:
 
     if config.provider == llm_config.PROVIDER_LOCAL:
         return OpenAICompatibleProvider(
-            base_url=config.base_url,
+            base_url=config.base_url or "",
             chat_model=config.chat_model,
             analysis_model=config.analysis_model,
             copilot_model=config.copilot_model,
@@ -41,21 +36,17 @@ def build_provider(config) -> LLMProvider:
             max_tokens=config.max_tokens,
             timeout_seconds=float(config.timeout_seconds),
         )
+    if config.provider == llm_config.PROVIDER_ANTHROPIC:
+        from app.services.llm_usage import record_usage_safely
 
-    # Imported lazily to keep the provider module usable in isolated unit
-    # tests without opening a database session merely by importing it.
-    from app.services.llm_usage import record_usage_safely
-
-    return AnthropicProvider(
-        chat_model=config.chat_model,
-        analysis_model=config.analysis_model,
-        copilot_model=config.copilot_model,
-        # Only a runtime override pins one budget across both roles. Passing
-        # the environment's shared value here would shadow the per-role
-        # settings.
-        max_tokens=config.explicit_max_tokens,
-        usage_recorder=record_usage_safely,
-    )
+        return AnthropicProvider(
+            chat_model=config.chat_model,
+            analysis_model=config.analysis_model,
+            copilot_model=config.copilot_model,
+            max_tokens=config.explicit_max_tokens,
+            usage_recorder=record_usage_safely,
+        )
+    raise RuntimeError("Proveedor LLM no admitido.")
 
 
 def get_llm_provider(db=None) -> LLMProvider:

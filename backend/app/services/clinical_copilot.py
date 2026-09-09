@@ -423,7 +423,7 @@ def ask(
             + (
                 "Si esto se repite, revisa que el servidor del modelo esté accesible desde el backend."
                 if active.is_local
-                else "Si esto se repite, revisa que ANTHROPIC_API_KEY esté configurada en el servidor."
+                else "Si esto se repite, revisa Gemma 2, LM Studio y el token configurado en el servidor."
             )
         )
 

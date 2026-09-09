@@ -85,7 +85,7 @@ def start(
     correlation_id: uuid.UUID | None = None,
     agent_role: str = ANALYZER_ROLE,
 ) -> Agent2AnalysisTrace:
-    """Commit ``started`` before contacting Anthropic.
+    """Commit ``started`` before contacting the configured LLM provider.
 
     Failing closed here prevents an external request which the application
     cannot later account for.  The deterministic risk engine remains
@@ -116,7 +116,7 @@ def start(
         provider=active.provider,
         provider_base_url=active.base_url,
         requested_model=active.analysis_model,
-        effort=settings.anthropic_analysis_effort if active.provider == "anthropic" else "n/a",
+        effort="n/a",
         max_tokens=active.max_tokens,
         prompt_version=prompt_version,
         prompt_sha256=_sha256_text(system_prompt),

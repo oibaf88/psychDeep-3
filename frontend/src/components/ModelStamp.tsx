@@ -4,7 +4,7 @@ import { modelProvenanceLabel } from "../api";
  * Which model produced one stored interaction.
  *
  * A patient's history can span endpoints — an analysis from March under
- * Claude, one from April under a model running on the clinician's own
+ * a Claude inference or one from April under Gemma 2 running on the clinician's own
  * machine — and the two are not interchangeable evidence: a weaker model
  * missing a linguistic marker looks exactly like the marker not being there.
  * So every assistant turn and every analysis carries its own provenance

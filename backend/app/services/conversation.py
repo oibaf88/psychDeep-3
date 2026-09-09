@@ -439,15 +439,18 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
             error_type = type(exc).__name__.lower()
             if "authentication" in error_type:
                 reply_text = (
-                    "El chat con Claude no está disponible: la ANTHROPIC_API_KEY no es válida. "
-                    "En console.anthropic.com crea una API key (formato sk-ant-api…, no un token OAuth oat) "
-                    "y ponla en el archivo .env del proyecto; luego reinicia con docker compose up -d. "
+                    "El chat con Gemma 2 no está disponible: revisa el token de LM Studio y el endpoint configurado. "
+                    "Tus datos y check-ins se han guardado con normalidad."
+                )
+            elif "ANTHROPIC_API_KEY" in str(exc):
+                reply_text = (
+                    "El chat con Claude no está disponible: falta el secreto ANTHROPIC_API_KEY en el servidor. "
                     "Tus datos y check-ins se han guardado con normalidad."
                 )
             elif isinstance(exc, RuntimeError):
                 reply_text = (
                     "Ahora mismo no puedo generar una respuesta conversacional "
-                    "(revisa que ANTHROPIC_API_KEY esté configurada en .env). "
+                    "(revisa LM Studio, Gemma 2 y el token configurado en .env.local). "
                     "Tus datos y check-ins se han guardado con normalidad."
                 )
             else:

@@ -209,7 +209,7 @@ class LinguisticBoundaryTests(unittest.TestCase):
             )
 
         self.assertEqual(reply["ui_mode"], "normal")
-        self.assertIn("ANTHROPIC_API_KEY", reply["reply"])
+        self.assertIn("Tus datos y check-ins se han guardado", reply["reply"])
 
     def test_the_stored_turn_names_the_model_that_actually_answered(self):
         """Provenance comes from the call, not from re-reading the config.

@@ -40,13 +40,6 @@ export default function LoginPage() {
         Herramienta de autorregulacion y autoconciencia. No es un dispositivo medico ni sustituye a tu equipo de
         tratamiento.
       </p>
-      {SHOW_LOCAL_DEMO && (
-        <p className="info" style={{ textAlign: "left" }}>
-          <strong>Movil (misma Wi-Fi):</strong> abre <code>http://192.168.1.213:5173</code> (IP de tu PC). Si no carga,
-          en el PC ejecuta <code>start-for-phone.ps1</code> y acepta el UAC del firewall.{" "}
-          <Link to="/settings">Ajustes / instalar</Link>
-        </p>
-      )}
       <form onSubmit={onSubmit} className="auth-form">
         <label>
           Email

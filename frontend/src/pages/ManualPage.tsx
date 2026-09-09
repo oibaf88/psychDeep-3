@@ -110,12 +110,12 @@ export default function ManualPage() {
                     <tr>
                       <td>Agente 1</td>
                       <td>Responde al paciente. Nunca calcula riesgo.</td>
-                      <td>LLM (Claude)</td>
+                      <td>LLM (Claude por defecto; Gemma 2 local)</td>
                     </tr>
                     <tr>
                       <td>Agente 2</td>
                       <td>Lee cada texto (diario y chat) y devuelve señales estructuradas.</td>
-                      <td>LLM (Claude)</td>
+                      <td>LLM (Claude por defecto; Gemma 2 local)</td>
                     </tr>
                     <tr>
                       <td>Score estructural</td>
@@ -137,12 +137,12 @@ export default function ManualPage() {
                     <tr>
                       <td>Agente 3 (copiloto)</td>
                       <td>Te resume y responde preguntas sobre un paciente. Solo lectura.</td>
-                      <td>LLM (Claude)</td>
+                      <td>LLM (Claude por defecto; Gemma 2 local)</td>
                     </tr>
                     <tr>
                       <td>Agente 4</td>
                       <td>Extrae determinantes sociales (vivienda, apoyo, dinero, pérdidas…) de lo que escribe.</td>
-                      <td>LLM (Claude)</td>
+                      <td>LLM (Claude por defecto; Gemma 2 local)</td>
                     </tr>
                     <tr>
                       <td>Índice psicosocial</td>
@@ -970,8 +970,8 @@ score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
                   solo para el rol del backend.
                 </li>
                 <li>
-                  Lo único que sale a un tercero es el <strong>texto enviado a la API de Anthropic</strong> para
-                  los agentes 1, 2 y 3. No hay modelos Claude descargables.
+                  La inferencia se realiza con <strong>Claude por la API de Anthropic (predeterminado conectado)</strong> o con <strong>Gemma 2 en LM Studio</strong> para
+                  los agentes 1, 2 y 3. La alternativa local usa LM Studio; desde la nube sólo se admite un túnel HTTPS protegido.
                 </li>
                 <li>Las trazas del Agente 2 no duplican el texto: apuntan al mensaje o entrada original.</li>
                 <li>

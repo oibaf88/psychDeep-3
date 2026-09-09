@@ -23,6 +23,7 @@ import SettingsPage from "./pages/SettingsPage";
 import CopilotPage from "./pages/CopilotPage";
 import ManualPage from "./pages/ManualPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
+import AccountPage from "./pages/AccountPage";
 
 function Shell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -52,6 +53,14 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route
+              path="/account"
+              element={
+                <ProtectedRoute>
+                  <AccountPage />
+                </ProtectedRoute>
+              }
+            />
 
             <Route
               path="/"

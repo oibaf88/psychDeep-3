@@ -13,16 +13,20 @@ const STOP_STEPS = [
   { letter: "P", text: "Procede con conciencia: elige tu siguiente paso." },
 ];
 
-function wavePath(level: number, offset: number) {
-  const baseline = 118 - level * 5.2;
-  const amplitude = 9 + level * 2.4;
-  const width = 96;
-  let path = `M ${-width + offset} ${baseline}`;
+function wavePath(level: number, offset: number, detail = 1) {
+  const baseline = 128 - level * 6.5;
+  const amplitude = 5 + level * 3.15;
+  const wavelength = Math.max(38, 98 - level * 4) / detail;
+  const crestSkew = Math.min(0.72, 0.34 + level * 0.035);
+  let path = `M ${-wavelength + offset} ${baseline}`;
 
-  for (let x = -width + offset; x < 384; x += width) {
-    path += ` C ${x + width * 0.25} ${baseline - amplitude}, ${x + width * 0.75} ${
+  for (let x = -wavelength + offset; x < 384 + wavelength; x += wavelength) {
+    path += ` C ${x + wavelength * 0.15} ${baseline - amplitude * crestSkew}, ${x + wavelength * 0.42} ${
+      baseline - amplitude
+    }, ${x + wavelength * 0.58} ${baseline - amplitude * 0.68}`;
+    path += ` C ${x + wavelength * 0.76} ${baseline - amplitude * 0.18}, ${x + wavelength * 0.84} ${
       baseline + amplitude
-    }, ${x + width} ${baseline}`;
+    }, ${x + wavelength} ${baseline}`;
   }
 
   return `${path} L 384 160 L 0 160 Z`;
@@ -40,10 +44,14 @@ export default function WavePage() {
   }, []);
 
   const waveFront = useMemo(() => wavePath(urgeLevel, 0), [urgeLevel]);
-  const waveBack = useMemo(() => wavePath(Math.max(1, urgeLevel - 2), 36), [urgeLevel]);
+  const waveBack = useMemo(() => wavePath(Math.max(1, urgeLevel - 2), 32, 0.85), [urgeLevel]);
+  const waveMid = useMemo(() => wavePath(Math.max(1, urgeLevel - 1), 62, 1.25), [urgeLevel]);
+  const waveFoam = useMemo(() => wavePath(Math.min(10, urgeLevel + 1), 12, 1.6), [urgeLevel]);
+  const waveState = urgeLevel >= 8 ? "storm" : urgeLevel >= 4 ? "rising" : "calm";
   const waveStyle = {
     "--wave-duration": `${Math.max(5, 12 - urgeLevel * 0.6)}s`,
     "--wave-back-duration": `${Math.max(8, 16 - urgeLevel * 0.5)}s`,
+    "--wave-crest-duration": `${Math.max(3.5, 9 - urgeLevel * 0.42)}s`,
   } as CSSProperties;
 
   return (
@@ -59,7 +67,7 @@ export default function WavePage() {
           Intensidad de la urgencia ahora (0-10): {urgeLevel}
           <input type="range" min={0} max={10} value={urgeLevel} onChange={(e) => setUrgeLevel(Number(e.target.value))} />
         </label>
-        <div className="wave-visual" style={waveStyle} aria-hidden="true">
+        <div className={`wave-visual wave-visual--${waveState}`} style={waveStyle} aria-hidden="true">
           <svg className="wave-svg" viewBox="0 0 320 160" preserveAspectRatio="none">
             <defs>
               <linearGradient id="waveFrontGradient" x1="0" x2="0" y1="0" y2="1">
@@ -71,10 +79,15 @@ export default function WavePage() {
                 <stop offset="0%" stopColor="#b9cdfa" stopOpacity="0.7" />
                 <stop offset="100%" stopColor="#6c98f4" stopOpacity="0.55" />
               </linearGradient>
+              <linearGradient id="waveMidGradient" x1="0" x2="0.7" y1="0" y2="1">
+                <stop offset="0%" stopColor="#9bded8" stopOpacity="0.78" />
+                <stop offset="100%" stopColor="#4578c9" stopOpacity="0.72" />
+              </linearGradient>
             </defs>
             <path className="wave-back" d={waveBack} />
+            <path className="wave-mid" d={waveMid} />
             <path className="wave-front" d={waveFront} />
-            <path className="wave-foam" d={wavePath(Math.min(10, urgeLevel + 1), 12)} />
+            <path className="wave-foam" d={waveFoam} />
           </svg>
         </div>
         <p>

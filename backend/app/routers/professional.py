@@ -59,7 +59,6 @@ from app.schemas import (
     SignalRefutationOut,
     PsychosocialExplanationOut,
     PsychosocialObservationOut,
-    DeepStatisticalAnalysisOut,
     PatientSummaryOut,
     RiskAssessmentOut,
     SafetyPlanOut,
@@ -824,15 +823,6 @@ def patient_dossier(
         .all()
     )
 
-    biometrics = []
-    app_usage = []
-
-    deep_analysis = DeepStatisticalAnalysisOut(
-        biometrics=biometrics,
-        app_usage=app_usage,
-        insights=["Patrón de sueño irregular detectado en los últimos 3 días", "Uso excesivo de redes sociales a altas horas de la noche"]
-    ) if (biometrics or app_usage) else None
-
     chat_messages = (
         db.query(ChatMessage)
         .filter(ChatMessage.user_id == patient_id)
@@ -880,7 +870,6 @@ def patient_dossier(
         signals=signals,
         agent2_traces=_agent2_traces_out(db, agent2_traces),
         safety_plan=SafetyPlanOut.model_validate(plan) if plan else None,
-        deep_analysis=deep_analysis,
         professional_protocol=protocol,
     )
     audit.log(

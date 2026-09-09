@@ -112,7 +112,7 @@ export default function ChatPage() {
           <div key={m.id} className={`chat-bubble chat-${m.role}`}>
             {m.content}
             {/* Only shown when the reply came from a model the operator
-                pointed the app at, so the ordinary Claude-backed
+                pointed the app at, so the ordinary Claude- or Gemma-backed
                 conversation stays free of machinery the patient did not
                 ask about. */}
             {m.role === "assistant" && m.provider === "openai_compatible" && (

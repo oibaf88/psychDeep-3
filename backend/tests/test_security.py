@@ -21,23 +21,13 @@ class SecurityHashPasswordTest(unittest.TestCase):
         self.assertTrue(verify_password(password, hashed))
         self.assertFalse(verify_password("wrong_password", hashed))
 
-    def test_hash_password_truncates_at_max_bytes(self):
-        # Passwords longer than 72 bytes should produce the same hash prefix / match
-        # as passwords truncated at 72 bytes.
-        base_72 = "a" * _BCRYPT_MAX_BYTES
-        longer_80 = "a" * 80
+    def test_hash_password_rejects_new_passwords_above_bcrypt_limit(self):
+        with self.assertRaises(ValueError):
+            hash_password("a" * (_BCRYPT_MAX_BYTES + 1))
 
-        hashed_base = hash_password(base_72)
-        # Verify that longer password verifies against the hash generated from base_72
-        self.assertTrue(verify_password(longer_80, hashed_base))
-
-    def test_hash_password_handles_empty_string(self):
-        password = ""
-        hashed = hash_password(password)
-
-        self.assertIsInstance(hashed, str)
-        self.assertTrue(verify_password("", hashed))
-        self.assertFalse(verify_password("not_empty", hashed))
+    def test_hash_password_rejects_short_password(self):
+        with self.assertRaises(ValueError):
+            hash_password("")
 
     def test_hash_password_handles_unicode_characters(self):
         password = "🔒contraseña_123!_€"
@@ -48,15 +38,15 @@ class SecurityHashPasswordTest(unittest.TestCase):
 
     @patch("bcrypt.hashpw")
     @patch("bcrypt.gensalt")
-    def test_hash_password_calls_bcrypt_with_truncated_bytes(self, mock_gensalt, mock_hashpw):
+    def test_hash_password_calls_bcrypt_with_full_valid_bytes(self, mock_gensalt, mock_hashpw):
         mock_gensalt.return_value = b"$2b$12$fakegensaltstringhere"
         mock_hashpw.return_value = b"$2b$12$fakehashedpasswordstring"
 
-        long_password = "x" * 100
-        result = hash_password(long_password)
+        password = "x" * 20
+        result = hash_password(password)
 
         mock_gensalt.assert_called_once()
-        expected_bytes = long_password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
+        expected_bytes = password.encode("utf-8")
         mock_hashpw.assert_called_once_with(expected_bytes, mock_gensalt.return_value)
         self.assertEqual(result, "$2b$12$fakehashedpasswordstring")
 import uuid
@@ -89,9 +79,9 @@ class SecurityTests(unittest.TestCase):
         self.assertFalse(verify_password(12345, "invalid_hash"))
 
     def test_verify_password_long_password_truncation(self):
-        # Password longer than 72 bytes
+        # Existing bcrypt hashes retain legacy verification compatibility.
         long_password = "a" * 100
-        hashed = hash_password(long_password)
+        hashed = bcrypt.hashpw(long_password.encode("utf-8")[:_BCRYPT_MAX_BYTES], bcrypt.gensalt()).decode("utf-8")
         self.assertTrue(verify_password(long_password, hashed))
 
         # Passwords sharing the first 72 bytes should evaluate to True due to 72-byte truncation
@@ -186,6 +176,16 @@ class SecurityTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_auth_version_invalidates_pre_rotation_session(self):
+        token = create_access_token(self.user_id, role="patient", auth_version=1)
+        self.user.auth_version = 2
+        self.db.get.return_value = self.user
+
+        with self.assertRaises(HTTPException) as ctx:
+            get_current_user(token=token, db=self.db)
+
+        self.assertEqual(ctx.exception.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_require_roles_success(self):
         dep = require_roles("patient", "admin_clinical")
         res = dep(user=self.user)
@@ -234,10 +234,10 @@ class SecurityTests(unittest.TestCase):
             with self.subTest(invalid_hash=invalid_hash):
                 self.assertFalse(verify_password("SecretPassword123", invalid_hash))
 
-    def test_verify_password_uses_bcrypt_72_byte_prefix(self):
-        shared_prefix = "A" * 72
-        hashed = hash_password(shared_prefix + "BBB")
-        self.assertTrue(verify_password(shared_prefix + "CCC", hashed))
+    def test_new_passwords_reject_bcrypt_truncation_lengths(self):
+        # New credentials must never silently collapse to the first 72 bytes.
+        with self.assertRaises(ValueError):
+            hash_password("A" * 73)
 
     def test_get_current_user_valid_token(self):
         user_id = uuid.uuid4()
