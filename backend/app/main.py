@@ -56,7 +56,7 @@ if settings.app_env in ("local", "dev", "development"):
     # LAN origins (phone on same Wi-Fi via http://192.168.x.x:5173 or private IPs).
     # Specific tunnel hosts should be configured via CORS_ORIGINS.
     _cors_kwargs["allow_origin_regex"] = (
-        r"https?://("
+        r"^https?://("
         r"localhost|127\.0\.0\.1|"
         r"192\.168\.\d{1,3}\.\d{1,3}|"
         r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
