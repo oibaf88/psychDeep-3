@@ -288,8 +288,10 @@ def _convergencia_critica_extrema(structural_score: float | None, rumination: fl
 
 def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
     """Pre-trace implementation retained temporarily for migration comparison tests."""
+    evaluated_at = datetime.utcnow()
     structural = baseline_service.compute_structural_score(db, user_id)
-    ling_flags = _linguistic_flags(db, user_id)
+    ling_flags = _linguistic_flags(db, user_id, now=evaluated_at)
+    safety = _recent_safety_signals(db, user_id, now=evaluated_at)
     linguistic = ling_flags.get("raw") or _latest_linguistic_signal(db, user_id)
     rumination = ling_flags.get("rumination_score")
     if rumination is None:
@@ -312,14 +314,23 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
     n4_facts = _facts_in_categories(db, user_id, N4_FACT_CATEGORIES, CRITICAL_DECLARATION_WINDOW_HOURS)
     n3_facts = _facts_in_categories(db, user_id, N3_FACT_CATEGORIES, CRITICAL_DECLARATION_WINDOW_HOURS)
 
+    agent2_available = bool(ling_flags["eligible_for_risk"])
+    ideation_direct = (bool(ling_flags.get("ideation_direct")) and agent2_available) or safety["ideation_direct"]
+    ideation_indirect = (bool(ling_flags.get("ideation_indirect")) and agent2_available) or safety["ideation_indirect"]
+    consumption_crisis = (bool(ling_flags.get("consumption_crisis")) and agent2_available) or safety["consumption_crisis"]
+
     input_signals = {
         "structural_score": structural.score,
         "confidence_band": structural.confidence_band,
         "z_scores": structural.z_scores,
+        "calculation_version": "legacy-indirect-fix",
         "linguistic": linguistic,
+        "linguistic_signal_id": ling_flags.get("signal_id"),
+        "linguistic_signal_timestamp": ling_flags.get("signal_timestamp"),
         "linguistic_flags": {
-            "ideation_direct": ling_flags["ideation_direct"],
-            "consumption_crisis": ling_flags["consumption_crisis"],
+            "ideation_direct": ideation_direct,
+            "ideation_indirect": ideation_indirect,
+            "consumption_crisis": consumption_crisis,
         },
         "sleep_trend": sleep_trend,
     }
@@ -344,7 +355,7 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
             input_facts=input_facts,
         )
 
-    if ling_flags["ideation_direct"]:
+    if ideation_direct:
         triggering_rules.append("N4_senal_linguistica_ideacion_directa")
         return RiskDecision(
             level=4,
@@ -365,6 +376,16 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
         )
 
     # ---------------- Nivel 3 (Alarma profesional) ----------------
+    if ideation_indirect:
+        triggering_rules.append("N3_senal_linguistica_ideacion_indirecta")
+        return RiskDecision(
+            level=3,
+            triggering_rules=triggering_rules,
+            reason="Posible ideación no explicitada: requiere valoración clínica prioritaria",
+            input_signals=input_signals,
+            input_facts=input_facts,
+        )
+
     if n3_facts:
         triggering_rules.append("N3_declaracion_crisis_consumo")
         return RiskDecision(
@@ -375,7 +396,7 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
             input_facts=input_facts,
         )
 
-    if ling_flags["consumption_crisis"]:
+    if consumption_crisis:
         triggering_rules.append("N3_senal_linguistica_crisis_consumo")
         return RiskDecision(
             level=3,

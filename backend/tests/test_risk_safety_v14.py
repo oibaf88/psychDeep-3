@@ -21,7 +21,27 @@ class SafetyPriorityTests(_CalculationHarness, unittest.TestCase):
         )
         self.assertEqual(result.level, 3)
         self.assertEqual(result.triggering_rules, ["N3_senal_linguistica_ideacion_indirecta"])
-        self.assertIn("no ideación confirmada", result.reason)
+
+    def test_legacy_indirect_ideation_alone_requires_priority_review(self):
+        current = uuid.uuid4()
+        previous = str(uuid.uuid4())
+        safety = {
+            "window_hours": 12, "ideation_direct": False,
+            "ideation_indirect": True, "consumption_crisis": False,
+            "evidence": [{"signal_id": previous, "ideation_indirect": True}],
+        }
+        with patch.object(risk_engine, "_recent_safety_signals", return_value=safety):
+            result = self._calculate(
+                structural=_structural(score=1, band="stable"),
+                linguistic=_linguistic(signal_id=current, ideation_indirect=False, rumination=0, negative_valence=0),
+                use_legacy=True, preferred_signal_id=current
+            )
+        self.assertEqual(result.level, 3)
+        self.assertIn("N3_senal_linguistica_ideacion_indirecta", result.triggering_rules)
+        self.assertIn("Posible ideación no explicitada", result.reason)
+        self.assertEqual(result.input_signals["linguistic_signal_id"], str(current))
+        self.assertTrue(result.input_signals["linguistic_flags"]["ideation_indirect"])
+        self.assertEqual(result.input_signals["calculation_version"], "legacy-indirect-fix")
 
     def test_indirect_ideation_does_not_need_a_structural_baseline(self):
         result = self._calculate(

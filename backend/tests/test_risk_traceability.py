@@ -290,6 +290,7 @@ class _CalculationHarness:
         persistence=(0, 0, 0),
         preferred_signal_id=None,
         psychosocial=None,
+        use_legacy=False,
     ):
         # The production query returns newest-first and the engine reverses it
         # before calculating the slope.  The fake query does not implement SQL
@@ -325,12 +326,16 @@ class _CalculationHarness:
             ),
         ):
             patient_id = uuid.uuid4()
-            decision = risk_engine.calculate_risk_level(
-                fake_db,
-                patient_id,
-                linguistic_signal_id=preferred_signal_id,
-            )
-        linguistic_lookup.assert_called_once_with(fake_db, patient_id, signal_id=preferred_signal_id, now=ANY)
+            if use_legacy:
+                decision = risk_engine._calculate_risk_level_legacy(fake_db, patient_id)
+            else:
+                decision = risk_engine.calculate_risk_level(
+                    fake_db,
+                    patient_id,
+                    linguistic_signal_id=preferred_signal_id,
+                )
+        if not use_legacy:
+            linguistic_lookup.assert_called_once_with(fake_db, patient_id, signal_id=preferred_signal_id, now=ANY)
         return decision
 
 
