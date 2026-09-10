@@ -365,6 +365,16 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
         )
 
     # ---------------- Nivel 3 (Alarma profesional) ----------------
+    if ling_flags.get("ideation_indirect"):
+        triggering_rules.append("N3_senal_linguistica_ideacion_indirecta")
+        return RiskDecision(
+            level=3,
+            triggering_rules=triggering_rules,
+            reason="Posible ideación no explicitada: requiere valoración clínica prioritaria",
+            input_signals=input_signals,
+            input_facts=input_facts,
+        )
+
     if n3_facts:
         triggering_rules.append("N3_declaracion_crisis_consumo")
         return RiskDecision(
