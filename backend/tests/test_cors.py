@@ -5,7 +5,19 @@ from app.main import app
 
 
 def test_cors_allowed_local_origins():
-    client = TestClient(app)
+    import os
+    import importlib
+    import sys
+    from unittest.mock import patch
+
+    # Reload app.main to evaluate CORS settings in a local env context
+    with patch.dict(os.environ, {"APP_ENV": "local"}):
+        if "app.config" in sys.modules:
+            importlib.reload(sys.modules["app.config"])
+        if "app.main" in sys.modules:
+            importlib.reload(sys.modules["app.main"])
+        from app.main import app as test_app
+        client = TestClient(test_app)
 
     allowed_origins = [
         "http://localhost:5173",

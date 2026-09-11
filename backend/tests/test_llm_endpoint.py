@@ -167,21 +167,22 @@ class ProviderSelectionTests(unittest.TestCase):
         self.assertEqual(config.chat_model, "gemma-2-2b-it")
 
     def test_validation_accepts_only_the_two_intended_providers(self):
-        claude = llm_config.validate(
-            provider="anthropic", base_url="http://ignored.example/v1", chat_model="claude-opus-5",
-            analysis_model="claude-opus-5", max_tokens=8192, timeout_seconds=300,
-        )
-        self.assertIsNone(claude["base_url"])
-        gemma = llm_config.validate(
-            provider="openai_compatible", base_url="http://localhost:1234", chat_model="gemma-2-2b-it",
-            analysis_model="gemma-2-2b-it", max_tokens=8192, timeout_seconds=300,
-        )
-        self.assertEqual(gemma["base_url"], "http://localhost:1234/v1")
-        with self.assertRaises(llm_config.LLMConfigError):
-            llm_config.validate(
-                provider="unknown", base_url="http://localhost:1234", chat_model="m", analysis_model="m",
-                max_tokens=8192, timeout_seconds=300,
+        with patch.object(llm_config, "backend_runtime", return_value="local"):
+            claude = llm_config.validate(
+                provider="anthropic", base_url="http://ignored.example/v1", chat_model="claude-opus-5",
+                analysis_model="claude-opus-5", max_tokens=8192, timeout_seconds=300,
             )
+            self.assertIsNone(claude["base_url"])
+            gemma = llm_config.validate(
+                provider="openai_compatible", base_url="http://localhost:1234", chat_model="gemma-2-2b-it",
+                analysis_model="gemma-2-2b-it", max_tokens=8192, timeout_seconds=300,
+            )
+            self.assertEqual(gemma["base_url"], "http://localhost:1234/v1")
+            with self.assertRaises(llm_config.LLMConfigError):
+                llm_config.validate(
+                    provider="unknown", base_url="http://localhost:1234", chat_model="m", analysis_model="m",
+                    max_tokens=8192, timeout_seconds=300,
+                )
 
     def test_cloud_backend_rejects_lan_or_plain_http_for_gemma(self):
         with patch.dict(os.environ, {"RENDER": "true"}, clear=False), patch.object(
@@ -198,6 +199,7 @@ class ProviderSelectionTests(unittest.TestCase):
 class DeploymentGuardTests(unittest.TestCase):
     def test_claude_default_and_runtime_override_off_are_tracked(self):
         from app.config import Settings
+        import os
 
         self.assertEqual(Settings.model_fields["llm_default_provider"].default, "anthropic")
         self.assertFalse(Settings.model_fields["llm_allow_runtime_override"].default)

@@ -3087,3 +3087,18 @@ tr.row-highlight {
     display: block !important;
   }
 }
+
+/* Additional styles for range inputs accessibility and UX */
+.range-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.range-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  padding: 0 4px;
+}

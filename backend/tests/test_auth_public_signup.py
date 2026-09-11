@@ -75,7 +75,9 @@ class PublicSignupRoleTest(unittest.TestCase):
     def test_mock_google_signup_cannot_self_assign_elevated_role(self):
         db = _FakeSession()
         previous = auth.settings.allow_mock_google_login
+        prev_env = auth.settings.app_env
         auth.settings.allow_mock_google_login = True
+        auth.settings.app_env = "local"
         try:
             token = auth.google_login(
                 GoogleLoginRequest(id_token="doctor@example.com", role="therapist"),
@@ -83,6 +85,7 @@ class PublicSignupRoleTest(unittest.TestCase):
             )
         finally:
             auth.settings.allow_mock_google_login = previous
+            auth.settings.app_env = prev_env
 
         created_user = next(obj for obj in db.added if isinstance(obj, User))
         self.assertEqual(created_user.role, "patient")

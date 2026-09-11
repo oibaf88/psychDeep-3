@@ -58,29 +58,48 @@ export default function PatientDashboard() {
       <section className="card">
         <h2>Check-in de hoy</h2>
         <form onSubmit={onSubmit} className="checkin-form">
-          <label>
-            Estado de ánimo (0-10): {form.mood}
+          <div className="range-container">
+            <label htmlFor="checkin-mood">Estado de ánimo: {form.mood}</label>
             <input
+              id="checkin-mood"
               type="range"
               min={0}
               max={10}
               value={form.mood}
               onChange={(e) => setForm({ ...form, mood: Number(e.target.value) })}
+              aria-valuemin={0}
+              aria-valuemax={10}
+              aria-valuenow={form.mood}
             />
-          </label>
-          <label>
-            Craving / deseo de consumo (0-10): {form.craving}
+            <div className="range-labels" aria-hidden="true">
+              <span>0 (Peor)</span>
+              <span>10 (Mejor)</span>
+            </div>
+          </div>
+
+          <div className="range-container">
+            <label htmlFor="checkin-craving">Craving / deseo de consumo: {form.craving}</label>
             <input
+              id="checkin-craving"
               type="range"
               min={0}
               max={10}
               value={form.craving}
               onChange={(e) => setForm({ ...form, craving: Number(e.target.value) })}
+              aria-valuemin={0}
+              aria-valuemax={10}
+              aria-valuenow={form.craving}
             />
-          </label>
-          <label>
-            Horas de sueño anoche
+            <div className="range-labels" aria-hidden="true">
+              <span>0 (Ninguno)</span>
+              <span>10 (Máximo)</span>
+            </div>
+          </div>
+
+          <div className="range-container" style={{ marginBottom: "12px" }}>
+            <label htmlFor="checkin-sleep">Horas de sueño anoche</label>
             <input
+              id="checkin-sleep"
               type="number"
               step="0.5"
               min={0}
@@ -88,26 +107,38 @@ export default function PatientDashboard() {
               value={form.sleep_hours}
               onChange={(e) => setForm({ ...form, sleep_hours: Number(e.target.value) })}
             />
-          </label>
-          <label>
-            Confianza en poder manejar la situación de hoy (0-10): {form.self_efficacy}
+          </div>
+
+          <div className="range-container">
+            <label htmlFor="checkin-efficacy">Confianza en poder manejar la situación de hoy: {form.self_efficacy}</label>
             <input
+              id="checkin-efficacy"
               type="range"
               min={0}
               max={10}
               value={form.self_efficacy}
               onChange={(e) => setForm({ ...form, self_efficacy: Number(e.target.value) })}
+              aria-valuemin={0}
+              aria-valuemax={10}
+              aria-valuenow={form.self_efficacy}
             />
-          </label>
-          <label>
-            Notas (opcional)
+            <div className="range-labels" aria-hidden="true">
+              <span>0 (Ninguna)</span>
+              <span>10 (Total)</span>
+            </div>
+          </div>
+
+          <div className="range-container" style={{ marginBottom: "12px" }}>
+            <label htmlFor="checkin-notes">Notas (opcional)</label>
             <textarea
+              id="checkin-notes"
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               placeholder="¿Algo que quieras registrar hoy?"
             />
-          </label>
-          <button type="submit" disabled={submitting}>
+          </div>
+
+          <button type="submit" disabled={submitting} style={{ marginTop: "8px" }}>
             {submitting ? "Guardando..." : "Guardar check-in"}
           </button>
         </form>
