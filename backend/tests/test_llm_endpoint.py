@@ -203,8 +203,10 @@ class DeploymentGuardTests(unittest.TestCase):
 
         self.assertEqual(Settings.model_fields["llm_default_provider"].default, "anthropic")
         self.assertFalse(Settings.model_fields["llm_allow_runtime_override"].default)
-        render_path = "render.yaml" if os.path.exists("render.yaml") else "../render.yaml"
-        with open(render_path, encoding="utf-8") as blueprint:
+
+        # Resolve the path relative to the tests directory to support running from anywhere
+        render_yaml_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "render.yaml")
+        with open(render_yaml_path, encoding="utf-8") as blueprint:
             text = blueprint.read()
         self.assertIn("- key: ANTHROPIC_API_KEY\n        sync: false", text)
         provider_index = text.index("LLM_DEFAULT_PROVIDER")
