@@ -1,0 +1,1 @@
+Asegura la coherencia de los tests con la capa de persistencia
