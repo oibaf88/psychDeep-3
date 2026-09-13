@@ -281,9 +281,10 @@ def _persistence_detail(db: Session, user_id, band: str, days_minimum: int) -> d
 
 
 def _convergencia_critica_extrema(structural_score: float | None, rumination: float | None, sleep_worsening: bool) -> bool:
-    if structural_score is None or rumination is None:
+    if structural_score is None:
         return False
-    return structural_score < 0.20 and rumination > 0.85 and sleep_worsening
+    rumination_extreme = rumination is not None and rumination > 0.85
+    return structural_score < 0.20 and (rumination_extreme or sleep_worsening)
 
 
 def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
@@ -534,7 +535,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
 
     structural_extreme = structural.adverse_composite_z is not None and structural.adverse_composite_z > 2.4
     rumination_extreme = isinstance(rumination, (int, float)) and rumination > 0.85
-    extreme_convergence = structural_extreme and rumination_extreme and sleep_worsening
+    extreme_convergence = structural_extreme and (rumination_extreme or sleep_worsening)
     agent2_available = bool(ling["eligible_for_risk"])
 
     craving_values = [float(row.craving) for row in ordered_checkins]
@@ -602,7 +603,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
         _trace_rule(
             "N3_convergencia_critica_extrema",
             3,
-            "Deterioro estadístico, rumiación y sueño: revisión profesional, no predicción suicida",
+            "Deterioro estadístico, rumiación o sueño: revisión profesional, no predicción suicida",
             [
                 _trace_condition("adverse_composite_z", structural.adverse_composite_z, "gt", 2.4, structural_extreme if structural.adverse_composite_z is not None else None),
                 _trace_condition("rumination_score", rumination, "gt", 0.85, rumination_extreme if rumination is not None else None),
@@ -922,7 +923,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
     reasons = {
         "N4_declaracion_ideacion_o_plan": "Declaración confirmada de ideación activa o planificación (hecho, no inferencia)",
         "N4_senal_linguistica_ideacion_directa": "Señal lingüística reciente de ideación directa (inferencia Agent 2; revisión humana prioritaria)",
-        "N3_convergencia_critica_extrema": "Deterioro estadístico con rumiación y sueño empeorando: revisión profesional, no emergencia inferida de una suma",
+        "N3_convergencia_critica_extrema": "Deterioro estadístico con rumiación o sueño empeorando: revisión profesional, no emergencia inferida de una suma",
         "N3_senal_linguistica_ideacion_indirecta": "Posible ideación no explicitada en el análisis textual; valoración clínica prioritaria pendiente, no ideación confirmada",
         "N4_convergencia_interpersonal_despedida": (
             "Convergencia interpersonal: ideación indirecta + carga percibida y pertenencia frustrada "
