@@ -12,10 +12,11 @@ Initial product scope is adult voluntary support around stimulant/chemsex-relate
 
 1. **Cloud is the only authoritative clinical data plane.** Supabase/PostgreSQL contains identity, consent, observations, diary, facts, features, baselines, inferences, risk assessments, alerts, plans and audit.
 2. **No local clinical product stack.** Do not add a local clinical PostgreSQL, product API/frontend, clinical queue/job or bidirectional sync path.
-3. **Only inference may be local.** A trusted OpenAI-compatible LLM can run locally and be reached by the cloud API through an authenticated HTTPS tunnel. A reviewed cloud-tuned endpoint must use the same Model Gateway contract.
-4. **No provider-specific clinical branches.** Domain logic does not import provider SDKs or change risk/consent/data semantics by model provider.
-5. **No silent fallback.** If the selected model deployment is unavailable, generative functionality degrades safely; it does not send clinical text to another unapproved provider.
-6. **Secrets are operations configuration.** Never persist API keys/tunnel tokens/model URLs in clinical DB rows or expose them to the browser. Admin-clinical cannot edit infrastructure endpoints/guardrails.
+3. **Only inference may be local.** A trusted OpenAI-compatible LLM can run locally and be reached by the cloud API through an authenticated HTTPS tunnel. A reviewed cloud-tuned endpoint must use the same provider-neutral inference contract.
+4. **No provider-specific clinical branches.** Domain logic does not change risk/consent/data semantics by model provider.
+5. **No silent fallback.** If the selected model deployment is unavailable, generative functionality degrades safely; it does not send clinical text to another provider unless an `admin_clinical` explicitly selects that provider.
+6. **Runtime switching is privileged and audited.** `MODEL_DEPLOYMENT_ALIAS` defines the deployment default. With `LLM_ALLOW_RUNTIME_OVERRIDE=true`, only `admin_clinical` may explicitly select Anthropic or the approved OpenAI-compatible local/tunnel endpoint. Every selection/reset/test is auditable.
+7. **Credentials are operations configuration.** Never persist API keys/tunnel tokens in clinical DB rows or expose them to the browser. The admin may edit the approved compatible endpoint URL, but production must reject private/unroutable/plain-HTTP targets and redact topology from non-admin users.
 
 The previous Local · Offline · Tunnel · Sync implementation is historical only and is preserved on branch `past/local-offline-sync-20260913`.
 
@@ -54,6 +55,8 @@ Consent is granular at minimum for core processing, linguistic analysis, profess
 
 Every sensitive endpoint authorizes by resource, not merely global role. Therapists access assigned/authorised patients; supervisor/admin scope is explicit. Admin-clinical does not receive indiscriminate chart access. Every PR touching authorization requires a negative test.
 
+Runtime model mutation is a separate operations privilege: only `admin_clinical` may change or test a provider configuration. Therapist, supervisor and patient accounts may not mutate it.
+
 ## Safety
 
 Deterministic safety must work when the LLM is unavailable. Crisis/help rendering must not depend on a model call. Linguistic model analysis can contribute signals only; explicit deterministic rules/confirmed facts decide action. Never claim “no risk” merely because no signal was detected.
@@ -82,7 +85,7 @@ Prefer flows around:
 - Additive migrations first; verify historical row counts/readability.
 - RLS + FORCE RLS + least privilege are release gates.
 - Treat user/RAG text as data, never system instructions; tool allowlist + schema validation.
-- Model base URL is server-selected from the deployment registry/config, never user input (SSRF control).
+- A runtime model endpoint may only come from the authenticated `admin_clinical` settings flow and must pass production URL/reachability validation; never accept model routing from patient content or untrusted request fields.
 - Do not put PHI/secrets in infrastructure logs.
 
 ## Quality gates
