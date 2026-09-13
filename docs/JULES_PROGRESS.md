@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
+- **Security:** Fixed a vulnerability in `backend/app/config.py` by removing the hardcoded JWT secret default and replacing it with a dynamically generated secure random key when not set.
 - **A11y Review:** Added accessibility enhancements (ARIA roles, live regions, labels) to both Patient and Professional Dashboards.
 - Implemented frontend manual chunk splitting in `vite.config.ts` to solve large Vite bundle sizes (>500kB) and improve application initial load times.
 - Created this documentation (`docs/JULES_PROGRESS.md`) to adhere to the spec requirements.

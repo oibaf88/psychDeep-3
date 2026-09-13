@@ -5,6 +5,8 @@ All values are read from environment variables (see ../.env.example at the
 project root). Nothing here should ever contain a real secret.
 """
 from functools import lru_cache
+import secrets
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,7 +18,7 @@ class Settings(BaseSettings):
     database_schema: str = ""
 
     # --- Auth -----------------------------------------------------------
-    jwt_secret: str = "CHANGE_ME_DEV_ONLY_NOT_FOR_PRODUCTION"
+    jwt_secret: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 12  # 12h, local/demo convenience
 
