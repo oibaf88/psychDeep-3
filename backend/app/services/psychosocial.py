@@ -67,6 +67,7 @@ to the therapist in the panel and the manual, because a weight nobody can
 see is a weight nobody can challenge. They are NOT a validated instrument
 and must not be read as one.
 """
+
 from __future__ import annotations
 
 import logging
@@ -220,7 +221,9 @@ def _quote_is_grounded(quote: str, source_text: str) -> bool:
     return normalised_quote in " ".join(source_text.split()).casefold()
 
 
-def _deduplicate(observations: list[PsychosocialObservationIn]) -> list[PsychosocialObservationIn]:
+def _deduplicate(
+    observations: list[PsychosocialObservationIn],
+) -> list[PsychosocialObservationIn]:
     """One observation per domain, highest confidence wins.
 
     The prompt asks for this; this enforces it, because two rows for one
@@ -264,11 +267,17 @@ def build_observation_rows(
     rows: list[PsychosocialObservation] = []
     for item in _deduplicate(extraction.observations):
         if not _coherent(item):
-            logger.warning("Agent 4 returned %s outside domain %s; dropped", item.category, item.domain)
+            logger.warning(
+                "Agent 4 returned %s outside domain %s; dropped",
+                item.category,
+                item.domain,
+            )
             continue
         quote = " ".join(item.quote.split())[:MAX_QUOTE_CHARS]
         if not _quote_is_grounded(quote, text):
-            logger.warning("Agent 4 quote not found in the source text; observation dropped")
+            logger.warning(
+                "Agent 4 quote not found in the source text; observation dropped"
+            )
             continue
         rows.append(
             PsychosocialObservation(
@@ -417,7 +426,9 @@ class PsychosocialAssessment:
         rules that use it therefore ask for both: a high index AND something
         said in the last two weeks.
         """
-        return bool(self.interpersonal_risk_is_high) and bool(self.interpersonal_recent_evidence)
+        return bool(self.interpersonal_risk_is_high) and bool(
+            self.interpersonal_recent_evidence
+        )
 
     @property
     def has_leave_taking_signal(self) -> bool:
@@ -520,7 +531,178 @@ def _weighted_index(
     return round(accumulated / total_weight, 3)
 
 
-def assess(db: Session, user_id, *, now: datetime | None = None) -> PsychosocialAssessment:
+def _get_current_rows_and_stats(rows) -> tuple[dict[str, Any], set[str], int, int]:
+    # Rows arrive newest first. Per domain the winner is the newest
+    # non-refuted row, except that a confirmed row outranks any inference,
+    # however recent.
+    current: dict[str, Any] = {}
+    pending_updates: set[str] = set()
+    confirmed = 0
+    refuted = 0
+    for row in rows:
+        if row.status == "confirmed":
+            confirmed += 1
+        if row.status == "refuted":
+            refuted += 1
+            continue
+        if row.domain not in DOMAIN_BY_KEY:
+            continue
+        incumbent = current.get(row.domain)
+        if incumbent is None:
+            current[row.domain] = row
+            continue
+        if incumbent.status == "confirmed" and row.status != "confirmed":
+            continue
+        if row.status == "confirmed" and incumbent.status != "confirmed":
+            # The confirmed row is older (rows are newest first), so the
+            # inference we already saw is a newer, unreviewed reading.
+            pending_updates.add(row.domain)
+            current[row.domain] = row
+    return current, pending_updates, confirmed, refuted
+
+
+def _build_domain_states_and_score(
+    current: dict[str, Any],
+    pending_updates: set[str],
+    now: datetime,
+    acute_cutoff: datetime,
+    stale_cutoff: datetime,
+) -> tuple[list[DomainState], float | None]:
+    domains: list[DomainState] = []
+    risk_numerator = 0.0
+    risk_denominator = 0.0
+    protective_numerator = 0.0
+    protective_denominator = 0.0
+
+    for row in current.values():
+        catalog_domain = DOMAIN_BY_KEY[row.domain]
+        weight = DOMAIN_WEIGHTS.get(row.domain, 0.5)
+        effective_confidence = _effective_confidence(row)
+        # A human declaration always scores; a model reading has to clear the
+        # confidence floor before it may move any threshold.
+        counts = (
+            row.status == "confirmed"
+            or float(row.confidence) >= MIN_CONFIDENCE_FOR_SCORING
+        )
+        value = risk_value(row.valence, float(row.intensity))
+        legacy_effective = effective_confidence * float(row.intensity)
+        contribution = round(weight * legacy_effective, 4)
+        if row.valence == "risk":
+            risk_numerator += weight * legacy_effective
+            risk_denominator += weight
+        elif row.valence == "protective":
+            protective_numerator += weight * legacy_effective
+            protective_denominator += weight
+        observed_at = row.observed_at
+        age_days = (
+            round((now - observed_at).total_seconds() / 86400.0, 2)
+            if observed_at
+            else 0.0
+        )
+        domains.append(
+            DomainState(
+                domain=row.domain,
+                label=DOMAIN_LABELS.get(row.domain, row.domain),
+                group=catalog_domain.group,
+                group_label=GROUP_LABELS.get(
+                    catalog_domain.group, catalog_domain.group
+                ),
+                category=row.category,
+                category_label=CATEGORY_LABELS.get(row.category, row.category),
+                valence=row.valence,
+                intensity=float(row.intensity),
+                confidence=float(row.confidence),
+                status=row.status,
+                summary=row.summary,
+                quote=row.evidence_quote,
+                observed_at=observed_at,
+                observation_id=row.id,
+                weight=weight,
+                contribution=contribution,
+                is_change=bool(row.is_change),
+                age_days=age_days,
+                risk_value=value,
+                counts_for_scoring=counts,
+                is_stale=bool(observed_at and observed_at < stale_cutoff),
+                is_recent_change=bool(
+                    row.is_change and observed_at and observed_at >= acute_cutoff
+                ),
+                has_pending_update=row.domain in pending_updates,
+                session_question=catalog_domain.session_question,
+            )
+        )
+
+    if risk_denominator == 0 and protective_denominator == 0:
+        index: float | None = None
+    else:
+        adverse = risk_numerator / risk_denominator if risk_denominator else 0.0
+        protective = (
+            protective_numerator / protective_denominator
+            if protective_denominator
+            else 0.0
+        )
+        # Protection offsets adversity but never fully cancels it: someone
+        # with strong support can still be losing their housing.
+        index = max(0.0, min(1.0, adverse - 0.35 * protective))
+        index = round(index, 3)
+
+    return domains, index
+
+
+def _find_acute_changes(
+    domains: list[DomainState], acute_cutoff: datetime
+) -> list[DomainState]:
+    acute = [
+        state
+        for state in domains
+        if state.is_change
+        and state.valence == "risk"
+        and state.category in ACUTE_CHANGE_CATEGORIES
+        and state.observed_at >= acute_cutoff
+        and state.counts_for_scoring
+    ]
+    # Most recent first, and within the same moment the heaviest contributor
+    # first. A single message often yields several changes at once, and the
+    # panel leads with whichever one carries the most clinical weight rather
+    # than whichever the model happened to list first.
+    acute.sort(key=lambda state: (state.observed_at, state.contribution), reverse=True)
+    return acute
+
+
+def _find_leave_taking(
+    domains: list[DomainState], acute_cutoff: datetime
+) -> DomainState | None:
+    # The leave-taking signal is only "live" while it is recent: giving a
+    # guitar away three months ago is history, not a warning.
+    return next(
+        (
+            state
+            for state in domains
+            if state.domain == LEAVE_TAKING_DOMAIN
+            and state.valence == "risk"
+            and state.counts_for_scoring
+            and state.observed_at >= acute_cutoff
+        ),
+        None,
+    )
+
+
+def _find_interpersonal_recent(
+    domains: list[DomainState], acute_cutoff: datetime
+) -> list[str]:
+    return sorted(
+        state.domain
+        for state in domains
+        if state.domain in INTERPERSONAL_DOMAINS
+        and state.valence == "risk"
+        and state.counts_for_scoring
+        and state.observed_at >= acute_cutoff
+    )
+
+
+def assess(
+    db: Session, user_id, *, now: datetime | None = None
+) -> PsychosocialAssessment:
     """Fold stored observations into inspectable indices.
 
     Per domain only the most recent non-refuted observation counts, so a
@@ -540,141 +722,21 @@ def assess(db: Session, user_id, *, now: datetime | None = None) -> Psychosocial
     )
     total = len(rows)
 
-    # Rows arrive newest first. Per domain the winner is the newest
-    # non-refuted row, except that a confirmed row outranks any inference,
-    # however recent.
-    current: dict[str, Any] = {}
-    pending_updates: set[str] = set()
-    confirmed = 0
-    refuted = 0
-    for row in rows:
-        if row.status == "confirmed":
-            confirmed += 1
-        if row.status == "refuted":
-            refuted += 1
-            continue
-        if row.domain not in DOMAIN_BY_KEY:
-            # A domain retired from the catalogue: keep it out of the index
-            # rather than scoring it with a guessed weight.
-            continue
-        incumbent = current.get(row.domain)
-        if incumbent is None:
-            current[row.domain] = row
-            continue
-        if incumbent.status == "confirmed" and row.status != "confirmed":
-            continue
-        if row.status == "confirmed" and incumbent.status != "confirmed":
-            # The confirmed row is older (rows are newest first), so the
-            # inference we already saw is a newer, unreviewed reading.
-            pending_updates.add(row.domain)
-            current[row.domain] = row
+    current, pending_updates, confirmed, refuted = _get_current_rows_and_stats(rows)
 
     acute_cutoff = now - timedelta(days=ACUTE_CHANGE_WINDOW_DAYS)
     stale_cutoff = now - timedelta(days=STALE_AFTER_DAYS)
 
-    domains: list[DomainState] = []
-    risk_numerator = 0.0
-    risk_denominator = 0.0
-    protective_numerator = 0.0
-    protective_denominator = 0.0
-
-    for row in current.values():
-        catalog_domain = DOMAIN_BY_KEY[row.domain]
-        weight = DOMAIN_WEIGHTS.get(row.domain, 0.5)
-        effective_confidence = _effective_confidence(row)
-        # A human declaration always scores; a model reading has to clear the
-        # confidence floor before it may move any threshold.
-        counts = row.status == "confirmed" or float(row.confidence) >= MIN_CONFIDENCE_FOR_SCORING
-        value = risk_value(row.valence, float(row.intensity))
-        legacy_effective = effective_confidence * float(row.intensity)
-        contribution = round(weight * legacy_effective, 4)
-        if row.valence == "risk":
-            risk_numerator += weight * legacy_effective
-            risk_denominator += weight
-        elif row.valence == "protective":
-            protective_numerator += weight * legacy_effective
-            protective_denominator += weight
-        observed_at = row.observed_at
-        age_days = round((now - observed_at).total_seconds() / 86400.0, 2) if observed_at else 0.0
-        domains.append(
-            DomainState(
-                domain=row.domain,
-                label=DOMAIN_LABELS.get(row.domain, row.domain),
-                group=catalog_domain.group,
-                group_label=GROUP_LABELS.get(catalog_domain.group, catalog_domain.group),
-                category=row.category,
-                category_label=CATEGORY_LABELS.get(row.category, row.category),
-                valence=row.valence,
-                intensity=float(row.intensity),
-                confidence=float(row.confidence),
-                status=row.status,
-                summary=row.summary,
-                quote=row.evidence_quote,
-                observed_at=observed_at,
-                observation_id=row.id,
-                weight=weight,
-                contribution=contribution,
-                is_change=bool(row.is_change),
-                age_days=age_days,
-                risk_value=value,
-                counts_for_scoring=counts,
-                is_stale=bool(observed_at and observed_at < stale_cutoff),
-                is_recent_change=bool(row.is_change and observed_at and observed_at >= acute_cutoff),
-                has_pending_update=row.domain in pending_updates,
-                session_question=catalog_domain.session_question,
-            )
-        )
-
-    if risk_denominator == 0 and protective_denominator == 0:
-        index: float | None = None
-    else:
-        adverse = risk_numerator / risk_denominator if risk_denominator else 0.0
-        protective = protective_numerator / protective_denominator if protective_denominator else 0.0
-        # Protection offsets adversity but never fully cancels it: someone
-        # with strong support can still be losing their housing.
-        index = max(0.0, min(1.0, adverse - 0.35 * protective))
-        index = round(index, 3)
+    domains, index = _build_domain_states_and_score(
+        current, pending_updates, now, acute_cutoff, stale_cutoff
+    )
 
     support_risk = _weighted_index(domains, lambda d: d.support_weight)
     support_index = None if support_risk is None else round(1.0 - support_risk, 3)
 
-    acute = [
-        state
-        for state in domains
-        if state.is_change
-        and state.valence == "risk"
-        and state.category in ACUTE_CHANGE_CATEGORIES
-        and state.observed_at >= acute_cutoff
-        and state.counts_for_scoring
-    ]
-    # Most recent first, and within the same moment the heaviest contributor
-    # first. A single message often yields several changes at once, and the
-    # panel leads with whichever one carries the most clinical weight rather
-    # than whichever the model happened to list first.
-    acute.sort(key=lambda state: (state.observed_at, state.contribution), reverse=True)
-
-    # The leave-taking signal is only "live" while it is recent: giving a
-    # guitar away three months ago is history, not a warning.
-    leave_taking = next(
-        (
-            state
-            for state in domains
-            if state.domain == LEAVE_TAKING_DOMAIN
-            and state.valence == "risk"
-            and state.counts_for_scoring
-            and state.observed_at >= acute_cutoff
-        ),
-        None,
-    )
-
-    interpersonal_recent = sorted(
-        state.domain
-        for state in domains
-        if state.domain in INTERPERSONAL_DOMAINS
-        and state.valence == "risk"
-        and state.counts_for_scoring
-        and state.observed_at >= acute_cutoff
-    )
+    acute = _find_acute_changes(domains, acute_cutoff)
+    leave_taking = _find_leave_taking(domains, acute_cutoff)
+    interpersonal_recent = _find_interpersonal_recent(domains, acute_cutoff)
 
     domains.sort(key=lambda state: (state.valence != "risk", -state.contribution))
 
@@ -683,7 +745,9 @@ def assess(db: Session, user_id, *, now: datetime | None = None) -> Psychosocial
         band=_band(index),
         domains=domains,
         risk_domains=[state.domain for state in domains if state.valence == "risk"],
-        protective_domains=[state.domain for state in domains if state.valence == "protective"],
+        protective_domains=[
+            state.domain for state in domains if state.valence == "protective"
+        ],
         acute_changes=acute,
         has_acute_change=bool(acute),
         observation_count=total,
@@ -693,7 +757,9 @@ def assess(db: Session, user_id, *, now: datetime | None = None) -> Psychosocial
         computed_at=now,
         support_index=support_index,
         material_adversity_index=_weighted_index(domains, lambda d: d.material_weight),
-        interpersonal_risk_index=_weighted_index(domains, lambda d: d.interpersonal_weight),
+        interpersonal_risk_index=_weighted_index(
+            domains, lambda d: d.interpersonal_weight
+        ),
         relapse_context_index=_weighted_index(domains, lambda d: d.relapse_weight),
         scored_count=sum(1 for state in domains if state.counts_for_scoring),
         stale_domains=sorted(state.domain for state in domains if state.is_stale),
@@ -703,7 +769,9 @@ def assess(db: Session, user_id, *, now: datetime | None = None) -> Psychosocial
     )
 
 
-def suggested_session_questions(assessment: PsychosocialAssessment, *, limit: int = 5) -> list[dict[str, str]]:
+def suggested_session_questions(
+    assessment: PsychosocialAssessment, *, limit: int = 5
+) -> list[dict[str, str]]:
     """Questions to bring to the next session, from what is actually moving.
 
     Ordered by what the deterministic layer is currently weighting most:
@@ -728,9 +796,16 @@ def suggested_session_questions(assessment: PsychosocialAssessment, *, limit: in
         )
 
     if assessment.leave_taking is not None:
-        add(assessment.leave_taking, "Señal de despedida registrada en los últimos 14 días")
+        add(
+            assessment.leave_taking,
+            "Señal de despedida registrada en los últimos 14 días",
+        )
     for state in assessment.domains:
-        if state.domain in INTERPERSONAL_DOMAINS and state.valence == "risk" and state.counts_for_scoring:
+        if (
+            state.domain in INTERPERSONAL_DOMAINS
+            and state.valence == "risk"
+            and state.counts_for_scoring
+        ):
             add(state, "Constructo de riesgo interpersonal activo")
     for state in assessment.acute_changes:
         add(state, "Cambio adverso reciente")
