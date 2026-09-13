@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", protected_namespaces=("settings_",))
 
     # --- Database: cloud source of truth ---------------------------------
     database_url: str = "postgresql://psychapp:psychapp@db:5432/psychapp"
@@ -63,8 +63,11 @@ class Settings(BaseSettings):
     anthropic_copilot_effort: str = ""
 
     # Legacy environment names: compatibility input only. Runtime DB endpoint
-    # overrides are permanently disabled in vNext.
-    llm_default_provider: str = "openai_compatible"
+    # overrides are permanently disabled in vNext. Keep the historical
+    # default value so older configuration/guard tests and deployments remain
+    # stable; Model Gateway selection is controlled exclusively by
+    # MODEL_DEPLOYMENT_ALIAS.
+    llm_default_provider: str = "anthropic"
     llm_openai_compatible_base_url: str = ""
     llm_openai_compatible_api_key: str = ""
     llm_openai_compatible_chat_model: str = "gemma-2-2b-it"
