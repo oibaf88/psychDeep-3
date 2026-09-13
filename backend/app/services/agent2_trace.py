@@ -24,9 +24,9 @@ from app.content.prompts import (
     ANALYZER_TOOL_SCHEMA,
 )
 from app.models import Agent2AnalysisTrace
+from app.services import llm_config
 from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 from app.services.llm import ProviderMetadata, StructuredAnalysisError
-from app.services.model_gateway import get_model_gateway
 
 ANALYZER_ROLE = "analyzer_merged"
 LINGUISTIC_ROLES = (ANALYZER_ROLE, "agent2_linguistic")
@@ -79,7 +79,7 @@ def start(
         raise TracePersistenceError("linguistic_analysis consent not granted")
 
     prompt_version, system_prompt, schema_version, tool_schema = AGENT_CONTRACTS[agent_role]
-    deployment = get_model_gateway().deployment()
+    active = llm_config.resolve(db)
     now = datetime.now(timezone.utc)
     trace = Agent2AnalysisTrace(
         id=uuid.uuid4(),
@@ -90,12 +90,12 @@ def start(
         chat_message_id=source_id if source_type == "chat_message" else None,
         diary_entry_id=source_id if source_type == "diary_entry" else None,
         status="started",
-        provider=deployment.adapter,
-        # Do not persist tunnel/provider topology in a clinical trace in vNext.
+        provider=active.provider,
+        # Endpoint URL is operational topology, not clinical provenance.
         provider_base_url=None,
-        requested_model=deployment.analysis_model,
+        requested_model=active.analysis_model,
         effort="n/a",
-        max_tokens=deployment.max_tokens,
+        max_tokens=active.max_tokens,
         prompt_version=prompt_version,
         prompt_sha256=_sha256_text(system_prompt),
         schema_version=schema_version,

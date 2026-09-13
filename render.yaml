@@ -16,23 +16,16 @@ services:
     healthCheckPath: /api/v1/health
     autoDeployTrigger: commit
     envVars:
-      # Existing Supabase pooler URL; TLS/credentials stay in Render secrets.
       - key: DATABASE_URL
         sync: false
       - key: DATABASE_SCHEMA
         value: psychdeep_v12
-
-      # vNext Model Gateway. local-tunnel is the zero-cost deployment profile.
-      # cloud-tuned stays disabled until a separately approved endpoint exists.
       - key: MODEL_DEPLOYMENT_ALIAS
         value: local-tunnel
       - key: MODEL_POLICY_VERSION
         value: support-policy-v1
       - key: MODEL_ALLOW_COMMERCIAL
-        value: "false"
-
-      # Active zero-cost local-tunnel deployment. URL and optional bearer token
-      # are operator secrets/config, not clinical DB state and never browser data.
+        value: "true"
       - key: MODEL_LOCAL_BASE_URL
         sync: false
       - key: MODEL_LOCAL_API_KEY
@@ -47,15 +40,8 @@ services:
         value: "45"
       - key: MODEL_LOCAL_MAX_TOKENS
         value: "8192"
-
-      # Optional commercial bridge credential slot retained for compatibility.
-      # MODEL_ALLOW_COMMERCIAL=false means the gateway cannot select it.
       - key: ANTHROPIC_API_KEY
         sync: false
-
-      # Legacy names remain only as read-only migration inputs so an older
-      # deployment can be upgraded without losing its tunnel endpoint. Domain
-      # selection is controlled exclusively by MODEL_DEPLOYMENT_ALIAS.
       - key: LLM_DEFAULT_PROVIDER
         value: anthropic
       - key: LLM_OPENAI_COMPATIBLE_BASE_URL
@@ -73,8 +59,7 @@ services:
       - key: LLM_OPENAI_COMPATIBLE_MAX_TOKENS
         value: "8192"
       - key: LLM_ALLOW_RUNTIME_OVERRIDE
-        value: "false"
-
+        value: "true"
       - key: JWT_SECRET
         generateValue: true
       - key: APP_ENV
@@ -85,7 +70,6 @@ services:
         value: https://psychdeep-web.onrender.com,https://psychdeep.bfab.io
       - key: SEED_DEMO_DATA
         value: "false"
-
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT

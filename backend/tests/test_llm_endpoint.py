@@ -1,4 +1,4 @@
-"""Provider boundaries for Claude default and local Gemma 2 fallback."""
+"""Provider boundaries for Anthropic and the local/OpenAI-compatible runtime."""
 from __future__ import annotations
 
 import copy
@@ -6,8 +6,6 @@ import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
-
-import httpx
 
 from app.services import llm_config
 from app.services.llm import AnthropicProvider, build_provider
@@ -48,16 +46,39 @@ class _FakeClient:
 
 
 def _settings(*, provider="anthropic", allow_override=False, production=False, anthropic_key="anthropic-test"):
+    local = provider == "openai_compatible"
+    local_base = "https://model.example.test/v1" if production else "http://host.docker.internal:1234/v1"
     return SimpleNamespace(
+        model_deployment_alias="local-tunnel" if local else "commercial-approved",
+        model_policy_version="support-policy-v1",
+        model_allow_commercial=True,
+        model_local_base_url=local_base,
+        model_local_api_key="lm-test-token",
+        model_local_chat_model="gemma-2-2b-it",
+        model_local_analysis_model="gemma-2-2b-it",
+        model_local_copilot_model="gemma-2-2b-it",
+        model_local_timeout_seconds=45,
+        model_local_max_tokens=8192,
+        model_cloud_base_url="",
+        model_cloud_api_key="",
+        model_cloud_chat_model="",
+        model_cloud_analysis_model="",
+        model_cloud_copilot_model="",
+        model_cloud_timeout_seconds=45,
+        model_cloud_max_tokens=8192,
         llm_default_provider=provider,
         llm_allow_runtime_override=allow_override,
-        llm_openai_compatible_base_url="http://host.docker.internal:1234/v1",
+        llm_openai_compatible_base_url=local_base,
         llm_openai_compatible_api_key="lm-test-token",
         llm_openai_compatible_chat_model="gemma-2-2b-it",
         llm_openai_compatible_analysis_model="gemma-2-2b-it",
         llm_openai_compatible_copilot_model="",
         llm_openai_compatible_max_tokens=8192,
         llm_openai_compatible_timeout_seconds=300,
+        local_base_url=local_base,
+        local_api_key="lm-test-token",
+        local_chat_model="gemma-2-2b-it",
+        local_analysis_model="gemma-2-2b-it",
         local_copilot_model="gemma-2-2b-it",
         anthropic_api_key=anthropic_key,
         anthropic_chat_model="claude-opus-5",
@@ -137,7 +158,7 @@ class ProviderSelectionTests(unittest.TestCase):
     def tearDown(self):
         llm_config.invalidate_cache()
 
-    def test_claude_is_the_product_default_and_key_never_serialises(self):
+    def test_anthropic_environment_profile_and_key_never_serialises(self):
         with patch.object(llm_config, "get_settings", return_value=_settings()):
             config = llm_config.environment_config()
             public = config.public_dict()
@@ -159,12 +180,44 @@ class ProviderSelectionTests(unittest.TestCase):
         self.assertIsInstance(provider, AnthropicProvider)
         self.assertEqual(provider._api_key, "anthropic-test")
 
-    def test_local_gemma_is_selectable_and_uses_its_endpoint(self):
+    def test_local_profile_is_selectable_and_uses_its_endpoint(self):
         with patch.object(llm_config, "get_settings", return_value=_settings(provider="openai_compatible")):
             config = llm_config.environment_config()
         provider = build_provider(config)
         self.assertIsInstance(provider, OpenAICompatibleProvider)
         self.assertEqual(config.chat_model, "gemma-2-2b-it")
+
+    def test_model_deployment_alias_beats_legacy_default(self):
+        settings = _settings(provider="openai_compatible")
+        settings.llm_default_provider = "anthropic"
+        with patch.object(llm_config, "get_settings", return_value=settings):
+            config = llm_config.environment_config()
+        self.assertEqual(config.provider, llm_config.PROVIDER_LOCAL)
+
+    def test_runtime_local_selection_never_silently_falls_back_to_anthropic(self):
+        row = SimpleNamespace(
+            provider="openai_compatible",
+            chat_model="local-model",
+            analysis_model="local-model",
+            copilot_model=None,
+            base_url="https://offline.example.test/v1",
+            api_key=None,
+            max_tokens=4096,
+            timeout_seconds=45,
+            label="local selected",
+            id="11111111-1111-1111-1111-111111111111",
+            created_at=None,
+        )
+        settings = _settings(provider="anthropic", allow_override=True, production=True)
+        with (
+            patch.object(llm_config, "get_settings", return_value=settings),
+            patch.object(llm_config, "active_row", return_value=row),
+            patch.object(llm_config, "endpoint_reachability", return_value={"ok": False}),
+            patch.object(llm_config, "backend_runtime_label", return_value="Render (frankfurt)"),
+        ):
+            config = llm_config.resolve(SimpleNamespace())
+        self.assertEqual(config.provider, llm_config.PROVIDER_LOCAL)
+        self.assertEqual(config.chat_model, "local-model")
 
     def test_validation_accepts_only_the_two_intended_providers(self):
         with patch.object(llm_config, "backend_runtime", return_value="local"):
@@ -173,44 +226,44 @@ class ProviderSelectionTests(unittest.TestCase):
                 analysis_model="claude-opus-5", max_tokens=8192, timeout_seconds=300,
             )
             self.assertIsNone(claude["base_url"])
-            gemma = llm_config.validate(
+            local = llm_config.validate(
                 provider="openai_compatible", base_url="http://localhost:1234", chat_model="gemma-2-2b-it",
                 analysis_model="gemma-2-2b-it", max_tokens=8192, timeout_seconds=300,
             )
-            self.assertEqual(gemma["base_url"], "http://localhost:1234/v1")
+            self.assertEqual(local["base_url"], "http://localhost:1234/v1")
             with self.assertRaises(llm_config.LLMConfigError):
                 llm_config.validate(
                     provider="unknown", base_url="http://localhost:1234", chat_model="m", analysis_model="m",
                     max_tokens=8192, timeout_seconds=300,
                 )
 
-    def test_cloud_backend_rejects_lan_or_plain_http_for_gemma(self):
+    def test_cloud_backend_rejects_lan_or_plain_http_for_local_model(self):
         with patch.dict(os.environ, {"RENDER": "true"}, clear=False), patch.object(
             llm_config, "get_settings", return_value=_settings(production=True)
         ):
             lan = llm_config.endpoint_reachability("http://192.168.1.10:1234/v1")
             insecure = llm_config.endpoint_reachability("http://model.example.test/v1")
         self.assertFalse(lan["ok"])
-        self.assertIn("Cloudflare", lan["reason"])
+        self.assertIn("túnel HTTPS", lan["reason"])
         self.assertFalse(insecure["ok"])
         self.assertIn("HTTPS", insecure["reason"])
 
 
 class DeploymentGuardTests(unittest.TestCase):
-    def test_claude_default_and_runtime_override_off_are_tracked(self):
+    def test_runtime_override_is_explicitly_enabled_in_render_only(self):
         from app.config import Settings
-        import os
 
-        self.assertEqual(Settings.model_fields["llm_default_provider"].default, "anthropic")
+        # Fail-safe library default remains closed. Production explicitly opts in.
         self.assertFalse(Settings.model_fields["llm_allow_runtime_override"].default)
 
-        # Resolve the path relative to the tests directory to support running from anywhere
         render_yaml_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "render.yaml")
         with open(render_yaml_path, encoding="utf-8") as blueprint:
             text = blueprint.read()
         self.assertIn("- key: ANTHROPIC_API_KEY\n        sync: false", text)
-        provider_index = text.index("LLM_DEFAULT_PROVIDER")
-        self.assertIn("value: anthropic", text[provider_index : provider_index + 100])
+        override_index = text.index("LLM_ALLOW_RUNTIME_OVERRIDE")
+        self.assertIn('value: "true"', text[override_index : override_index + 100])
+        commercial_index = text.index("MODEL_ALLOW_COMMERCIAL")
+        self.assertIn('value: "true"', text[commercial_index : commercial_index + 100])
 
 
 if __name__ == "__main__":  # pragma: no cover

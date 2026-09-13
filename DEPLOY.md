@@ -10,7 +10,7 @@ This runbook deploys the cloud-first vNext architecture without adding paid infr
 | API/domain | Render `psychdeep-api` | FastAPI; deterministic safety independent of LLM |
 | Clinical data | existing Supabase `psychdeep`, schema `psychdeep_v12` | only authoritative clinical database |
 | Model profile A | existing local OpenAI-compatible server via authenticated HTTPS tunnel | inference only; no local clinical DB/API/frontend |
-| Model profile B | optional approved managed compatible endpoint | disabled until reviewed/configured |
+| Model profile B | Anthropic / optional approved managed compatible endpoint | explicit admin selection only; no automatic fallback |
 | CI/CD | GitHub Actions + Render auto-deploy | migrations/tests before merge |
 
 No Render Postgres, paid worker, paid cron, managed GPU or additional Supabase project is required.
@@ -57,10 +57,13 @@ APP_ENV=production
 DATABASE_SCHEMA=psychdeep_v12
 MODEL_DEPLOYMENT_ALIAS=local-tunnel
 MODEL_POLICY_VERSION=support-policy-v1
-LLM_ALLOW_RUNTIME_OVERRIDE=false
+MODEL_ALLOW_COMMERCIAL=true
+LLM_ALLOW_RUNTIME_OVERRIDE=true
 ```
 
-The current local-model URL/token may remain under the legacy environment names during the transition; vNext reads them only as server-side compatibility inputs. They are never exposed to the browser or clinical configuration DB. A subsequent secret-rotation window can rename them to `MODEL_LOCAL_BASE_URL` and `MODEL_LOCAL_API_KEY` without changing domain logic.
+`MODEL_DEPLOYMENT_ALIAS` defines the default. With runtime override enabled, only the `admin_clinical` role may explicitly select Anthropic or the approved OpenAI-compatible local/tunnel endpoint from Settings. The change is written to the audit trail. No patient or ordinary professional account can redirect inference.
+
+`ANTHROPIC_API_KEY`, `MODEL_LOCAL_API_KEY` and equivalent credentials remain Render/server secrets. The UI never receives the Anthropic key. The local endpoint may reuse the deployment token when the runtime selection row contains no token.
 
 Render auto-deploys `master`; do not manually trigger a duplicate deployment after a merge unless auto-deploy is disabled or a cache-clearing redeploy is specifically required.
 
@@ -77,7 +80,7 @@ Requirements:
 - prompt/request logs disabled or minimized where the runtime supports it;
 - independent endpoint token plus tunnel access control and rotation.
 
-The cloud API selects the alias server-side. If the tunnel is offline, `/api/v1/health` remains healthy and core functions remain available; `/api/v1/model/deployments/status` reports the model unavailable.
+If the selected local endpoint is offline, the application must **not** switch itself to Anthropic. Core clinical data, consent, deterministic risk and static crisis resources remain available; only model-dependent functions degrade until the endpoint returns or an `admin_clinical` explicitly selects another provider.
 
 ## 4. Deploy application
 
@@ -88,17 +91,18 @@ After the database expand migration and green CI:
 3. monitor both deploys to completion;
 4. check `GET /api/v1/health`;
 5. authenticate a test user and verify: check-in, diary without linguistic consent, consent grant/revoke, Trends, safety plan, deterministic safety evaluation and model status;
-6. verify a local-model outage does not prevent saving data or displaying crisis resources;
-7. inspect logs for schema errors and accidental PHI/secrets.
+6. sign in as `admin_clinical`, verify the Settings provider switch, test both configured providers, and confirm the audit event;
+7. verify a local-model outage does not prevent saving data or displaying crisis resources and does not silently route to Anthropic;
+8. inspect logs for schema errors and accidental PHI/secrets.
 
 ## 5. Retire the old sync path
 
 Only after the cloud release is healthy:
 
-- drop `sync_replication_access` policies;
-- revoke `psychdeep_sync` privileges on clinical tables/schemas;
-- disable/drop the sync role and SymmetricDS metadata when safe;
-- null any historical `llm_endpoint_configs.api_key` values and keep only non-secret audit/history fields if the table is retained;
+- keep `sync_replication_access` policies removed;
+- keep `psychdeep_sync` privileges retired;
+- keep SymmetricDS metadata removed;
+- retain `llm_endpoint_configs` only as non-secret audited runtime selection history;
 - verify no production code references SymmetricDS/local clinical PostgreSQL.
 
 The removed implementation remains recoverable from branch `past/local-offline-sync-20260913`; it is not a runtime fallback.
@@ -111,7 +115,7 @@ Revert the vNext merge or redeploy the last known-good Render commit. The expand
 
 ### Model rollback
 
-Change only the server-side approved deployment alias/version. Do not change risk, consent, storage or audit logic. Never silently fall back across providers.
+An `admin_clinical` may explicitly select the other approved provider or reset to the deployment default. This must be an intentional, audited action. Never silently fall back across providers.
 
 ### Database rollback
 
@@ -130,6 +134,7 @@ Archive in the PR/release record:
 - historical and canonical row-count checks;
 - Supabase security/performance advisor output;
 - Render deploy IDs and health result;
-- active model alias and health result, never its secret/URL;
+- active model provider/model health result, never its secret;
+- audit evidence for a runtime provider switch;
 - answers to all eight release-checklist questions;
 - rollback commit/migration reference.

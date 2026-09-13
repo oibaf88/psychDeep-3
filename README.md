@@ -2,7 +2,7 @@
 
 PsychDeep is a cloud-first longitudinal self-regulation platform. Its purpose is to help a person understand changes relative to their own trajectory, strengthen self-efficacy, use low-intensity regulation tools and collaborate with authorised professionals without turning an LLM into a clinician.
 
-The master product/engineering specification is the release authority. If code, tickets, agent prompts or ad-hoc decisions conflict with it, the specification wins until an approved ADR/change request says otherwise.
+The master product/engineering specification is the release authority. Approved ADRs/change requests may refine its implementation contract when product requirements are clarified.
 
 ## Non-negotiable architecture
 
@@ -19,9 +19,10 @@ Render FastAPI ───────────────► Supabase Postgre
   ├── longitudinal analytics         ├── facts/inferences/plans/alerts
   ├── audit/governance               └── model runs/audit/history
   │
-  └── Model Gateway
+  └── replaceable inference boundary
        ├── local-tunnel ──HTTPS──► local OpenAI-compatible LLM (LM Studio/Ollama/etc.)
-       └── cloud-tuned ──────────► approved private managed inference endpoint
+       ├── cloud-tuned ──────────► approved private managed inference endpoint
+       └── Anthropic ────────────► approved commercial provider
 ```
 
 Only the LLM inference server may be local. There is **no supported local clinical PostgreSQL, local product API/frontend, bidirectional clinical sync, or SymmetricDS path in vNext**. The historical implementation is preserved on branch `past/local-offline-sync-20260913`.
@@ -34,15 +35,17 @@ Only the LLM inference server may be local. There is **no supported local clinic
 - Confirmed facts, observations, derived features, inferences and actions remain distinct.
 - Missing data is missing data; it is never silently converted to zero or normality.
 
-## Model Gateway
+## Model selection
 
-Production code uses a stable server-side deployment alias:
+`MODEL_DEPLOYMENT_ALIAS` defines the deployment default:
 
 - `local-tunnel`: an OpenAI-compatible model on a trusted machine, exposed only through authenticated HTTPS tunnelling when the cloud API needs it.
 - `cloud-tuned`: a private/managed compatible endpoint for a reviewed tuned model.
-- `commercial-approved`: migration bridge only; disabled unless explicitly approved by server configuration.
+- `commercial-approved`: approved commercial deployment profile.
 
-There is no primary/fallback provider chain. If the selected deployment is unavailable, model-dependent functionality returns a safe unavailable state while data entry, deterministic risk/safety and crisis resources remain available. Secrets and endpoint URLs are environment/secret configuration, not clinical database settings and not editable from the clinical UI.
+Production sets `LLM_ALLOW_RUNTIME_OVERRIDE=true`, allowing only the `admin_clinical` role to explicitly switch between the approved Anthropic provider and the local/OpenAI-compatible endpoint from **Modelos/Ajustes**. Every change is audited and affects new model calls only; it does not change consent, storage, risk rules or historical provenance.
+
+There is no primary/fallback provider chain. If the selected provider is unavailable, model-dependent functionality fails safely while data entry, deterministic risk/safety and crisis resources remain available. Model credentials remain server-side secrets. The admin may edit a compatible endpoint URL, but it is validated before activation and is redacted from non-admin users.
 
 ## Data migration
 
@@ -70,8 +73,9 @@ Current prototype keeps the already-provisioned free components:
 
 - Render free `psychdeep-api` and `psychdeep-web`.
 - Existing Supabase `psychdeep` project as the only clinical database.
-- Local inference through the existing Cloudflare Tunnel when used.
-- No new paid database, worker, queue, GPU or model provider is required for this stage.
+- Local inference through the existing Cloudflare Tunnel when selected.
+- Anthropic remains an explicitly selectable approved provider when its server-side key is configured; its usage is not part of the zero-cost guarantee.
+- No new paid database, worker, queue or managed GPU is required for this stage.
 
 See [DEPLOY.md](DEPLOY.md) for the deployment sequence and `docs/` for ADRs, runbooks and release gates.
 

@@ -1,33 +1,19 @@
-"""
-Which model serves this deployment, and how that choice is recorded.
+"""Resolve and audit the LLM deployment selected at runtime.
 
-The deployment default is Claude through Anthropic's API. Gemma 2 through an
-OpenAI-compatible endpoint remains the offline/local alternative. This module lets an authorized operator select one
-of those two providers at runtime by a row in ``llm_endpoint_configs``,
-so an operator can point Agent 1 and Agent 2 at a model they run themselves
-and see how the app behaves on it, without redeploying.
+PsychDeep vNext keeps clinical storage, consent, deterministic risk and audit
+independent from the generative model. The deployment supplies approved model
+endpoints and secrets, while an ``admin_clinical`` may switch between Anthropic
+and an OpenAI-compatible local/tunnel endpoint when
+``LLM_ALLOW_RUNTIME_OVERRIDE`` is enabled.
 
-Two properties matter more than the convenience:
+Runtime changes are append-only rows in ``llm_endpoint_configs``: the previous
+row is deactivated and the new selection is recorded. Credentials are never
+stored in these rows; they remain server-side environment secrets.
 
-**Every interaction records which model produced it.** The active
-configuration is resolved once per call and travels with the result as
-``ProviderMetadata`` — provider, requested model, the model the server said
-answered, and the endpoint. That is what makes a patient's history readable
-after the endpoint changed: historical records and current Claude/Gemma 2 calls are
-both legible and distinguishable, because
-each carries its own provenance rather than inheriting today's setting.
-
-**Changing it is an audited act.** Rows are never updated in place. Setting
-a new configuration deactivates the previous one and inserts a new row, so
-the sequence of "what was serving this app, and when" is reconstructable.
-
-Caching
--------
-Resolution is cached in-process and invalidated on write. The cache is
-per-worker, so a change made on one worker reaches the others within
-``CACHE_TTL_SECONDS`` rather than instantly — acceptable for a setting an
-operator changes deliberately, and far cheaper than a database read before
-every model call.
+A selected model never silently fails over to the other provider. If the
+chosen endpoint is unavailable, model-dependent functions fail safely while
+clinical data, deterministic safety and static crisis resources continue to
+work.
 """
 from __future__ import annotations
 
@@ -52,11 +38,7 @@ PROVIDER_LOCAL = "openai_compatible"
 PROVIDERS = (PROVIDER_LOCAL, PROVIDER_ANTHROPIC)
 
 CACHE_TTL_SECONDS = 30.0
-
 MAX_TOKENS_MIN, MAX_TOKENS_MAX = 256, 32768
-# Connection establishment stays fail-fast (see CONNECT_TIMEOUT_SECONDS on
-# the local provider). This ceiling is the inference wait once the TCP
-# handshake has succeeded — a local model loading into VRAM can take minutes.
 TIMEOUT_MIN, TIMEOUT_MAX = 5, 5000
 
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal"}
@@ -69,14 +51,7 @@ class ResolvedConfig:
     provider: str
     chat_model: str
     analysis_model: str
-    # Agent 3. Empty means "whatever the conversational agent uses", which is
-    # what it did before it had a setting; `_from_row` and `environment_config`
-    # both resolve it, so readers never have to apply the fallback themselves.
     copilot_model: str = ""
-    # What was actually configured, before the "empty means chat" fallback.
-    # The UI needs this: prefilling the edit form with the resolved value
-    # turns "follows chat" into "pinned to whatever chat was", so changing
-    # the chat model afterwards silently leaves the copilot behind.
     copilot_model_explicit: str = ""
     base_url: str | None = None
     api_key: str = ""
@@ -93,34 +68,24 @@ class ResolvedConfig:
 
     @property
     def explicit_max_tokens(self) -> int | None:
-        """The token budget a runtime override actually asked for.
-
-        None for the environment default. `max_tokens` is always populated —
-        the environment fills it from the selected provider configuration. A stored
-        override carries one budget for all roles; the environment does not,
-        and must not pretend to.
-        """
         return self.max_tokens if self.source == "runtime" else None
 
     @property
     def copilot_model_is_inherited(self) -> bool:
-        """True when the copilot follows chat rather than being pinned."""
         return not self.copilot_model_explicit.strip()
 
     def public_dict(self) -> dict:
-        """Everything the UI may see. Never the key."""
+        """Everything the authenticated UI may see. Never serialise a key."""
         settings = get_settings()
-        # Claude's secret is deliberately never copied into a runtime row:
-        # a saved Claude selection must nevertheless report the availability
-        # of the deployment secret accurately, without serialising it.
-        has_key = bool(settings.anthropic_api_key) if self.provider == PROVIDER_ANTHROPIC else bool(self.api_key)
+        if self.provider == PROVIDER_ANTHROPIC:
+            has_key = bool(settings.anthropic_api_key)
+            provider_label = "Claude / API de Anthropic"
+        else:
+            has_key = bool(settings.local_api_key)
+            provider_label = "Modelo local / API compatible con OpenAI"
         return {
             "provider": self.provider,
-            "provider_label": (
-                "Claude / API de Anthropic"
-                if self.provider == PROVIDER_ANTHROPIC
-                else "Gemma 2 / API compatible con OpenAI"
-            ),
+            "provider_label": provider_label,
             "label": self.label,
             "base_url": self.base_url,
             "chat_model": self.chat_model,
@@ -134,7 +99,7 @@ class ResolvedConfig:
             "config_id": self.config_id,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "has_api_key": has_key,
-            "uses_server_api_key": self.provider == PROVIDER_ANTHROPIC,
+            "uses_server_api_key": True,
         }
 
 
@@ -143,12 +108,6 @@ class LLMConfigError(ValueError):
 
 
 def backend_runtime() -> str:
-    """Where this FastAPI process is actually running.
-
-    Render sets RENDER / RENDER_SERVICE_ID. Production APP_ENV is treated
-    the same: the process is not on the operator's LAN, so a 192.168/10/127
-    address is unroutable from here.
-    """
     if os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"):
         return "cloud"
     if get_settings().is_production:
@@ -179,23 +138,13 @@ def _hostname_is_private(hostname: str) -> bool:
 
 
 def endpoint_reachability(url: str | None) -> dict:
-    """Can THIS FastAPI process open a TCP connection to that URI?
-
-    A 10 s connect timeout is the wrong answer when the address is a
-    private LAN IP and we are in Frankfurt: there is no route, so we
-    refuse immediately rather than hanging.
-    """
+    """Validate whether this FastAPI runtime can route safely to ``url``."""
     runtime = backend_runtime()
     parsed = urlparse((url or "").strip())
     host = (parsed.hostname or "").lower()
     private = _hostname_is_private(host)
     if runtime == "local":
-        return {
-            "ok": True,
-            "runtime": runtime,
-            "private_target": private,
-            "reason": None,
-        }
+        return {"ok": True, "runtime": runtime, "private_target": private, "reason": None}
     if not url:
         return {
             "ok": False,
@@ -209,10 +158,9 @@ def endpoint_reachability(url: str | None) -> dict:
             "runtime": runtime,
             "private_target": True,
             "reason": (
-                f"Este backend corre en {backend_runtime_label()} y no tiene ruta a "
-                f"{host}. Una IP de LAN (127.0.0.1, 192.168.x, 10.x) no es un endpoint "
-                "alcanzable desde Frankfurt. Usa un túnel HTTPS público autenticado "
-                "por Cloudflare Access que apunte a tu LM Studio."
+                f"Este backend corre en {backend_runtime_label()} y no tiene ruta a {host}. "
+                "Una IP de LAN no es alcanzable desde Render. Usa un túnel HTTPS "
+                "público y autenticado que apunte al servidor local del modelo."
             ),
         }
     if parsed.scheme != "https":
@@ -225,21 +173,13 @@ def endpoint_reachability(url: str | None) -> dict:
                 "HTTPS público. HTTP en claro enviaría texto clínico sin cifrar."
             ),
         }
-    return {
-        "ok": True,
-        "runtime": runtime,
-        "private_target": False,
-        "reason": None,
-    }
+    return {"ok": True, "runtime": runtime, "private_target": False, "reason": None}
 
 
-def _is_unreachable_local(config: "ResolvedConfig") -> bool:
-    if not config.is_local:
-        return False
-    return not endpoint_reachability(config.base_url)["ok"]
+def _is_unreachable_local(config: ResolvedConfig) -> bool:
+    return bool(config.is_local and not endpoint_reachability(config.base_url)["ok"])
 
 
-# ----------------------------------------------------------------- cache ---
 _lock = threading.Lock()
 _cached: tuple[float, ResolvedConfig] | None = None
 
@@ -250,39 +190,86 @@ def invalidate_cache() -> None:
         _cached = None
 
 
-def environment_config() -> ResolvedConfig:
-    """The deployment default, from environment variables."""
-    settings = get_settings()
-    if settings.llm_default_provider == PROVIDER_ANTHROPIC:
+def _anthropic_environment(settings) -> ResolvedConfig:
+    return ResolvedConfig(
+        provider=PROVIDER_ANTHROPIC,
+        chat_model=settings.anthropic_chat_model,
+        analysis_model=settings.anthropic_analysis_model,
+        copilot_model=settings.copilot_model,
+        copilot_model_explicit=settings.anthropic_copilot_model.strip(),
+        api_key=settings.anthropic_api_key,
+        max_tokens=settings.anthropic_max_tokens,
+        timeout_seconds=settings.llm_openai_compatible_timeout_seconds,
+        label="Claude configurado en el despliegue",
+        source="environment",
+    )
+
+
+def _local_environment(settings, *, cloud_tuned: bool = False) -> ResolvedConfig:
+    if cloud_tuned:
+        chat_model = settings.model_cloud_chat_model.strip()
+        analysis_model = settings.model_cloud_analysis_model.strip() or chat_model
+        copilot_model = settings.model_cloud_copilot_model.strip() or chat_model
         return ResolvedConfig(
-            provider=PROVIDER_ANTHROPIC,
-            chat_model=settings.anthropic_chat_model,
-            analysis_model=settings.anthropic_analysis_model,
-            copilot_model=settings.copilot_model,
-            copilot_model_explicit=settings.anthropic_copilot_model.strip(),
-            api_key=settings.anthropic_api_key,
-            max_tokens=settings.anthropic_max_tokens,
-            timeout_seconds=settings.llm_openai_compatible_timeout_seconds,
-            label="Claude configurado en el despliegue",
+            provider=PROVIDER_LOCAL,
+            chat_model=chat_model,
+            analysis_model=analysis_model,
+            copilot_model=copilot_model,
+            copilot_model_explicit=settings.model_cloud_copilot_model.strip(),
+            base_url=settings.model_cloud_base_url.strip() or None,
+            api_key=settings.model_cloud_api_key,
+            max_tokens=settings.model_cloud_max_tokens,
+            timeout_seconds=settings.model_cloud_timeout_seconds,
+            label="Modelo cloud privado configurado en el despliegue",
             source="environment",
         )
-    base_url = settings.llm_openai_compatible_base_url.strip() or None
+    return ResolvedConfig(
+        provider=PROVIDER_LOCAL,
+        chat_model=settings.local_chat_model,
+        analysis_model=settings.local_analysis_model,
+        copilot_model=settings.local_copilot_model,
+        copilot_model_explicit=settings.model_local_copilot_model.strip() or settings.llm_openai_compatible_copilot_model.strip(),
+        base_url=settings.local_base_url.strip() or None,
+        api_key=settings.local_api_key,
+        max_tokens=settings.model_local_max_tokens or settings.llm_openai_compatible_max_tokens,
+        timeout_seconds=settings.model_local_timeout_seconds or settings.llm_openai_compatible_timeout_seconds,
+        label="Modelo local/túnel configurado en el despliegue",
+        source="environment",
+    )
+
+
+def environment_config() -> ResolvedConfig:
+    """Return the deployment default used when no runtime override is active."""
+    settings = get_settings()
+    alias = settings.model_deployment_alias.strip()
+    if alias == "commercial-approved":
+        return _anthropic_environment(settings)
+    if alias == "cloud-tuned":
+        return _local_environment(settings, cloud_tuned=True)
+    if alias == "local-tunnel":
+        return _local_environment(settings)
+
+    # Compatibility with deployments predating Model Gateway aliases.
+    if settings.llm_default_provider == PROVIDER_ANTHROPIC:
+        return _anthropic_environment(settings)
     return ResolvedConfig(
         provider=PROVIDER_LOCAL,
         chat_model=settings.llm_openai_compatible_chat_model,
         analysis_model=settings.llm_openai_compatible_analysis_model,
         copilot_model=settings.local_copilot_model,
         copilot_model_explicit=settings.llm_openai_compatible_copilot_model.strip(),
-        base_url=base_url,
+        base_url=settings.llm_openai_compatible_base_url.strip() or None,
         api_key=settings.llm_openai_compatible_api_key,
         max_tokens=settings.llm_openai_compatible_max_tokens,
         timeout_seconds=settings.llm_openai_compatible_timeout_seconds,
-        label="Gemma 2 configurado en el despliegue",
+        label="Modelo OpenAI-compatible configurado en el despliegue",
         source="environment",
     )
 
 
 def _from_row(row: LLMEndpointConfig) -> ResolvedConfig:
+    settings = get_settings()
+    api_key = settings.anthropic_api_key if row.provider == PROVIDER_ANTHROPIC else settings.local_api_key
     return ResolvedConfig(
         provider=row.provider,
         chat_model=row.chat_model,
@@ -290,7 +277,7 @@ def _from_row(row: LLMEndpointConfig) -> ResolvedConfig:
         copilot_model=row.copilot_model or row.chat_model,
         copilot_model_explicit=row.copilot_model or "",
         base_url=row.base_url,
-        api_key=row.api_key or "",
+        api_key=api_key,
         max_tokens=row.max_tokens,
         timeout_seconds=row.timeout_seconds,
         label=row.label or "",
@@ -310,7 +297,6 @@ def active_row(db: Session) -> LLMEndpointConfig | None:
 
 
 def stored_override(db: Session | None) -> ResolvedConfig | None:
-    """The row the operator last saved, even if this host cannot reach it."""
     if db is None:
         return None
     try:
@@ -321,12 +307,12 @@ def stored_override(db: Session | None) -> ResolvedConfig | None:
 
 
 def resolve(db: Session | None = None) -> ResolvedConfig:
-    """The configuration in force right now.
+    """Return the model configuration currently selected for inference.
 
-    Falls back to the environment whenever the override is switched off, no
-    row exists, or the lookup fails. Failing back rather than failing hard is
-    deliberate: a misconfigured optional feature must not take the
-    conversational agent down with it.
+    Database lookup failures fall back to the deployment default because the
+override cannot be established. A *valid stored selection*, however, is
+never silently replaced by the other provider merely because its endpoint
+is unavailable.
     """
     global _cached
     settings = get_settings()
@@ -339,8 +325,6 @@ def resolve(db: Session | None = None) -> ResolvedConfig:
             return _cached[1]
 
     if db is None:
-        # No session to hand: keep whatever was last resolved rather than
-        # opening one from inside a provider constructor.
         with _lock:
             if _cached:
                 return _cached[1]
@@ -348,38 +332,24 @@ def resolve(db: Session | None = None) -> ResolvedConfig:
 
     try:
         row = active_row(db)
-        stored = _from_row(row) if row else None
-        if stored is None:
-            config = environment_config()
-        elif stored.provider == PROVIDER_LOCAL and _is_unreachable_local(stored):
-            # Keep the stored row (the Settings screen still shows it) but do
-            # not send inference there: hanging for minutes on an unroutable
-            # LAN address is how production looked broken.
-            logger.warning(
-                "Ignoring unreachable local LLM endpoint %s from %s; using the environment default",
-                stored.base_url,
-                backend_runtime_label(),
-            )
-            config = environment_config()
-        else:
-            config = stored
+        config = _from_row(row) if row else environment_config()
     except Exception:  # noqa: BLE001
-        logger.exception("Could not read the active LLM configuration; using the environment default")
+        logger.exception("Could not read the active LLM configuration; using deployment default")
         return environment_config()
+
+    if config.source == "runtime" and _is_unreachable_local(config):
+        logger.warning(
+            "Selected local LLM endpoint %s is not reachable from %s; no provider fallback will be attempted",
+            config.base_url,
+            backend_runtime_label(),
+        )
 
     with _lock:
         _cached = (now, config)
     return config
 
 
-# ------------------------------------------------------------ validation ---
 def normalise_base_url(raw: str) -> str:
-    """Accept what people actually paste, reject what cannot work.
-
-    PsychDeep 3 uses LM Studio locally or a protected Cloudflare hostname in
-    the cloud. The provider appends ``/chat/completions``, so the stored value
-    is normalised to end at ``/v1``.
-    """
     url = (raw or "").strip().rstrip("/")
     if not url:
         raise LLMConfigError("Escribe la URL del servidor.")
@@ -388,16 +358,13 @@ def normalise_base_url(raw: str) -> str:
         raise LLMConfigError("La URL tiene que empezar por http:// o https://")
     if not parsed.netloc:
         raise LLMConfigError("La URL no incluye un servidor.")
-    # A path of /chat/completions means they pasted the full endpoint.
     if url.endswith("/chat/completions"):
         url = url[: -len("/chat/completions")]
-    # LM Studio's "copy server URL" sometimes yields /api/v1/chat instead of /v1.
     if url.endswith("/api/v1/chat"):
         url = url[: -len("/api/v1/chat")] + "/v1"
     elif url.endswith("/api/v1"):
         url = url[: -len("/api/v1")] + "/v1"
     if not urlparse(url).path.rstrip("/"):
-        # Bare host: assume the near-universal /v1 prefix.
         url = f"{url}/v1"
     return url
 
@@ -413,7 +380,7 @@ def validate(
     copilot_model: str | None = None,
 ) -> dict:
     if provider not in PROVIDERS:
-        raise LLMConfigError("Selecciona Gemma 2 por API compatible con OpenAI o Claude mediante la API de Anthropic.")
+        raise LLMConfigError("Selecciona Anthropic o un endpoint compatible con OpenAI.")
     if not chat_model.strip() or not analysis_model.strip():
         raise LLMConfigError("Indica el nombre del modelo para el chat y para el análisis.")
     if not MAX_TOKENS_MIN <= max_tokens <= MAX_TOKENS_MAX:
@@ -441,14 +408,12 @@ def validate(
         "base_url": normalised,
         "chat_model": chat_model.strip(),
         "analysis_model": analysis_model.strip(),
-        # Left blank on purpose is a valid answer: it means "same as chat".
         "copilot_model": (copilot_model or "").strip(),
         "max_tokens": max_tokens,
         "timeout_seconds": timeout_seconds,
     }
 
 
-# --------------------------------------------------------------- writing ---
 def set_active(
     db: Session,
     *,
@@ -465,8 +430,8 @@ def set_active(
 ) -> ResolvedConfig:
     """Insert a new active configuration and retire the previous one.
 
-    Never updates in place. The old row stays, deactivated, so the record of
-    which model was serving the app at any past moment survives the change.
+    ``api_key`` is accepted for API compatibility but deliberately ignored:
+    model credentials remain server-side deployment secrets.
     """
     fields = validate(
         provider=provider,
@@ -478,23 +443,10 @@ def set_active(
         timeout_seconds=timeout_seconds,
     )
 
-    previous = active_row(db)
-    # An empty key on an update means "leave it alone", not "clear it": the
-    # UI never receives the stored key, so it cannot echo it back.
-    effective_key = (
-        api_key if api_key is not None else (previous.api_key if previous else None)
-    ) if fields["provider"] == PROVIDER_LOCAL else None
-
     now = datetime.utcnow()
-    for row in (
-        db.query(LLMEndpointConfig).filter(LLMEndpointConfig.is_active == True).all()  # noqa: E712
-    ):
+    for row in db.query(LLMEndpointConfig).filter(LLMEndpointConfig.is_active == True).all():  # noqa: E712
         row.is_active = False
         row.deactivated_at = now
-    # Retire the old row before inserting the new one. A partial unique index
-    # allows only one active configuration, and SQLAlchemy's unit of work
-    # emits INSERTs before UPDATEs, so without this flush the insert collides
-    # with the row this call is in the middle of deactivating.
     db.flush()
 
     record = LLMEndpointConfig(
@@ -503,7 +455,7 @@ def set_active(
         chat_model=fields["chat_model"],
         analysis_model=fields["analysis_model"],
         copilot_model=fields["copilot_model"] or None,
-        api_key=effective_key or None,
+        api_key=None,
         max_tokens=fields["max_tokens"],
         timeout_seconds=fields["timeout_seconds"],
         label=(label or "").strip()[:120],
@@ -519,11 +471,9 @@ def set_active(
 
 
 def reset_to_environment(db: Session) -> ResolvedConfig:
-    """Drop every override and go back to the deployment default."""
+    """Deactivate runtime selection and return to the deployment default."""
     now = datetime.utcnow()
-    for row in (
-        db.query(LLMEndpointConfig).filter(LLMEndpointConfig.is_active == True).all()  # noqa: E712
-    ):
+    for row in db.query(LLMEndpointConfig).filter(LLMEndpointConfig.is_active == True).all():  # noqa: E712
         row.is_active = False
         row.deactivated_at = now
     db.commit()

@@ -15,7 +15,6 @@ export default function NavBar() {
         </div>
         <div className="navbar-links">
           <Link to="/login">Entrar</Link>
-          <Link to="/settings">Estado</Link>
         </div>
       </nav>
     );
@@ -77,7 +76,7 @@ export default function NavBar() {
           </>
         )}
         <Link to="/account">Mi cuenta</Link>
-        <Link to="/settings">Estado</Link>
+        <Link to="/settings">{isAdmin ? "Modelos" : "Estado"}</Link>
       </div>
       <div className="navbar-user">
         <span>{user.display_name} · {ROLE_LABELS[role] || role}</span>
