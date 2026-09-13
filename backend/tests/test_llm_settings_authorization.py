@@ -23,7 +23,10 @@ def _user(role: str) -> User:
 
 
 def test_llm_settings_router_is_mounted():
-    methods_by_path = {route.path: getattr(route, "methods", set()) for route in app.routes}
+    methods_by_path: dict[str, set[str]] = {}
+    for route in app.routes:
+        methods_by_path.setdefault(route.path, set()).update(getattr(route, "methods", set()) or set())
+
     assert "/api/v1/settings/llm" in methods_by_path
     assert {"GET", "PUT", "DELETE"}.issubset(methods_by_path["/api/v1/settings/llm"])
     assert "/api/v1/settings/llm/test" in methods_by_path
