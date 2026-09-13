@@ -1,8 +1,10 @@
 """Audited runtime LLM selection from the Settings screen.
 
-Any authenticated account may read which provider is active. Only
+Any authenticated account may read which provider/model is active. Only
 ``admin_clinical`` may change it, and only when
-``LLM_ALLOW_RUNTIME_OVERRIDE=true`` at deployment level.
+``LLM_ALLOW_RUNTIME_OVERRIDE=true`` at deployment level. Endpoint topology is
+redacted from non-admin accounts and model credentials always remain server
+secrets.
 
 The switch affects generative inference only. Consent, clinical storage,
 audit and the deterministic risk engine are independent of the LLM. A failed
@@ -67,7 +69,7 @@ def _status(db: Session, user: User) -> LLMEndpointStatusOut:
     unreachable = bool(stored and stored.is_local and llm_config._is_unreachable_local(stored))
     if unreachable:
         notice = (
-            f"El endpoint local seleccionado ({stored.base_url}) no es alcanzable desde {runtime_label}. "
+            "El endpoint local seleccionado no es alcanzable desde el backend. "
             "No se cambia automáticamente a Anthropic: las funciones que necesiten el LLM fallarán "
             "de forma controlada hasta que el endpoint vuelva a estar disponible o un administrador "
             "cambie explícitamente de proveedor."
@@ -93,6 +95,13 @@ def _status(db: Session, user: User) -> LLMEndpointStatusOut:
     env_payload["backend_runtime_label"] = runtime_label
     env_payload["local_endpoint_supported"] = runtime == "local"
 
+    # Endpoint hostnames are operational topology. Ordinary authenticated users
+    # may know which model/provider answered, but only admin_clinical needs the
+    # route itself to test or edit it.
+    if not is_admin:
+        payload["base_url"] = None
+        env_payload["base_url"] = None
+
     return LLMEndpointStatusOut(
         active=payload,
         environment_default=env_payload,
@@ -103,8 +112,6 @@ def _status(db: Session, user: User) -> LLMEndpointStatusOut:
         backend_runtime=runtime,
         backend_runtime_label=runtime_label,
         local_endpoint_supported=runtime == "local",
-        # Kept for response compatibility. vNext no longer ignores a selected
-        # provider and silently routes to another one.
         ignored_override=None,
     )
 
@@ -140,7 +147,9 @@ def update_llm_settings(
             chat_model=payload.chat_model,
             analysis_model=payload.analysis_model,
             copilot_model=payload.copilot_model,
-            api_key=payload.api_key,
+            # Deliberately ignore any browser-supplied credential. Runtime
+            # selection stores no secrets; adapters read deployment secrets.
+            api_key=None,
             max_tokens=payload.max_tokens,
             timeout_seconds=payload.timeout_seconds,
             label=payload.label or "",
@@ -215,14 +224,13 @@ def test_llm_endpoint(
     except llm_config.LLMConfigError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
-    local_key = payload.api_key or settings.local_api_key or settings.llm_openai_compatible_api_key
     candidate = llm_config.ResolvedConfig(
         provider=fields["provider"],
         chat_model=fields["chat_model"],
         analysis_model=fields["analysis_model"],
         copilot_model=fields["copilot_model"],
         base_url=fields["base_url"],
-        api_key=local_key if fields["provider"] == LOCAL_PROVIDER else settings.anthropic_api_key,
+        api_key=(settings.local_api_key if fields["provider"] == LOCAL_PROVIDER else settings.anthropic_api_key),
         max_tokens=512,
         timeout_seconds=payload.timeout_seconds,
     )
