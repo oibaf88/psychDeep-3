@@ -33,13 +33,13 @@ export default function ConsentsPage() {
   }
 
   return (
-    <div className="page">
+    <main className="page" aria-label="Consentimientos">
       <h1>Consentimientos</h1>
       <p className="subtitle">
         Consentimiento granular y revocable por propósito. Cada cambio crea una nueva versión (historial conservado).
       </p>
-      {message && <p className="info">{message}</p>}
-      {error && <p className="error">{error}</p>}
+      {message && <p className="info" role="status">{message}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
 
       {TYPES.map((type) => {
         const current = latestFor(type);
@@ -77,6 +77,6 @@ export default function ConsentsPage() {
           {consents.length === 0 && <li>Sin registros.</li>}
         </ul>
       </section>
-    </div>
+    </main>
   );
 }

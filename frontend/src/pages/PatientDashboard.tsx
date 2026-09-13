@@ -42,7 +42,7 @@ export default function PatientDashboard() {
   }
 
   return (
-    <div className="page">
+    <main className="page" aria-label="Panel del Paciente">
       <h1>Tu acompañamiento</h1>
 
       {pendingLinks.length > 0 && (
@@ -70,6 +70,7 @@ export default function PatientDashboard() {
               aria-valuemin={0}
               aria-valuemax={10}
               aria-valuenow={form.mood}
+              aria-label="Escala de estado de ánimo de 0 a 10"
             />
             <div className="range-labels" aria-hidden="true">
               <span>0 (Peor)</span>
@@ -89,6 +90,7 @@ export default function PatientDashboard() {
               aria-valuemin={0}
               aria-valuemax={10}
               aria-valuenow={form.craving}
+              aria-label="Escala de craving o deseo de consumo de 0 a 10"
             />
             <div className="range-labels" aria-hidden="true">
               <span>0 (Ninguno)</span>
@@ -121,6 +123,7 @@ export default function PatientDashboard() {
               aria-valuemin={0}
               aria-valuemax={10}
               aria-valuenow={form.self_efficacy}
+              aria-label="Escala de confianza o autoeficacia de 0 a 10"
             />
             <div className="range-labels" aria-hidden="true">
               <span>0 (Ninguna)</span>
@@ -142,6 +145,7 @@ export default function PatientDashboard() {
             {submitting ? "Guardando..." : "Guardar check-in"}
           </button>
         </form>
+        {message && <p className="info" role="status">{message}</p>}
         {message && <p className="info" aria-live="polite" role="status">{message}</p>}
       </section>
 
@@ -171,6 +175,6 @@ export default function PatientDashboard() {
           <p>Sin datos todavía.</p>
         )}
       </section>
-    </div>
+    </main>
   );
 }
