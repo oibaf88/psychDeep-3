@@ -28,14 +28,12 @@ settings = get_settings()
 
 PUBLIC_SIGNUP_ROLE = "patient"
 
-
 def _invalidate_password_reset_tokens(db: Session, user_id: uuid.UUID) -> None:
     """Old recovery links must not undo a later password or email change."""
     db.query(PasswordResetToken).filter(
         PasswordResetToken.user_id == user_id,
         PasswordResetToken.is_used.is_(False),
     ).update({PasswordResetToken.is_used: True}, synchronize_session="fetch")
-
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
@@ -70,11 +68,9 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
     token = create_access_token(user.id, user.role, user.auth_version or 1)
     return Token(access_token=token, user=UserOut.model_validate(user))
 
-
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return UserOut.model_validate(user)
-
 
 @router.patch("/me/profile", response_model=UserOut)
 def update_my_profile(
@@ -136,7 +132,6 @@ def update_my_profile(
         )
     return UserOut.model_validate(user)
 
-
 @router.post("/change-password")
 def change_password(
     payload: PasswordChangeRequest,
@@ -168,7 +163,6 @@ def change_password(
     # The version increment invalidates all existing JWTs, including this one.
     return {"message": "Contraseña actualizada. Vuelve a iniciar sesión en todos los dispositivos."}
 
-
 @router.post("/login", response_model=Token)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(func.lower(User.email) == payload.email).first()
@@ -181,7 +175,6 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     token = create_access_token(user.id, user.role, user.auth_version or 1)
     return Token(access_token=token, user=UserOut.model_validate(user))
-
 
 @router.post("/password-reset-request")
 def password_reset_request(payload: PasswordResetRequest, db: Session = Depends(get_db)):
@@ -214,7 +207,6 @@ def password_reset_request(payload: PasswordResetRequest, db: Session = Depends(
         response["dev_token"] = token
     return response
 
-
 @router.post("/password-reset-confirm")
 def password_reset_confirm(payload: PasswordResetConfirm, db: Session = Depends(get_db)):
     reset_token = db.query(PasswordResetToken).filter(
@@ -245,16 +237,6 @@ def password_reset_confirm(payload: PasswordResetConfirm, db: Session = Depends(
 
 @router.post("/google-login", response_model=Token)
 def google_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
-    # In a real app you'd verify the token with Google using something like google-auth
-    # from google.oauth2 import id_token
-    # from google.auth.transport import requests
-    # try:
-    #     idinfo = id_token.verify_oauth2_token(payload.id_token, requests.Request(), GOOGLE_CLIENT_ID)
-    # except ValueError:
-    #     raise HTTPException(status_code=401, detail="Invalid token")
-    # email = idinfo['email']
-    # display_name = idinfo.get('name', email)
-
     # This handler does NOT verify the token with Google — it treats the
     # client-supplied id_token as the user's email, so enabling it lets
     # anyone obtain a session for any account. It stays disabled until
