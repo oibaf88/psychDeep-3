@@ -18,7 +18,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Operaciones (E12):** PARTIAL
 
 ## Current technical debt
-- Need to expand frontend component testing.
+- Need to expand frontend component testing. (Fixed `errorDetail` missing tests in `api.test.ts`)
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
