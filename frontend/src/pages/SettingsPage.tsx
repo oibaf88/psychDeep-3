@@ -17,7 +17,6 @@ interface FormState {
   chatModel: string;
   analysisModel: string;
   copilotModel: string;
-  apiKey: string;
   maxTokens: number;
   timeoutSeconds: number;
   label: string;
@@ -32,7 +31,6 @@ function formFromStatus(status: LLMEndpointStatusOut): FormState {
     chatModel: active.chat_model || (provider === "anthropic" ? "claude-opus-5" : ""),
     analysisModel: active.analysis_model || active.chat_model || (provider === "anthropic" ? "claude-opus-5" : ""),
     copilotModel: active.copilot_model_explicit || "",
-    apiKey: "",
     maxTokens: active.max_tokens || 8192,
     timeoutSeconds: active.timeout_seconds || 45,
     label: active.label || (provider === "anthropic" ? "Claude / Anthropic" : "Modelo local"),
@@ -83,7 +81,6 @@ export default function SettingsPage() {
       patch({
         provider,
         baseUrl: "",
-        apiKey: "",
         chatModel: status?.active.provider === "anthropic" ? status.active.chat_model : "claude-opus-5",
         analysisModel: status?.active.provider === "anthropic" ? status.active.analysis_model : "claude-opus-5",
         copilotModel: status?.active.provider === "anthropic" ? status.active.copilot_model_explicit : "",
@@ -95,7 +92,6 @@ export default function SettingsPage() {
     patch({
       provider,
       baseUrl: localPreset?.base_url || "https://ai.bfab.io/v1",
-      apiKey: "",
       chatModel: localPreset?.chat_model || "gemma-2-2b-it",
       analysisModel: localPreset?.analysis_model || localPreset?.chat_model || "gemma-2-2b-it",
       copilotModel: localPreset?.copilot_model_explicit || "",
@@ -112,7 +108,7 @@ export default function SettingsPage() {
       chat_model: current.chatModel,
       analysis_model: current.analysisModel,
       copilot_model: current.copilotModel || null,
-      api_key: current.provider === "openai_compatible" ? (current.apiKey || null) : null,
+      api_key: null,
       max_tokens: current.maxTokens,
       timeout_seconds: current.timeoutSeconds,
       label: current.label,
@@ -181,7 +177,7 @@ export default function SettingsPage() {
 
   return (
     <div className="page">
-      <h1>Ajustes</h1>
+      <h1>{status?.can_edit ? "Modelos" : "Estado del sistema"}</h1>
       <p className="subtitle">
         Estado de la API y proveedor LLM. El cambio de proveedor está restringido a administración clínica y queda auditado.
       </p>
@@ -206,8 +202,8 @@ export default function SettingsPage() {
               <div><dt>Análisis</dt><dd>{active.analysis_model || "sin configurar"}</dd></div>
               <div><dt>Copiloto</dt><dd>{active.copilot_model || active.chat_model || "sin configurar"}</dd></div>
               <div><dt>Origen</dt><dd>{active.source === "runtime" ? "selección de administración" : "despliegue"}</dd></div>
-              <div><dt>Endpoint</dt><dd>{active.base_url ? <code>{active.base_url}</code> : "API de Anthropic"}</dd></div>
-              <div><dt>Clave</dt><dd>{active.has_api_key ? "configurada en backend" : "no configurada"}</dd></div>
+              {active.base_url && <div><dt>Endpoint</dt><dd><code>{active.base_url}</code></dd></div>}
+              <div><dt>Credencial</dt><dd>{active.has_api_key ? "configurada en backend" : "no configurada"}</dd></div>
             </dl>
           </div>
         )}
@@ -240,6 +236,7 @@ export default function SettingsPage() {
                 <label className="field">
                   <span>Endpoint compatible con OpenAI</span>
                   <input type="url" value={form.baseUrl} onChange={(event) => patch({ baseUrl: event.target.value })} placeholder="https://ai.bfab.io/v1" />
+                  <span className="meta">La credencial, si el endpoint la exige, se configura solo como secreto del backend.</span>
                 </label>
               </>
             )}
@@ -251,19 +248,11 @@ export default function SettingsPage() {
 
             <div className="field-row">
               <label className="field"><span>Modelo de copiloto</span><input value={form.copilotModel} placeholder="vacío = igual que conversación" onChange={(event) => patch({ copilotModel: event.target.value })} /></label>
-              {form.provider === "openai_compatible" && (
-                <label className="field">
-                  <span>Token opcional del endpoint</span>
-                  <input type="password" value={form.apiKey} placeholder={active?.has_api_key ? "vacío = usar secreto existente" : "solo si el endpoint lo exige"} onChange={(event) => patch({ apiKey: event.target.value })} />
-                </label>
-              )}
-            </div>
-
-            <div className="field-row">
               <label className="field"><span>Tokens máximos</span><input type="number" min={256} max={32768} value={form.maxTokens} onChange={(event) => patch({ maxTokens: Number(event.target.value) })} /></label>
               <label className="field"><span>Timeout (s)</span><input type="number" min={5} max={5000} value={form.timeoutSeconds} onChange={(event) => patch({ timeoutSeconds: Number(event.target.value) })} /></label>
-              <label className="field"><span>Etiqueta</span><input value={form.label} onChange={(event) => patch({ label: event.target.value })} /></label>
             </div>
+
+            <label className="field"><span>Etiqueta</span><input value={form.label} onChange={(event) => patch({ label: event.target.value })} /></label>
 
             <div className="alert-actions">
               <button type="button" className="btn-secondary" disabled={busy !== ""} onClick={testEndpoint}>{busy === "test" ? "Probando…" : "Probar proveedor"}</button>
