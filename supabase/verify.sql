@@ -1,18 +1,13 @@
--- PsychDeep — Supabase readiness check. Run this BEFORE the Render deploy.
+-- PsychDeep vNext — Supabase readiness check. Run this BEFORE the Render deploy.
 --
--- It reproduces, as one query, the contract the API enforces at startup
--- (`_verify_production_schema` in backend/app/main.py) plus the hardening the
--- migrations are supposed to have left behind. Every row must read `ok`.
---
--- A failing row here is a Render deploy that would either refuse to start or
--- start against a half-migrated database, so it is cheaper to see it now.
+-- It reproduces the production startup contract plus database hardening and
+-- verifies that the retired local-sync authority can no longer authenticate or
+-- reach clinical tables. Every row must read `ok`.
 --
 -- Read-only: it changes nothing. Safe to run against a live project.
---
--- >>> Set the schema on the next line if yours is not psychdeep_v12. <<<
 
 with settings as (
-    select 'psychdeep_v12'::name as target_schema   -- <<< EDIT THIS
+    select 'psychdeep_v12'::name as target_schema
 ),
 app_tables as (
     select relation.oid,
@@ -26,17 +21,20 @@ app_tables as (
      where relation.relkind = 'r'
 ),
 expected_tables(table_name) as (values
-    ('agent2_analysis_traces'), ('alfa_signals'),
-    ('audit_log'), ('baselines'), ('chat_messages'),
-    ('check_ins'), ('confirmed_facts'), ('diary_entries'),
-    ('llm_endpoint_configs'), ('notifications'), ('password_reset_tokens'),
-    ('patient_professional_assignments'), ('patient_profiles'),
-    ('professional_alerts'),
-    ('psychosocial_observations'), ('risk_assessments'), ('safety_plans'),
-    ('therapist_copilot_messages'), ('user_consents'), ('users')
+    -- Legacy history remains readable during expand-and-migrate.
+    ('agent2_analysis_traces'), ('alfa_signals'), ('audit_log'), ('baselines'),
+    ('chat_messages'), ('check_ins'), ('confirmed_facts'), ('diary_entries'),
+    ('llm_endpoint_configs'), ('llm_usage_events'), ('notifications'),
+    ('password_reset_tokens'), ('patient_professional_assignments'),
+    ('patient_profiles'), ('professional_alerts'), ('psychosocial_observations'),
+    ('risk_assessments'), ('safety_plans'), ('therapist_copilot_messages'),
+    ('user_consents'), ('users'),
+    -- Canonical vNext data plane.
+    ('observations'), ('feature_definitions'), ('feature_values'),
+    ('baseline_versions'), ('change_signals'), ('model_runs'), ('inferences'),
+    ('intervention_events'), ('knowledge_items'), ('fine_tune_runs'),
+    ('model_deployments')
 ),
--- Exactly the set backend/app/main.py refuses to start without, plus the
--- provenance columns the runtime-endpoint release writes on every turn.
 required_columns(table_name, column_name) as (values
     ('agent2_analysis_traces', 'id'),
     ('agent2_analysis_traces', 'agent_role'),
@@ -46,6 +44,7 @@ required_columns(table_name, column_name) as (values
     ('risk_assessments', 'agent2_trace_id'),
     ('risk_assessments', 'linguistic_signal_id_used'),
     ('risk_assessments', 'calculation_trace'),
+    ('risk_assessments', 'rule_set_version'),
     ('therapist_copilot_messages', 'id'),
     ('psychosocial_observations', 'id'),
     ('psychosocial_observations', 'evidence_quote'),
@@ -58,9 +57,24 @@ required_columns(table_name, column_name) as (values
     ('users', 'phone'),
     ('users', 'auth_version'),
     ('users', 'updated_at'),
+    ('user_consents', 'scope'),
+    ('user_consents', 'valid_until'),
     ('chat_messages', 'provider'),
     ('chat_messages', 'model'),
-    ('chat_messages', 'provider_base_url')
+    ('chat_messages', 'provider_base_url'),
+    ('chat_messages', 'model_run_id'),
+    ('observations', 'id'),
+    ('observations', 'legacy_source_id'),
+    ('feature_definitions', 'id'),
+    ('feature_values', 'id'),
+    ('baseline_versions', 'id'),
+    ('change_signals', 'id'),
+    ('model_runs', 'id'),
+    ('inferences', 'id'),
+    ('intervention_events', 'id'),
+    ('knowledge_items', 'id'),
+    ('fine_tune_runs', 'id'),
+    ('model_deployments', 'alias')
 ),
 checks(sort_key, check_name, failures) as (
     select 1, 'schema exists',
@@ -74,7 +88,7 @@ checks(sort_key, check_name, failures) as (
              where not exists (select 1 from pg_roles where rolname = 'psychdeep_backend'))
 
     union all
-    select 3, 'all application tables present',
+    select 3, 'all legacy and vNext application tables present',
            (select count(*) from expected_tables
              where table_name not in (select relname from app_tables))
 
@@ -88,8 +102,6 @@ checks(sort_key, check_name, failures) as (
              where not relrowsecurity or not relforcerowsecurity)
 
     union all
-    -- FORCE RLS makes the owner subject to policies too, so the backend needs
-    -- one of its own or it locks itself out.
     select 6, 'every table has the backend_full_access policy',
            (select count(*) from app_tables
              where not exists (
@@ -100,8 +112,6 @@ checks(sort_key, check_name, failures) as (
                     and 'psychdeep_backend' = any(pg_policies.roles)))
 
     union all
-    -- Anything readable by anon or authenticated is readable with the
-    -- publishable key over PostgREST.
     select 7, 'no PostgREST role can read any table',
            (select count(*) from app_tables
              where has_table_privilege('anon', oid, 'SELECT')
@@ -109,8 +119,6 @@ checks(sort_key, check_name, failures) as (
                 or has_table_privilege('service_role', oid, 'SELECT'))
 
     union all
-    -- pg_attribute, not information_schema: the latter hides columns the
-    -- caller has no privileges on, which is every one of these for postgres.
     select 8, 'API startup schema contract satisfied',
            (select count(*) from required_columns, settings
              where not exists (
@@ -122,7 +130,6 @@ checks(sort_key, check_name, failures) as (
                     and not attisdropped))
 
     union all
-    -- The shape every expand migration checks before it will run.
     select 9, 'postgres -> psychdeep_backend membership unwidened',
            (select count(*) from (select 1) as one
              where not coalesce((
@@ -135,8 +142,6 @@ checks(sort_key, check_name, failures) as (
                     and m.member = to_regrole('postgres')), false))
 
     union all
-    -- A table here means DATABASE_URL is not carrying the search_path the
-    -- deployment assumes, and PostgREST is exposing whatever landed instead.
     select 10, 'no application tables left in public',
            (select count(*) from pg_class relation
               join pg_namespace namespace on namespace.oid = relation.relnamespace
@@ -167,6 +172,30 @@ checks(sort_key, check_name, failures) as (
                     and pg_indexes.indexname = 'ix_users_email_lower'
                     and pg_indexes.indexdef ilike '%unique%'
                     and pg_indexes.indexdef ilike '%lower%email%'))
+
+    union all
+    select 13, 'retired psychdeep_sync cannot authenticate',
+           (select count(*) from pg_roles
+             where rolname = 'psychdeep_sync' and rolcanlogin)
+
+    union all
+    select 14, 'retired psychdeep_sync has no RLS policies',
+           (select count(*) from pg_policies, settings
+             where schemaname = settings.target_schema
+               and 'psychdeep_sync' = any(roles))
+
+    union all
+    select 15, 'retired psychdeep_sync has no clinical table privileges',
+           (select count(*) from app_tables
+             where exists (select 1 from pg_roles where rolname = 'psychdeep_sync')
+               and (has_table_privilege('psychdeep_sync', oid, 'SELECT')
+                 or has_table_privilege('psychdeep_sync', oid, 'INSERT')
+                 or has_table_privilege('psychdeep_sync', oid, 'UPDATE')
+                 or has_table_privilege('psychdeep_sync', oid, 'DELETE')))
+
+    union all
+    select 16, 'SymmetricDS metadata schema removed',
+           (select count(*) from pg_namespace where nspname = 'psychdeep_sync')
 )
 select check_name,
        case when failures = 0 then 'ok' else 'FAILED' end as status,
