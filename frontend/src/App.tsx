@@ -7,6 +7,8 @@ import CrisisButton from "./components/CrisisButton";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import PatientDashboard from "./pages/PatientDashboard";
+import TrendsPage from "./pages/TrendsPage";
+import SharingPage from "./pages/SharingPage";
 import DiaryPage from "./pages/DiaryPage";
 import ChatPage from "./pages/ChatPage";
 import WavePage from "./pages/WavePage";
@@ -53,157 +55,31 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/settings" element={<SettingsPage />} />
-            <Route
-              path="/account"
-              element={
-                <ProtectedRoute>
-                  <AccountPage />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
 
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <RoleHome />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/" element={<ProtectedRoute><RoleHome /></ProtectedRoute>} />
 
-            {/* Patient routes */}
-            <Route
-              path="/diary"
-              element={
-                <ProtectedRoute patientOnly>
-                  <DiaryPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/chat"
-              element={
-                <ProtectedRoute patientOnly>
-                  <ChatPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/wave"
-              element={
-                <ProtectedRoute patientOnly>
-                  <WavePage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/safety-plan"
-              element={
-                <ProtectedRoute patientOnly>
-                  <SafetyPlanPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/facts"
-              element={
-                <ProtectedRoute patientOnly>
-                  <FactsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/consents"
-              element={
-                <ProtectedRoute patientOnly>
-                  <ConsentsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/assignments"
-              element={
-                <ProtectedRoute patientOnly>
-                  <AssignmentsPage />
-                </ProtectedRoute>
-              }
-            />
+            {/* Patient vNext information architecture. Legacy deep links stay valid. */}
+            <Route path="/trends" element={<ProtectedRoute patientOnly><TrendsPage /></ProtectedRoute>} />
+            <Route path="/sharing" element={<ProtectedRoute patientOnly><SharingPage /></ProtectedRoute>} />
+            <Route path="/diary" element={<ProtectedRoute patientOnly><DiaryPage /></ProtectedRoute>} />
+            <Route path="/chat" element={<ProtectedRoute patientOnly><ChatPage /></ProtectedRoute>} />
+            <Route path="/wave" element={<ProtectedRoute patientOnly><WavePage /></ProtectedRoute>} />
+            <Route path="/safety-plan" element={<ProtectedRoute patientOnly><SafetyPlanPage /></ProtectedRoute>} />
+            <Route path="/facts" element={<ProtectedRoute patientOnly><FactsPage /></ProtectedRoute>} />
+            <Route path="/consents" element={<ProtectedRoute patientOnly><ConsentsPage /></ProtectedRoute>} />
+            <Route path="/assignments" element={<ProtectedRoute patientOnly><AssignmentsPage /></ProtectedRoute>} />
 
-            {/* Shared */}
-            <Route
-              path="/notifications"
-              element={
-                <ProtectedRoute>
-                  <NotificationsPage />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
 
-            {/* Professional routes */}
-            <Route
-              path="/professional"
-              element={
-                <ProtectedRoute professionalOnly>
-                  <ProfessionalDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/professional/alerts"
-              element={
-                <ProtectedRoute professionalOnly>
-                  <AlertsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/professional/assignments"
-              element={
-                <ProtectedRoute professionalOnly>
-                  <AssignmentsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/professional/users"
-              element={
-                <ProtectedRoute roles={["admin_clinical"]}>
-                  <AdminUsersPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/professional/audit"
-              element={
-                <ProtectedRoute roles={["supervisor", "admin_clinical"]}>
-                  <AuditPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/professional/copilot"
-              element={
-                <ProtectedRoute roles={["therapist", "supervisor"]}>
-                  <CopilotPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/professional/manual"
-              element={
-                <ProtectedRoute professionalOnly>
-                  <ManualPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/professional/patients/:patientId"
-              element={
-                <ProtectedRoute roles={["therapist", "supervisor"]}>
-                  <PatientDetailPage />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/professional" element={<ProtectedRoute professionalOnly><ProfessionalDashboard /></ProtectedRoute>} />
+            <Route path="/professional/alerts" element={<ProtectedRoute professionalOnly><AlertsPage /></ProtectedRoute>} />
+            <Route path="/professional/assignments" element={<ProtectedRoute professionalOnly><AssignmentsPage /></ProtectedRoute>} />
+            <Route path="/professional/users" element={<ProtectedRoute roles={["admin_clinical"]}><AdminUsersPage /></ProtectedRoute>} />
+            <Route path="/professional/audit" element={<ProtectedRoute roles={["supervisor", "admin_clinical"]}><AuditPage /></ProtectedRoute>} />
+            <Route path="/professional/copilot" element={<ProtectedRoute roles={["therapist", "supervisor"]}><CopilotPage /></ProtectedRoute>} />
+            <Route path="/professional/manual" element={<ProtectedRoute professionalOnly><ManualPage /></ProtectedRoute>} />
+            <Route path="/professional/patients/:patientId" element={<ProtectedRoute roles={["therapist", "supervisor"]}><PatientDetailPage /></ProtectedRoute>} />
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

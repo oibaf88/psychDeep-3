@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
 import { api, ConsentOut, CONSENT_LABELS } from "../api";
 
-const TYPES = ["data_processing", "professional_sharing", "crisis_sms", "research"] as const;
+const TYPES = ["data_processing", "linguistic_analysis", "professional_sharing", "crisis_sms", "research"] as const;
+
+const EXPLANATIONS: Record<string, string> = {
+  data_processing: "Permite guardar y procesar los datos necesarios para check-ins, diario, trayectoria, baseline y seguridad básica.",
+  linguistic_analysis: "Permite enviar texto del chat/diario al deployment LLM aprobado para extraer señales lingüísticas. Si lo revocas, no se harán nuevos análisis de texto; la seguridad determinista y tus datos siguen funcionando.",
+  professional_sharing: "Permite compartir seguimiento con profesionales que hayas autorizado mediante una vinculación activa.",
+  crisis_sms: "Permite comunicaciones de crisis según el protocolo aplicable. No autoriza al LLM a contactar a terceros.",
+  research: "Permite usos secundarios específicamente gobernados. No se usa por defecto para entrenar modelos.",
+};
 
 export default function ConsentsPage() {
   const [consents, setConsents] = useState<ConsentOut[]>([]);
@@ -25,7 +33,7 @@ export default function ConsentsPage() {
     setError(null);
     try {
       await api.post("/api/v1/consents", { consent_type: type, granted });
-      setMessage(granted ? "Consentimiento concedido." : "Consentimiento revocado.");
+      setMessage(granted ? "Consentimiento concedido." : "Consentimiento revocado. Las nuevas operaciones de esa finalidad se detendrán.");
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -35,9 +43,7 @@ export default function ConsentsPage() {
   return (
     <main className="page" aria-label="Consentimientos">
       <h1>Consentimientos</h1>
-      <p className="subtitle">
-        Consentimiento granular y revocable por propósito. Cada cambio crea una nueva versión (historial conservado).
-      </p>
+      <p className="subtitle">Consentimiento granular y revocable por finalidad. Cada cambio conserva su historial.</p>
       {message && <p className="info" role="status">{message}</p>}
       {error && <p className="error" role="alert">{error}</p>}
 
@@ -47,18 +53,14 @@ export default function ConsentsPage() {
         return (
           <section key={type} className="card">
             <h2>{CONSENT_LABELS[type] || type}</h2>
+            <p>{EXPLANATIONS[type]}</p>
             <p className="meta">
-              Estado actual:{" "}
-              <strong className={active ? "badge-ok" : "badge-off"}>{active ? "Concedido" : "No concedido / revocado"}</strong>
+              Estado actual: <strong className={active ? "badge-ok" : "badge-off"}>{active ? "Concedido" : "No concedido / revocado"}</strong>
               {current && <> · desde {new Date(current.granted_at).toLocaleString()}</>}
             </p>
             <div className="alert-actions">
               {!active && <button onClick={() => setConsent(type, true)}>Conceder</button>}
-              {active && (
-                <button className="btn-secondary" onClick={() => setConsent(type, false)}>
-                  Revocar
-                </button>
-              )}
+              {active && <button className="btn-secondary" onClick={() => setConsent(type, false)}>Revocar</button>}
             </div>
           </section>
         );
@@ -70,8 +72,7 @@ export default function ConsentsPage() {
           {consents.map((c) => (
             <li key={c.id}>
               <strong>{CONSENT_LABELS[c.consent_type] || c.consent_type}</strong>: {c.granted ? "concedido" : "denegado"}
-              {c.revoked_at ? ` · revocado ${new Date(c.revoked_at).toLocaleString()}` : ""} ·{" "}
-              {new Date(c.granted_at).toLocaleString()}
+              {c.revoked_at ? ` · revocado ${new Date(c.revoked_at).toLocaleString()}` : ""} · {new Date(c.granted_at).toLocaleString()}
             </li>
           ))}
           {consents.length === 0 && <li>Sin registros.</li>}

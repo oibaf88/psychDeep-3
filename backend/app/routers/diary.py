@@ -9,6 +9,8 @@ from app.models import DiaryEntry, User
 from app.schemas import DiaryIn, DiaryOut
 from app.security import require_patient
 from app.services import audit, conversation, risk_engine
+from app.services.canonical_data import record_diary
+from app.services.deterministic_safety_text import materialize_user_declaration
 
 router = APIRouter(prefix="/api/v1/diary", tags=["diary"])
 
@@ -25,12 +27,18 @@ def create_entry(payload: DiaryIn, db: Session = Depends(get_db), user: User = D
     db.commit()
     db.refresh(entry)
 
+    # Keep the established row and mirror the same self-report into the
+    # canonical vNext Observation stream. The legacy history stays readable.
+    record_diary(db, entry)
+
     audit.log(db, actor_id=user.id, actor_role=user.role, action="diary_created", entity_type="diary_entry", entity_id=entry.id)
 
+    # Explicit crisis declarations are materialized before optional linguistic
+    # analysis. This guarantees that deterministic safety can still act if the
+    # LLM is down or the user has not consented to linguistic analysis.
+    materialize_user_declaration(db, user.id, payload.content)
+
     correlation_id = uuid.uuid4()
-    # The diary is as much a source of social context as the chat is, so the
-    # analyser reads it for both — linguistic markers and social
-    # determinants — in one call, before the deterministic evaluation.
     analysis = conversation.analyze_text_and_store(
         db,
         user.id,

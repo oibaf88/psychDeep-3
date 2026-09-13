@@ -11,11 +11,11 @@ export default function NavBar() {
       <nav className="navbar">
         <div className="navbar-brand">
           <PsychDeepMark variant="compact" className="navbar-mark" />
-          <span>PsychApp</span>
+          <span>PsychDeep</span>
         </div>
         <div className="navbar-links">
           <Link to="/login">Entrar</Link>
-          <Link to="/settings">Ajustes / instalar</Link>
+          <Link to="/settings">Estado</Link>
         </div>
       </nav>
     );
@@ -31,19 +31,17 @@ export default function NavBar() {
     <nav className="navbar">
       <div className="navbar-brand">
         <PsychDeepMark variant="compact" className="navbar-mark" />
-        <span>PsychApp</span>
+        <span>PsychDeep</span>
       </div>
       <div className="navbar-links">
         {isPatient && (
           <>
-            <Link to="/">Inicio</Link>
+            <Link to="/">Hoy</Link>
+            <Link to="/trends">Tendencias</Link>
+            <Link to="/wave">Regular</Link>
             <Link to="/diary">Diario</Link>
-            <Link to="/wave">Ola</Link>
-            <Link to="/chat">Chat</Link>
-            <Link to="/safety-plan">Plan de seguridad</Link>
-            <Link to="/facts">Hechos</Link>
-            <Link to="/assignments">Vinculaciones</Link>
-            <Link to="/consents">Consentimientos</Link>
+            <Link to="/safety-plan">Plan</Link>
+            <Link to="/sharing">Compartir</Link>
             <Link to="/notifications">Avisos</Link>
           </>
         )}
@@ -79,12 +77,10 @@ export default function NavBar() {
           </>
         )}
         <Link to="/account">Mi cuenta</Link>
-        <Link to="/settings">Ajustes del modelo</Link>
+        <Link to="/settings">Estado</Link>
       </div>
       <div className="navbar-user">
-        <span>
-          {user.display_name} · {ROLE_LABELS[role] || role}
-        </span>
+        <span>{user.display_name} · {ROLE_LABELS[role] || role}</span>
         <button onClick={logout}>Salir</button>
       </div>
     </nav>

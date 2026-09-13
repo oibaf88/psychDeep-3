@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from app import models_vnext as _models_vnext  # noqa: F401 - register canonical metadata
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
 from app.routers import (
@@ -19,13 +20,13 @@ from app.routers import (
     consents,
     diary,
     facts,
-    llm_settings,
     notifications,
     professional,
     safety,
     timeline,
+    vnext,
 )
-from app.services import llm_config
+from app.services.model_gateway import ModelUnavailable, get_model_gateway
 from app.services.risk_engine import MODEL_VERSION as RISK_ENGINE_VERSION
 
 logging.basicConfig(level=logging.INFO)
@@ -34,27 +35,22 @@ logger = logging.getLogger("psychapp")
 settings = get_settings()
 
 app = FastAPI(
-    title="PsychApp API",
+    title="PsychDeep vNext API",
     description=(
-        "Self-regulation & self-awareness companion (Level A/B MVP, see README). "
-        "Not a medical device. Conversational and linguistic-analysis features are "
-        "configured through the documented model endpoint; the deterministic risk engine remains independent."
+        "Cloud-first longitudinal self-regulation platform. Clinical state and "
+        "deterministic safety remain independent of the replaceable LLM deployment."
     ),
-    version="0.2.0",
+    version="0.3.0-vnext",
 )
 
 origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-# Local/dev: also accept any private LAN origin (phone on same Wi‑Fi via
-# http://192.168.x.x:5173). Production should set APP_ENV and explicit CORS_ORIGINS.
 _cors_kwargs: dict = {
     "allow_origins": origins or ["http://localhost:5173"],
     "allow_credentials": True,
-    "allow_methods": ["*"],
-    "allow_headers": ["*"],
+    "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "allow_headers": ["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
 }
 if settings.app_env in ("local", "dev", "development"):
-    # LAN origins (phone on same Wi-Fi via http://192.168.x.x:5173 or private IPs).
-    # Specific tunnel hosts should be configured via CORS_ORIGINS.
     _cors_kwargs["allow_origin_regex"] = (
         r"^https?://("
         r"localhost|127\.0\.0\.1|"
@@ -80,104 +76,102 @@ def _wait_for_db(max_attempts: int = 30, delay_seconds: float = 2.0) -> None:
 
 
 def _verify_production_schema() -> None:
-    """Fail before serving if the expand migration was not applied."""
-    required = {
+    """Fail before serving if required legacy/vNext migrations or hardening are incomplete."""
+    required_columns = {
+        # Legacy longitudinal memory remains part of the supported product and
+        # must still exist after the vNext expand-and-migrate cutover.
+        ("patient_profiles", "id"),
         ("agent2_analysis_traces", "id"),
         ("alfa_signals", "agent2_trace_id"),
         ("risk_assessments", "correlation_id"),
-        ("risk_assessments", "agent2_trace_id"),
-        ("risk_assessments", "linguistic_signal_id_used"),
         ("risk_assessments", "calculation_trace"),
-        ("therapist_copilot_messages", "id"),
-        ("agent2_analysis_traces", "agent_role"),
-        ("llm_endpoint_configs", "copilot_model"),
-        ("psychosocial_observations", "id"),
-        ("psychosocial_observations", "evidence_quote"),
-        ("patient_profiles", "id"),
-        ("patient_profiles", "linguistic_baseline"),
-        ("users", "first_name"),
-        ("users", "last_name"),
-        ("users", "phone"),
+        ("risk_assessments", "rule_set_version"),
         ("users", "auth_version"),
-        ("users", "updated_at"),
+        # Canonical vNext model.
+        ("observations", "id"),
+        ("baseline_versions", "id"),
+        ("change_signals", "id"),
+        ("inferences", "id"),
+        ("model_runs", "id"),
+        ("intervention_events", "id"),
+        ("model_deployments", "alias"),
+    }
+    canonical_tables = {
+        "observations",
+        "feature_definitions",
+        "feature_values",
+        "baseline_versions",
+        "change_signals",
+        "model_runs",
+        "inferences",
+        "intervention_events",
+        "knowledge_items",
+        "fine_tune_runs",
+        "model_deployments",
     }
     with engine.connect() as conn:
         rows = conn.execute(
             text(
-                "SELECT table_name, column_name "
-                "FROM information_schema.columns "
+                "SELECT table_name, column_name FROM information_schema.columns "
                 "WHERE table_schema = current_schema()"
             )
         ).all()
-        hardening = conn.execute(
+        # Fetch the schema catalogue once and filter in Python. Avoid binding a
+        # Python list to PostgreSQL ANY(), whose adaptation varies by driver.
+        hardened = conn.execute(
             text(
-                "SELECT owner_role.rolname, relation.relrowsecurity, relation.relforcerowsecurity "
+                "SELECT relation.relname, owner_role.rolname, relation.relrowsecurity, relation.relforcerowsecurity "
                 "FROM pg_class relation "
                 "JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace "
                 "JOIN pg_roles owner_role ON owner_role.oid = relation.relowner "
-                "WHERE namespace.nspname = current_schema() "
-                "AND relation.relname = 'agent2_analysis_traces'"
+                "WHERE namespace.nspname = current_schema() AND relation.relkind = 'r'"
             )
-        ).first()
-        backend_policy = conn.execute(
+        ).all()
+        policies = conn.execute(
             text(
-                "SELECT 1 FROM pg_policies "
-                "WHERE schemaname = current_schema() "
-                "AND tablename = 'agent2_analysis_traces' "
-                "AND policyname = 'backend_full_access' "
-                "AND 'psychdeep_backend' = ANY(roles)"
+                "SELECT tablename, roles FROM pg_policies "
+                "WHERE schemaname = current_schema() AND policyname = 'backend_full_access'"
             )
-        ).first()
+        ).all()
+
     available = {(row[0], row[1]) for row in rows}
-    missing = sorted(required - available)
+    missing = sorted(required_columns - available)
     if missing:
         raise RuntimeError(
-            "Production schema is missing the Agent 2/risk-explanation migration: "
+            "Production schema is missing a required migration: "
             + ", ".join(f"{table}.{column}" for table, column in missing)
         )
-    if not hardening or hardening[0] != "psychdeep_backend" or not hardening[1] or not hardening[2]:
-        raise RuntimeError("Agent 2 trace table owner/RLS hardening is incomplete")
-    if not backend_policy:
-        raise RuntimeError("Agent 2 trace table backend RLS policy is missing")
+
+    hardening_by_table = {row[0]: tuple(row[1:]) for row in hardened if row[0] in canonical_tables}
+    bad_hardening = sorted(
+        table
+        for table in canonical_tables
+        if hardening_by_table.get(table) != ("psychdeep_backend", True, True)
+    )
+    if bad_hardening:
+        raise RuntimeError("vNext canonical RLS hardening incomplete: " + ", ".join(bad_hardening))
+
+    policy_tables = {
+        row[0]
+        for row in policies
+        if row[0] in canonical_tables and "psychdeep_backend" in (row[1] or [])
+    }
+    missing_policies = sorted(canonical_tables - policy_tables)
+    if missing_policies:
+        raise RuntimeError("vNext backend RLS policies missing: " + ", ".join(missing_policies))
 
 
 @app.on_event("startup")
 def on_startup():
     _wait_for_db()
     if settings.is_production:
-        # Production schema changes are explicit Supabase migrations.  This
-        # prevents create_all() from creating an un-hardened table ahead of
-        # its RLS policy or silently omitting ALTER TABLE changes.
         _verify_production_schema()
-        logger.info("Production database migration contract verified.")
+        logger.info("Production vNext database migration contract verified.")
     else:
+        # Development/test convenience only. Product documentation does not
+        # support a second local clinical database or bidirectional sync.
         Base.metadata.create_all(bind=engine)
-        # A local Docker volume survives upgrades. SQLAlchemy can create a
-        # missing table but cannot add columns to an existing one, so keep this
-        # small, idempotent compatibility step beside create_all(). Production
-        # uses the explicit Supabase migration above instead.
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    ALTER TABLE users
-                        ADD COLUMN IF NOT EXISTS first_name varchar(100),
-                        ADD COLUMN IF NOT EXISTS last_name varchar(150),
-                        ADD COLUMN IF NOT EXISTS phone varchar(40),
-                        ADD COLUMN IF NOT EXISTS auth_version integer NOT NULL DEFAULT 1,
-                        ADD COLUMN IF NOT EXISTS updated_at timestamp without time zone NOT NULL DEFAULT now()
-                    """
-                )
-            )
-            conn.execute(
-                text(
-                    "ALTER TABLE users DROP CONSTRAINT IF EXISTS ck_users_auth_version"
-                )
-            )
-            conn.execute(
-                text("ALTER TABLE users ADD CONSTRAINT ck_users_auth_version CHECK (auth_version >= 1)")
-            )
-        logger.info("Local database schema ensured (create_all).")
+        logger.info("Development database schema ensured.")
 
     from app.maintenance.refresh_risk_v14 import run_configured_startup_refresh
 
@@ -189,7 +183,7 @@ def on_startup():
     try:
         abandoned = mark_stale_started_as_abandoned(db)
         if abandoned:
-            logger.warning("Marked %s interrupted Agent 2 trace(s) as abandoned.", abandoned)
+            logger.warning("Marked %s interrupted analysis trace(s) as abandoned.", abandoned)
     finally:
         db.close()
 
@@ -202,44 +196,35 @@ def on_startup():
         finally:
             db.close()
 
-    active_llm = llm_config.resolve()
-    if active_llm.provider == llm_config.PROVIDER_ANTHROPIC and not active_llm.api_key:
-        logger.warning(
-            "Claude is selected but ANTHROPIC_API_KEY is not configured as a server secret. "
-            "Do not put this key in the browser or in a runtime configuration row."
-        )
-    elif active_llm.provider == llm_config.PROVIDER_LOCAL and not active_llm.base_url:
-        logger.warning(
-            "Gemma 2 endpoint is not configured. The app will run, but LLM features will fail until the local/tunnel configuration is completed."
-        )
-    elif active_llm.provider == llm_config.PROVIDER_LOCAL and not active_llm.api_key:
-        logger.warning(
-            "Gemma 2 is reachable but LM Studio API-token authentication is not configured. "
-            "Local inference can work on loopback, but do not enable a Cloudflare tunnel until a least-privilege token is configured."
-        )
+    try:
+        deployment = get_model_gateway().deployment()
+        if not deployment.configured:
+            logger.warning(
+                "Selected model deployment %s is not configured. Core data and deterministic safety remain available.",
+                deployment.alias,
+            )
+    except ModelUnavailable as exc:
+        logger.warning("Model deployment configuration rejected safely: %s", exc)
 
 
 @app.get("/api/v1/health")
 def health():
-    # Health is unauthenticated, so it reports which model is in force but
-    # never where it lives: the endpoint URL of a self-hosted model is
-    # internal topology, and the Settings screen shows it to signed-in users
-    # who can already change it.
-    active = llm_config.resolve()
+    try:
+        deployment = get_model_gateway().deployment()
+        model = {
+            "deployment_alias": deployment.alias,
+            "configured": deployment.configured,
+            "policy_version": deployment.policy_version,
+        }
+    except ModelUnavailable:
+        model = {"deployment_alias": None, "configured": False, "policy_version": settings.model_policy_version}
     return {
         "status": "ok",
-        "llm_configured": bool(
-            active.chat_model
-            and active.analysis_model
-            and (active.api_key if active.provider == llm_config.PROVIDER_ANTHROPIC else active.base_url)
-        ),
-        "llm_authentication_configured": bool(active.api_key),
-        "llm_provider": active.provider,
-        "chat_model": active.chat_model,
-        "analysis_model": active.analysis_model,
+        "architecture": "cloud-first-vnext",
+        "clinical_source_of_truth": "cloud",
+        "model": model,
         "risk_engine_version": RISK_ENGINE_VERSION,
         "risk_explanation_schema": "risk-explanation-v1",
-        "agent2_tracking": True,
         "release": (os.getenv("RENDER_GIT_COMMIT") or os.getenv("APP_RELEASE") or "local")[:64],
     }
 
@@ -257,4 +242,4 @@ app.include_router(assignments.router)
 app.include_router(professional.router)
 app.include_router(notifications.router)
 app.include_router(audit.router)
-app.include_router(llm_settings.router)
+app.include_router(vnext.router)
