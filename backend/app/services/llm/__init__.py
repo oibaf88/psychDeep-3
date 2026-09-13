@@ -1,8 +1,8 @@
 """Low-level LLM provider adapters.
 
-Application/domain code must obtain a provider through the vNext Model Gateway.
-`build_provider` remains only as a compatibility helper for legacy unit tests;
-it is not used to resolve production deployment configuration.
+Application/domain code obtains the active provider through the audited runtime
+selection layer. The deployment still supplies endpoint secrets and the
+deterministic safety path remains independent from the selected model.
 """
 from app.services.llm.anthropic_provider import AnthropicProvider
 from app.services.llm.base import (
@@ -28,7 +28,7 @@ __all__ = [
 
 
 def build_provider(config) -> LLMProvider:
-    """Legacy provider constructor retained for isolated adapter tests."""
+    """Construct the concrete adapter for one already-resolved configuration."""
     from app.services import llm_config
 
     if config.provider == llm_config.PROVIDER_LOCAL:
@@ -55,12 +55,15 @@ def build_provider(config) -> LLMProvider:
 
 
 def get_llm_provider(db=None) -> LLMProvider:
-    """Return the provider for the server-selected approved deployment.
+    """Return the provider selected for this request.
 
-    `db` is accepted for source compatibility only. Runtime database endpoint
-    rows are intentionally ignored in vNext: deployment URLs and credentials
-    resolve from server-side environment/secret configuration via ModelGateway.
+    When ``LLM_ALLOW_RUNTIME_OVERRIDE`` is enabled, an ``admin_clinical`` can
+    select Anthropic or the approved OpenAI-compatible local/tunnel endpoint
+    without redeploying. The selection is read from the audited
+    ``llm_endpoint_configs`` history; endpoint credentials still come from
+    server-side configuration unless the legacy local-token field was
+    deliberately populated.
     """
-    from app.services.model_gateway import get_model_gateway
+    from app.services import llm_config
 
-    return get_model_gateway().provider()
+    return build_provider(llm_config.resolve(db))
