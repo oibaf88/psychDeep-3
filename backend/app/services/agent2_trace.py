@@ -1,14 +1,4 @@
-"""Persistence helpers for privacy-preserving structured-analysis lineage.
-
-Discriminated by ``agent_role``, which pins its own prompt and schema
-version so a historic trace records the exact contract that produced it.
-
-New traces all use ``analyzer_merged``: the linguistic and psychosocial
-reads are one call. The two older roles stay registered because rows
-carrying them are already in the database and must keep resolving to the
-contract that produced them — they are history, not options.
-"""
-
+"""Persistence helpers for privacy-preserving structured-analysis lineage."""
 from __future__ import annotations
 
 import hashlib
@@ -19,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.content.prompts import (
     AGENT2_PROMPT_VERSION,
     AGENT2_SCHEMA_VERSION,
@@ -35,22 +24,13 @@ from app.content.prompts import (
     ANALYZER_TOOL_SCHEMA,
 )
 from app.models import Agent2AnalysisTrace
-from app.services import llm_config
+from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 from app.services.llm import ProviderMetadata, StructuredAnalysisError
+from app.services.model_gateway import get_model_gateway
 
-# The role every new trace carries.
 ANALYZER_ROLE = "analyzer_merged"
-
-# Roles whose traces carry a linguistic reading. The merged analyser
-# produces one, so the therapist's Agent 2 lineage views must include it or
-# they go quietly empty the day this ships — the traces would still be
-# written, just filtered out of every screen that shows them.
 LINGUISTIC_ROLES = (ANALYZER_ROLE, "agent2_linguistic")
 
-# Each role pins its own prompt and schema so a historic trace records
-# exactly which contract produced it. The two agent* entries are retired —
-# nothing starts a trace with them any more — but they stay here so the rows
-# that already carry them keep resolving.
 AGENT_CONTRACTS = {
     ANALYZER_ROLE: (
         ANALYZER_PROMPT_VERSION,
@@ -64,7 +44,7 @@ AGENT_CONTRACTS = {
 
 
 class TracePersistenceError(RuntimeError):
-    """A trace could not be durably written before an outbound LLM call."""
+    """An outbound structured-analysis call must not proceed."""
 
 
 def _sha256_text(value: str) -> str:
@@ -85,21 +65,21 @@ def start(
     correlation_id: uuid.UUID | None = None,
     agent_role: str = ANALYZER_ROLE,
 ) -> Agent2AnalysisTrace:
-    """Commit ``started`` before contacting the configured LLM provider.
+    """Commit ``started`` before an outbound call; fail closed otherwise.
 
-    Failing closed here prevents an external request which the application
-    cannot later account for.  The deterministic risk engine remains
-    available and is invoked by the caller even when this raises.
+    vNext adds a second hard gate: linguistic/psychosocial analysis is an
+    optional processing purpose. Revocation stops *new* model analysis while
+    leaving historical traces untouched and legible.
     """
-
     if source_type not in {"chat_message", "diary_entry"}:
         raise ValueError("Unsupported structured-analysis source type")
     if agent_role not in AGENT_CONTRACTS:
         raise ValueError(f"Unknown structured-analysis agent role: {agent_role}")
+    if agent_role in LINGUISTIC_ROLES and not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+        raise TracePersistenceError("linguistic_analysis consent not granted")
 
     prompt_version, system_prompt, schema_version, tool_schema = AGENT_CONTRACTS[agent_role]
-    settings = get_settings()
-    active = llm_config.resolve(db)
+    deployment = get_model_gateway().deployment()
     now = datetime.now(timezone.utc)
     trace = Agent2AnalysisTrace(
         id=uuid.uuid4(),
@@ -110,14 +90,12 @@ def start(
         chat_message_id=source_id if source_type == "chat_message" else None,
         diary_entry_id=source_id if source_type == "diary_entry" else None,
         status="started",
-        # Provisional: recorded before the call so a trace that never comes
-        # back still says which endpoint it was aimed at. `apply_metadata`
-        # replaces these with what the provider actually reported.
-        provider=active.provider,
-        provider_base_url=active.base_url,
-        requested_model=active.analysis_model,
+        provider=deployment.adapter,
+        # Do not persist tunnel/provider topology in a clinical trace in vNext.
+        provider_base_url=None,
+        requested_model=deployment.analysis_model,
         effort="n/a",
-        max_tokens=active.max_tokens,
+        max_tokens=deployment.max_tokens,
         prompt_version=prompt_version,
         prompt_sha256=_sha256_text(system_prompt),
         schema_version=schema_version,
@@ -140,7 +118,8 @@ def apply_metadata(trace: Agent2AnalysisTrace, metadata: ProviderMetadata | None
     if metadata is None:
         return
     trace.provider = metadata.provider
-    trace.provider_base_url = metadata.base_url
+    # Endpoint URL is operational topology, not clinical provenance.
+    trace.provider_base_url = None
     trace.requested_model = metadata.requested_model
     trace.response_model = metadata.response_model
     trace.provider_message_id = metadata.message_id
@@ -186,8 +165,6 @@ def mark_failed(db: Session, trace: Agent2AnalysisTrace, exc: Exception) -> None
         db.commit()
     except Exception:
         db.rollback()
-        # The durable ``started`` row remains evidence of an interrupted
-        # invocation even if finalisation fails.
 
 
 def mark_stale_started_as_abandoned(db: Session, *, older_than_minutes: int = 15) -> int:
