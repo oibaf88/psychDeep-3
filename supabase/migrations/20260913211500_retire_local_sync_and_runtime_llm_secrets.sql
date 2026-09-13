@@ -40,16 +40,49 @@ begin
             );
         end loop;
 
-        -- Table/sequence privileges are unnecessary even with RLS removed.
+        -- Application-table grants were issued by psychdeep_backend, so the
+        -- table owner revokes them here before returning to the migration role.
         execute 'revoke all privileges on all tables in schema psychdeep_v12 from psychdeep_sync';
         execute 'revoke all privileges on all sequences in schema psychdeep_v12 from psychdeep_sync';
-        execute 'revoke usage on schema psychdeep_v12 from psychdeep_sync';
+    end if;
+end
+$$;
+
+-- Validate table contents while still SET ROLE to their owner. `postgres` in
+-- the hardened Supabase role model deliberately has no direct table privilege.
+do $$
+declare
+    remaining_keys integer;
+    active_configs integer;
+begin
+    select count(*) into remaining_keys
+      from psychdeep_v12.llm_endpoint_configs
+     where api_key is not null;
+    if remaining_keys <> 0 then
+        raise exception 'legacy llm_endpoint_configs still contains credentials';
+    end if;
+
+    select count(*) into active_configs
+      from psychdeep_v12.llm_endpoint_configs
+     where is_active;
+    if active_configs <> 0 then
+        raise exception 'legacy runtime LLM configurations are still active';
     end if;
 end
 $$;
 
 reset role;
 revoke psychdeep_backend from postgres granted by postgres;
+
+-- Schema USAGE was granted by the migration role rather than the table owner,
+-- so revoke it only after RESET ROLE. This is intentionally idempotent.
+do $$
+begin
+    if exists (select 1 from pg_roles where rolname = 'psychdeep_sync') then
+        revoke usage on schema psychdeep_v12 from psychdeep_sync;
+    end if;
+end
+$$;
 
 -- SymmetricDS metadata contains replication machinery, not authoritative
 -- clinical history. Drop it after the clinical grants/policies are gone.
@@ -66,13 +99,13 @@ begin
 end
 $$;
 
--- Fail closed if any replication path or runtime secret survives.
+-- Final catalog-only checks can run as the migration role without reopening
+-- access to clinical tables.
 do $$
 declare
     remaining_policies integer;
-    remaining_keys integer;
-    active_configs integer;
     sync_login boolean;
+    schema_usage boolean;
 begin
     select count(*) into remaining_policies
       from pg_policies
@@ -82,24 +115,17 @@ begin
         raise exception 'retired sync role still has % RLS policies', remaining_policies;
     end if;
 
-    select count(*) into remaining_keys
-      from psychdeep_v12.llm_endpoint_configs
-     where api_key is not null;
-    if remaining_keys <> 0 then
-        raise exception 'legacy llm_endpoint_configs still contains credentials';
-    end if;
+    if exists (select 1 from pg_roles where rolname = 'psychdeep_sync') then
+        select rolcanlogin into sync_login
+          from pg_roles where rolname = 'psychdeep_sync';
+        if coalesce(sync_login, false) then
+            raise exception 'psychdeep_sync must be NOLOGIN after vNext cutover';
+        end if;
 
-    select count(*) into active_configs
-      from psychdeep_v12.llm_endpoint_configs
-     where is_active;
-    if active_configs <> 0 then
-        raise exception 'legacy runtime LLM configurations are still active';
-    end if;
-
-    select rolcanlogin into sync_login
-      from pg_roles where rolname = 'psychdeep_sync';
-    if coalesce(sync_login, false) then
-        raise exception 'psychdeep_sync must be NOLOGIN after vNext cutover';
+        select has_schema_privilege('psychdeep_sync', 'psychdeep_v12', 'USAGE') into schema_usage;
+        if coalesce(schema_usage, false) then
+            raise exception 'psychdeep_sync retains USAGE on psychdeep_v12';
+        end if;
     end if;
 end
 $$;
