@@ -76,14 +76,18 @@ def _wait_for_db(max_attempts: int = 30, delay_seconds: float = 2.0) -> None:
 
 
 def _verify_production_schema() -> None:
-    """Fail before serving if vNext expand migrations/hardening are incomplete."""
+    """Fail before serving if required legacy/vNext migrations or hardening are incomplete."""
     required_columns = {
+        # Legacy longitudinal memory remains part of the supported product and
+        # must still exist after the vNext expand-and-migrate cutover.
+        ("patient_profiles", "id"),
         ("agent2_analysis_traces", "id"),
         ("alfa_signals", "agent2_trace_id"),
         ("risk_assessments", "correlation_id"),
         ("risk_assessments", "calculation_trace"),
         ("risk_assessments", "rule_set_version"),
         ("users", "auth_version"),
+        # Canonical vNext model.
         ("observations", "id"),
         ("baseline_versions", "id"),
         ("change_signals", "id"),
@@ -134,7 +138,7 @@ def _verify_production_schema() -> None:
     missing = sorted(required_columns - available)
     if missing:
         raise RuntimeError(
-            "Production schema is missing the vNext expand migration: "
+            "Production schema is missing a required migration: "
             + ", ".join(f"{table}.{column}" for table, column in missing)
         )
 
