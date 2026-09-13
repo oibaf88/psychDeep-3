@@ -242,7 +242,7 @@ class ModelGateway:
     ):
         if db is None:
             return None
-        from app.models import ModelRun
+        from app.models_vnext import ModelRun
 
         d = self.deployment()
         model_id = d.analysis_model if model_role == "analysis" else (d.copilot_model if model_role == "copilot" else d.chat_model)
