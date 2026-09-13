@@ -20,6 +20,7 @@ not mutually exclusive -- the alert and the professional notification are
 decided beforehand by the deterministic risk engine and are unaffected by
 anything the model says.
 """
+
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -40,12 +41,24 @@ from app.content.safety_resources import (
     LEVEL3_PATIENT_MESSAGE,
     LEVEL3_PATIENT_MESSAGE_WITH_PROFESSIONAL,
     LEVEL4_PATIENT_MESSAGE,
-    LEVEL4_PATIENT_MESSAGE_SECONDARY,
 )
 from app.models import AlfaSignal, ChatMessage, PatientProfessionalAssignment, User
-from app.services import agent1_context, llm_config, profile as profile_service, psychosocial, risk_engine
-from app.services import agent2_trace
-from app.services.llm import ChatResult, ProviderMetadata, StructuredAnalysisError, get_llm_provider
+from app.services import (
+    agent1_context,
+    agent2_trace,
+    llm_config,
+    psychosocial,
+    risk_engine,
+)
+from app.services import (
+    profile as profile_service,
+)
+from app.services.llm import (
+    ChatResult,
+    ProviderMetadata,
+    StructuredAnalysisError,
+    get_llm_provider,
+)
 
 logger = logging.getLogger("psychapp.conversation")
 
@@ -71,9 +84,9 @@ class LinguisticAnalysis(BaseModel):
     # seen the new schema — or a stored signal written before it existed —
     # still validates: absent means "no comparison was made", which is
     # exactly what those cases mean.
-    deviation_from_own_baseline: Literal[
-        "unknown", "much_lower", "lower", "typical", "higher", "much_higher"
-    ] = "unknown"
+    deviation_from_own_baseline: Literal["unknown", "much_lower", "lower", "typical", "higher", "much_higher"] = (
+        "unknown"
+    )
     is_typical_for_patient: bool = True
 
 
@@ -89,6 +102,74 @@ class AnalysisOutcome:
     # validate — which is why it is reported separately from `status`.
     observation_ids: list[uuid.UUID] = field(default_factory=list)
     psychosocial_status: str = "not_attempted"
+
+
+def _run_analyzer_model(db: Session, user_id, text: str) -> tuple[dict, dict, ProviderMetadata]:
+    """Runs the analyzer model and validates its top-level linguistic structure."""
+    patient_profile = profile_service.get(db, user_id)
+    system_prompt = ANALYZER_SYSTEM_PROMPT + profile_service.analyzer_context_block(patient_profile)
+
+    provider_result = get_llm_provider(db).analyze_structured(
+        system_prompt,
+        text,
+        ANALYZER_TOOL_SCHEMA,
+    )
+    value = provider_result.value
+    if not isinstance(value, dict):
+        raise TypeError("analyzer returned a non-object")
+
+    result = LinguisticAnalysis.model_validate(value.get("linguistic")).model_dump()
+    return value, result, provider_result.metadata
+
+
+def _persist_analysis_and_trace(
+    db: Session,
+    trace,
+    signal_data: dict,
+    metadata: ProviderMetadata,
+    rows: list,
+    psychosocial_status: str,
+    user_id,
+) -> AlfaSignal | None:
+    signal = AlfaSignal(
+        user_id=user_id,
+        signal_type="linguistic_analysis",
+        value=signal_data,
+        confidence_band=None,
+        agent2_trace_id=trace.id,
+    )
+    try:
+        agent2_trace.mark_succeeded(trace, metadata)
+        if psychosocial_status == "invalid_block":
+            # The call succeeded; one block of it did not. Recorded on the
+            # trace rather than in the status, which stays the outcome of
+            # the call itself.
+            trace.error_code = "psychosocial_block_invalid"
+        db.add(trace)
+        db.add(signal)
+        for row in rows:
+            db.add(row)
+        db.commit()
+        db.refresh(signal)
+        return signal
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        agent2_trace.mark_failed(
+            db,
+            trace,
+            StructuredAnalysisError("provider_error", error_code="result_persistence_failed"),
+        )
+        logger.error("Analysis result could not be persisted")
+        return None
+
+
+def _update_profile_after_analysis(db: Session, user_id, profile_update: dict | None) -> None:
+    try:
+        profile_service.apply_analyzer_update(db, user_id, profile_update)
+        profile_service.refresh_linguistic_baseline(db, user_id)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.warning("Profile refresh skipped safely: %s", type(exc).__name__)
 
 
 def analyze_text_and_store(
@@ -126,21 +207,8 @@ def analyze_text_and_store(
         logger.error("Analysis skipped because its trace could not be persisted")
         return AnalysisOutcome(correlation_id, None, None, "trace_persistence_error", None)
 
-    # Who the analyser is reading. Read-only, and read without creating: a
-    # patient with no profile is analysed exactly as before this existed.
-    patient_profile = profile_service.get(db, user_id)
-    system_prompt = ANALYZER_SYSTEM_PROMPT + profile_service.analyzer_context_block(patient_profile)
-
     try:
-        provider_result = get_llm_provider(db).analyze_structured(
-            system_prompt,
-            text,
-            ANALYZER_TOOL_SCHEMA,
-        )
-        value = provider_result.value
-        if not isinstance(value, dict):
-            raise ValueError("analyzer returned a non-object")
-        result = LinguisticAnalysis.model_validate(value.get("linguistic")).model_dump()
+        value, result, metadata = _run_analyzer_model(db, user_id, text)
     except Exception as exc:  # noqa: BLE001
         # Persist only an allow-listed category and class name.  Raw SDK
         # error messages can echo request data and therefore never enter
@@ -169,53 +237,23 @@ def analyze_text_and_store(
     # Failed/skipped blocks, like historic signals without this field, stay
     # unknown. This metadata is descriptive and never a risk-engine input.
     psychosocial_block = value.get("psychosocial")
-    psychosocial_content = psychosocial_block.get("has_psychosocial_content") if isinstance(psychosocial_block, dict) else None
+    psychosocial_content = (
+        psychosocial_block.get("has_psychosocial_content") if isinstance(psychosocial_block, dict) else None
+    )
     result["has_psychosocial_content"] = (
-        psychosocial_content
-        if psychosocial_status == "succeeded" and isinstance(psychosocial_content, bool)
-        else None
+        psychosocial_content if psychosocial_status == "succeeded" and isinstance(psychosocial_content, bool) else None
     )
 
-    signal = AlfaSignal(
-        user_id=user_id,
-        signal_type="linguistic_analysis",
-        value=result,
-        confidence_band=None,
-        agent2_trace_id=trace.id,
-    )
-    try:
-        agent2_trace.mark_succeeded(trace, provider_result.metadata)
-        if psychosocial_status == "invalid_block":
-            # The call succeeded; one block of it did not. Recorded on the
-            # trace rather than in the status, which stays the outcome of
-            # the call itself.
-            trace.error_code = "psychosocial_block_invalid"
-        db.add(trace)
-        db.add(signal)
-        for row in rows:
-            db.add(row)
-        db.commit()
-        db.refresh(signal)
-    except Exception:  # noqa: BLE001
-        db.rollback()
-        agent2_trace.mark_failed(
-            db,
-            trace,
-            StructuredAnalysisError("provider_error", error_code="result_persistence_failed"),
-        )
-        logger.error("Analysis result could not be persisted")
+    signal = _persist_analysis_and_trace(db, trace, result, metadata, rows, psychosocial_status, user_id)
+    if not signal:
         return AnalysisOutcome(correlation_id, trace.id, None, trace.status, None)
+
     # Fold what was learned about the person back in, after the analysis is
     # safely committed. A failure here costs the profile update only; it must
     # never roll back the signal the risk engine is about to read, and it must
     # never raise — this function's whole contract is that the patient-facing
     # flow survives whatever the analytic layer does.
-    try:
-        profile_service.apply_analyzer_update(db, user_id, value.get("profile_update"))
-        profile_service.refresh_linguistic_baseline(db, user_id)
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        logger.warning("Profile refresh skipped safely: %s", type(exc).__name__)
+    _update_profile_after_analysis(db, user_id, value.get("profile_update"))
 
     return AnalysisOutcome(
         correlation_id,
@@ -270,7 +308,10 @@ def _psychosocial_rows(
 def _has_active_professional(db: Session, user_id) -> bool:
     return (
         db.query(PatientProfessionalAssignment)
-        .filter(PatientProfessionalAssignment.patient_id == user_id, PatientProfessionalAssignment.status == "active")
+        .filter(
+            PatientProfessionalAssignment.patient_id == user_id,
+            PatientProfessionalAssignment.status == "active",
+        )
         .count()
         > 0
     )
@@ -284,11 +325,7 @@ def _recent_messages(db: Session, user_id) -> list[dict[str, str]]:
         .limit(MAX_HISTORY_MESSAGES)
         .all()
     )
-    return [
-        {"role": m.role, "content": m.content}
-        for m in reversed(history)
-        if m.role in ("user", "assistant")
-    ]
+    return [{"role": m.role, "content": m.content} for m in reversed(history) if m.role in ("user", "assistant")]
 
 
 def _reply_provenance(
@@ -343,7 +380,10 @@ def _agent1_crisis_accompaniment(db: Session, user_id, context_block: str) -> Ch
         )
         return result if result.text.strip() else None
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Agent1 crisis accompaniment failed; using fixed safety copy only: %s", type(exc).__name__)
+        logger.warning(
+            "Agent1 crisis accompaniment failed; using fixed safety copy only: %s",
+            type(exc).__name__,
+        )
         return None
 
 
@@ -395,9 +435,7 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
     # and it finally includes the two things its own instructions require:
     # the confirmed facts it must not contradict, and whether a safety plan
     # exists to suggest reviewing.
-    context_block = agent1_context.build(
-        db, user.id, assessment, in_crisis=assessment.alert_level >= 3
-    )
+    context_block = agent1_context.build(db, user.id, assessment, in_crisis=assessment.alert_level >= 3)
 
     # Set by whichever branch actually reached a model, so the stored turn
     # records what answered rather than what the resolver would say now.
