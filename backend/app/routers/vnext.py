@@ -51,7 +51,7 @@ def _latest_risk(db: Session, user_id) -> RiskAssessment | None:
     return (
         db.query(RiskAssessment)
         .filter(RiskAssessment.user_id == user_id)
-        .order_by(RiskAssessment.created_at.desc())
+        .order_by(RiskAssessment.calculated_at.desc())
         .first()
     )
 
