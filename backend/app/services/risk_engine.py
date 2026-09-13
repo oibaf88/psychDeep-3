@@ -354,17 +354,18 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
             input_facts=input_facts,
         )
 
+    # (El bloque de convergencia extrema fue corregido y movido al Nivel 3)
+
+    # ---------------- Nivel 3 (Alarma profesional) ----------------
     if _convergencia_critica_extrema(structural.score, rumination if isinstance(rumination, (int, float)) else None, sleep_worsening):
-        triggering_rules.append("N4_convergencia_critica_extrema")
+        triggering_rules.append("N3_convergencia_critica_extrema")
         return RiskDecision(
-            level=4,
+            level=3,
             triggering_rules=triggering_rules,
-            reason="Convergencia extrema: score estructural muy bajo + rumiación alta + sueño empeorando",
+            reason="Deterioro estadístico con rumiación y sueño empeorando: revisión profesional, no emergencia inferida de una suma",
             input_signals=input_signals,
             input_facts=input_facts,
         )
-
-    # ---------------- Nivel 3 (Alarma profesional) ----------------
     if ling_flags.get("ideation_indirect"):
         triggering_rules.append("N3_senal_linguistica_ideacion_indirecta")
         return RiskDecision(

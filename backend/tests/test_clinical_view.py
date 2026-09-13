@@ -368,7 +368,7 @@ class RuleCatalogTests(unittest.TestCase):
             "N4_declaracion_ideacion_o_plan",
             "N4_senal_linguistica_ideacion_directa",
             "N4_convergencia_interpersonal_despedida",
-            "N4_convergencia_critica_extrema",
+            "N3_convergencia_critica_extrema",
             "N3_declaracion_crisis_consumo",
             "N3_declaracion_recaida",
             "N3_senal_linguistica_crisis_consumo",
