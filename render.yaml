@@ -1,17 +1,8 @@
-# Render Blueprint for PsychDeep 3
-#
-# Deploy: Render Dashboard -> New -> Blueprint -> pick this repository.
-# Render reads this file and creates both services.
-#
-# Data lives in Supabase (Postgres). Render runs only the API and the
-# static frontend — there is no Render database in this blueprint.
-#
-# Secrets marked `sync: false` are NOT stored in git. Render prompts for
-# them on first deploy; set them in the dashboard afterwards.
+# Render Blueprint for PsychDeep vNext.
+# Clinical data lives only in the existing Supabase project. Render hosts the
+# cloud API and static web; no Render Postgres/Redis/worker is required in the
+# zero-cost prototype stage.
 services:
-  # ---------------------------------------------------------------------
-  # FastAPI backend (Claude default; Gemma 2 via authenticated Cloudflare fallback)
-  # ---------------------------------------------------------------------
   - type: web
     name: psychdeep-api
     runtime: docker
@@ -20,41 +11,29 @@ services:
     rootDir: backend
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    # `free` spins down after ~15 min idle and cold-starts in ~1 min.
-    # Change to `starter` for an always-on instance (paid).
     plan: free
-    # Frankfurt is the closest Render region to the Supabase project
-    # (eu-north-1), which keeps database round-trips short.
     region: frankfurt
     healthCheckPath: /api/v1/health
     autoDeployTrigger: commit
     envVars:
-      # --- Supabase Postgres -------------------------------------------
-      # Use the CONNECTION POOLER string from Supabase -> Connect, not the
-      # direct db.<ref>.supabase.co host: direct hosts are IPv6-only and
-      # Render cannot reach them. Append ?sslmode=require.
+      # Existing Supabase pooler URL; TLS/credentials stay in Render secrets.
       - key: DATABASE_URL
         sync: false
       - key: DATABASE_SCHEMA
         value: psychdeep_v12
 
-      # --- Claude primary / Gemma 2 fallback ----------------------------
-      # Anthropic is the connected-service default. The key never reaches
-      # the browser or a runtime endpoint row.
-      # The URL is HTTPS and points only at the LM Studio OpenAI-compatible
-      # endpoint. It is never a PostgreSQL route or a private/LAN address.
-      - key: LLM_DEFAULT_PROVIDER
-        value: anthropic
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: ANTHROPIC_CHAT_MODEL
-        value: claude-opus-5
-      - key: ANTHROPIC_ANALYSIS_MODEL
-        value: claude-opus-5
-      - key: ANTHROPIC_COPILOT_MODEL
-        value: ""
-      - key: ANTHROPIC_MAX_TOKENS
-        value: "8192"
+      # vNext Model Gateway. local-tunnel is the zero-cost deployment profile.
+      # cloud-tuned stays disabled until a separately approved endpoint exists.
+      - key: MODEL_DEPLOYMENT_ALIAS
+        value: local-tunnel
+      - key: MODEL_POLICY_VERSION
+        value: support-policy-v1
+      - key: MODEL_ALLOW_COMMERCIAL
+        value: "false"
+
+      # Transitional server-only aliases for the existing tunnel/model secret.
+      # vNext accepts these as compatibility inputs; no runtime DB/UI override
+      # can redirect clinical text. Rotate/rename later without domain changes.
       - key: LLM_OPENAI_COMPATIBLE_BASE_URL
         sync: false
       - key: LLM_OPENAI_COMPATIBLE_API_KEY
@@ -66,33 +45,23 @@ services:
       - key: LLM_OPENAI_COMPATIBLE_COPILOT_MODEL
         value: gemma-2-2b-it
       - key: LLM_OPENAI_COMPATIBLE_TIMEOUT_SECONDS
-        value: "300"
+        value: "45"
       - key: LLM_OPENAI_COMPATIBLE_MAX_TOKENS
         value: "8192"
-      # Administrators can inspect the effective configuration but cannot
-      # redirect clinical text from the shared cloud deployment in the UI.
       - key: LLM_ALLOW_RUNTIME_OVERRIDE
         value: "false"
 
-      # --- Auth ---------------------------------------------------------
       - key: JWT_SECRET
         generateValue: true
-
-      # --- App ----------------------------------------------------------
       - key: APP_ENV
         value: production
       - key: APP_LOCALE
         value: es-ES
-      # Must list the exact frontend origins. In production the API does
-      # NOT fall back to permissive LAN/tunnel regexes.
       - key: CORS_ORIGINS
         value: https://psychdeep-web.onrender.com,https://psychdeep.bfab.io
-      # Never seed the four demo accounts into a public deployment —
-      # they have well-known passwords.
       - key: SEED_DEMO_DATA
         value: "false"
 
-      # --- Optional outbound email for professional alerts --------------
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -104,9 +73,6 @@ services:
       - key: SMTP_FROM
         value: psychapp@bfab.io
 
-  # ---------------------------------------------------------------------
-  # React/Vite frontend — served as a static site
-  # ---------------------------------------------------------------------
   - type: web
     name: psychdeep-web
     runtime: static
@@ -117,14 +83,9 @@ services:
     staticPublishPath: ./dist
     autoDeployTrigger: commit
     envVars:
-      # Baked in at build time. Set to the psychdeep-api service URL
-      # (https://psychdeep-api.onrender.com, or your own API domain).
-      # A static site cannot proxy /api to another service the way the
-      # Docker Compose nginx does, so this must be an absolute URL.
       - key: VITE_API_BASE_URL
         sync: false
     routes:
-      # Single-page app: let React Router handle unknown paths.
       - type: rewrite
         source: /*
         destination: /index.html
@@ -138,3 +99,6 @@ services:
       - path: /*
         name: Referrer-Policy
         value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(),microphone=(),geolocation=()
