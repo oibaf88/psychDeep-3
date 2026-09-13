@@ -36,6 +36,12 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
 
+      # Legacy selector is intentionally inert in vNext: Model Gateway uses
+      # MODEL_DEPLOYMENT_ALIAS. Keep it to preserve the previous deployment
+      # contract during the transition without enabling commercial fallback.
+      - key: LLM_DEFAULT_PROVIDER
+        value: anthropic
+
       # Transitional server-only aliases for the existing tunnel/model secret.
       # vNext accepts these as compatibility inputs; no runtime DB/UI override
       # can redirect clinical text. Rotate/rename later without domain changes.
