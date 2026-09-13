@@ -153,45 +153,27 @@ def _correlations(daily: list[dict]) -> list[dict]:
     return result
 
 
-def aggregate_daily_statistics(
-    checkins: Iterable[Any],
-    linguistic_signals: Iterable[Any],
-    observations: Iterable[Any] = (),
-    *,
-    traces_by_id: dict | None = None,
-    source_times: dict[tuple[str, str], datetime] | None = None,
-    strict_sources: bool = False,
-    window_days: int = 30,
-    now: datetime | None = None,
-) -> dict:
-    """Pure calculation over records already scoped to exactly one patient."""
-    window_days = max(1, min(int(window_days), 365))
-    start, end = window_bounds(window_days, now)
-    traces_by_id, source_times = traces_by_id or {}, source_times or {}
-    values: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
-    counts: dict[str, Counter] = defaultdict(Counter)
-    provenance = Counter()
 
-    def eligible(at: datetime | None) -> bool:
-        return at is not None and start <= utc_datetime(at).replace(tzinfo=None) <= end
+def _is_eligible(at: datetime | None, start: datetime, end: datetime) -> bool:
+    return at is not None and start <= utc_datetime(at).replace(tzinfo=None) <= end
 
-    def add(day: str, key: str, value: Any) -> None:
-        if value is not None:
-            values[day][key].append(value)
+def _add_value(values: dict, day: str, key: str, value: Any) -> None:
+    if value is not None:
+        values[day][key].append(value)
 
+def _process_checkins(checkins: Iterable[Any], start: datetime, end: datetime, counts: dict, values: dict) -> None:
     for row in checkins:
-        if not eligible(row.created_at):
+        if not _is_eligible(row.created_at, start, end):
             continue
         day = local_day(row.created_at)
         counts[day]["checkins"] += 1
         for key in CHECKIN_KEYS:
-            add(day, key, _numeric(getattr(row, key, None), 24 if key == "sleep_hours" else 10))
+            _add_value(values, day, key, _numeric(getattr(row, key, None), 24 if key == "sleep_hours" else 10))
 
-    # A retry/reanalysis of the same interaction must not give that text
-    # multiple votes. Choose its last result *before* excluding refutations.
+def _process_interactions(linguistic_signals: Iterable[Any], traces_by_id: dict, source_times: dict, strict_sources: bool, start: datetime, end: datetime, counts: dict, values: dict, provenance: Counter) -> None:
     latest: dict[tuple[str, str], tuple[Any, datetime, bool]] = {}
     for row in sorted(linguistic_signals, key=lambda r: (utc_datetime(r.timestamp), str(r.id))):
-        if not eligible(row.timestamp):
+        if not _is_eligible(row.timestamp, start, end):
             continue
         trace_id = getattr(row, "agent2_trace_id", None)
         trace = traces_by_id.get(trace_id) or traces_by_id.get(str(trace_id))
@@ -201,7 +183,7 @@ def aggregate_daily_statistics(
             provenance["excluded_unverified_source_signals"] += 1
             continue
         at = source_at or row.timestamp
-        if not eligible(at):
+        if not _is_eligible(at, start, end):
             continue
         identity = source_key or ("signal", str(row.id))
         if identity in latest:
@@ -218,21 +200,18 @@ def aggregate_daily_statistics(
         provenance["interaction_timestamp_fallbacks"] += int(used_fallback)
         value = row.value if isinstance(row.value, dict) else {}
         for key in TEXT_NUMERIC_KEYS:
-            add(day, key, _numeric(value.get(key), 1))
-        add(day, "interaction_valence_mean", _numeric(value.get("negative_valence"), 1))
+            _add_value(values, day, key, _numeric(value.get(key), 1))
+        _add_value(values, day, "interaction_valence_mean", _numeric(value.get("negative_valence"), 1))
         for key in TEXT_BOOLEAN_KEYS:
-            add(day, key, value.get(key) if isinstance(value.get(key), bool) else None)
-        add(day, "ideation", _ideation(value))
+            _add_value(values, day, key, value.get(key) if isinstance(value.get(key), bool) else None)
+        _add_value(values, day, "ideation", _ideation(value))
         for key in TEXT_CATEGORY_KEYS:
             item = value.get(key)
-            add(day, key, item if isinstance(item, str) and item else None)
+            _add_value(values, day, key, item if isinstance(item, str) and item else None)
 
-    # Historical observations describe the text at that time. Refuted
-    # observations are excluded; a later context change does not erase them.
+def _process_observations(observations: Iterable[Any], source_times: dict, strict_sources: bool, start: datetime, end: datetime, counts: dict, values: dict, provenance: Counter) -> None:
     latest_observations = {}
     for row in sorted(observations, key=lambda r: (utc_datetime(getattr(r, "created_at", None) or r.observed_at), str(r.id))):
-        # The extractor enforces one observation per domain per text. Keep
-        # that sampling unit when an extraction was retried as well.
         source_key = _source_key(row)
         identity = (*source_key, row.domain) if source_key else ("observation", str(row.id))
         if identity in latest_observations:
@@ -244,20 +223,21 @@ def aggregate_daily_statistics(
             provenance["excluded_unverified_source_observations"] += 1
             continue
         at = source_at or row.observed_at
-        if not eligible(at):
+        if not _is_eligible(at, start, end):
             continue
         if row.status == "refuted":
             provenance["excluded_refuted_observations"] += 1
             continue
         day = local_day(at)
         counts[day]["psychosocial_observations"] += 1
-        add(day, "psychosocial_intensity_mean", _numeric(row.intensity, 1))
-        add(day, "psychosocial_confidence_mean", _numeric(row.confidence, 1))
-        add(day, "psychosocial_is_change", row.is_change if isinstance(row.is_change, bool) else None)
+        _add_value(values, day, "psychosocial_intensity_mean", _numeric(row.intensity, 1))
+        _add_value(values, day, "psychosocial_confidence_mean", _numeric(row.confidence, 1))
+        _add_value(values, day, "psychosocial_is_change", row.is_change if isinstance(row.is_change, bool) else None)
         for key in ("domain", "category", "valence", "status"):
             item = getattr(row, key, None)
-            add(day, f"psychosocial_{key}", item if isinstance(item, str) and item else None)
+            _add_value(values, day, f"psychosocial_{key}", item if isinstance(item, str) and item else None)
 
+def _build_daily_list(counts: dict, values: dict) -> list[dict]:
     daily = []
     for day in sorted(counts):
         row = {"date": day, "statistics": {}, "categories": {}, "counts": {
@@ -278,7 +258,9 @@ def aggregate_daily_statistics(
             denominator = row["counts"][{"checkin": "checkins", "linguistic": "interactions", "psychosocial": "psychosocial_observations"}[variable["source"]]]
             row["statistics"][key] = {**stats, "missing_count": denominator - stats["n"]}
         daily.append(row)
+    return daily
 
+def _build_summary(daily: list[dict], window_days: int) -> dict:
     summary = {}
     for variable in VARIABLES:
         key, kind = variable["key"], variable["kind"]
@@ -295,6 +277,42 @@ def aggregate_daily_statistics(
             samples = [day[key] for day in daily if day[key] is not None]
             stats = _numeric_stats(samples) if kind == "numeric" else _boolean_stats(samples)
             summary[key] = {**stats, "missing_days": window_days - len(samples)}
+    return summary
+def aggregate_daily_statistics(
+    checkins: Iterable[Any],
+    linguistic_signals: Iterable[Any],
+    observations: Iterable[Any] = (),
+    *,
+    traces_by_id: dict | None = None,
+    source_times: dict[tuple[str, str], datetime] | None = None,
+    strict_sources: bool = False,
+    window_days: int = 30,
+    now: datetime | None = None,
+) -> dict:
+    """Pure calculation over records already scoped to exactly one patient."""
+    window_days = max(1, min(int(window_days), 365))
+    start, end = window_bounds(window_days, now)
+    traces_by_id, source_times = traces_by_id or {}, source_times or {}
+    values: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    counts: dict[str, Counter] = defaultdict(Counter)
+    provenance = Counter()
+
+    _process_checkins(checkins, start, end, counts, values)
+
+    # A retry/reanalysis of the same interaction must not give that text
+    # multiple votes. Choose its last result *before* excluding refutations.
+    _process_interactions(
+        linguistic_signals, traces_by_id, source_times, strict_sources, start, end, counts, values, provenance
+    )
+
+    # Historical observations describe the text at that time. Refuted
+    # observations are excluded; a later context change does not erase them.
+    _process_observations(
+        observations, source_times, strict_sources, start, end, counts, values, provenance
+    )
+
+    daily = _build_daily_list(counts, values)
+    summary = _build_summary(daily, window_days)
 
     return {
         "version": "daily-statistics-v1",
