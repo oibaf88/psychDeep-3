@@ -1,35 +1,12 @@
-"""
-Runtime LLM endpoint configuration, from the Settings screen.
+"""Audited runtime LLM selection from the Settings screen.
 
-PsychDeep 3 defaults to Claude through Anthropic's server-keyed API. An
-authorized local operator can instead choose the authenticated Gemma 2
-LM Studio/tunnel endpoint.
+Any authenticated account may read which provider is active. Only
+``admin_clinical`` may change it, and only when
+``LLM_ALLOW_RUNTIME_OVERRIDE=true`` at deployment level.
 
-Who may change it
------------------
-Reading is open to any authenticated account: knowing which model is
-answering is part of understanding what the app just told you, and the
-payload carries no secret. Writing takes two separate permissions:
-
-* ``LLM_ALLOW_RUNTIME_OVERRIDE`` gates the whole feature at deployment
-  level, and is **off** unless the deployment turns it on. With it off the
-  endpoints report the environment configuration and refuse writes.
-* ``admin_clinical`` gates the account. Redirecting the agents sends
-  patient text to whatever server is named, so it is an operator action,
-  not something a patient or a therapist should be able to do by opening a
-  settings screen. This deliberately makes the single-operator case a
-  little less convenient — that operator has to sign in as the admin
-  account — in exchange for the shared case being safe by default.
-
-Every change is written to the audit log with who made it and what the
-endpoint became, and the previous configuration is retained rather than
-overwritten.
-
-What is deliberately not exposed
---------------------------------
-The stored API key is never returned, not even masked beyond a boolean.
-Submitting ``null`` leaves the existing key untouched; submitting ``""``
-clears it.
+The switch affects generative inference only. Consent, clinical storage,
+audit and the deterministic risk engine are independent of the LLM. A failed
+selected model never silently fails over to the other provider.
 """
 from __future__ import annotations
 
@@ -58,22 +35,20 @@ logger = logging.getLogger("psychapp.llm_settings")
 router = APIRouter(prefix="/api/v1/settings/llm", tags=["settings"])
 
 WARNING_LOCAL = (
-    "El texto de inferencia se envía al servidor Gemma 2 que indiques. La calidad de la detección de señales lingüísticas del Agente 2 pasa a "
-    "depender de ese modelo. El motor de riesgo es determinista y no cambia: ningún modelo decide "
-    "un nivel de alerta."
+    "El texto destinado a inferencia se enviará al endpoint compatible con OpenAI seleccionado. "
+    "El motor de riesgo sigue siendo determinista y no cambia."
 )
 WARNING_ANTHROPIC_KEY = (
-    "Claude es el proveedor seleccionado, pero falta ANTHROPIC_API_KEY en el servidor. "
-    "La clave sólo puede configurarse como secreto del despliegue y nunca desde el navegador."
+    "Anthropic está seleccionado, pero falta ANTHROPIC_API_KEY en el servidor. "
+    "La clave se configura como secreto del despliegue y nunca se devuelve al navegador."
 )
 WARNING_DISABLED = (
-    "El cambio de endpoint está desactivado en este despliegue (LLM_ALLOW_RUNTIME_OVERRIDE=false). "
-    "Se usa la configuración del entorno."
+    "El cambio de proveedor está desactivado en este despliegue "
+    "(LLM_ALLOW_RUNTIME_OVERRIDE=false)."
 )
 WARNING_NOT_ADMIN = (
-    "Solo una cuenta de administración clínica puede cambiar el endpoint del modelo: apuntarlo a otro "
-    "servidor envía el texto de los pacientes a ese servidor. Puedes ver qué modelo está atendiendo, "
-    "pero no modificarlo."
+    "Solo una cuenta de administración clínica puede cambiar el proveedor del modelo. "
+    "Puedes ver qué modelo está activo, pero no modificarlo."
 )
 
 ADMIN_ROLE = "admin_clinical"
@@ -89,16 +64,13 @@ def _status(db: Session, user: User) -> LLMEndpointStatusOut:
     runtime = llm_config.backend_runtime()
     runtime_label = llm_config.backend_runtime_label()
 
-    ignored = None
-    if stored and stored.is_local and llm_config._is_unreachable_local(stored):
-        ignored = stored
-
-    if ignored:
+    unreachable = bool(stored and stored.is_local and llm_config._is_unreachable_local(stored))
+    if unreachable:
         notice = (
-            f"Había un endpoint local no alcanzable ({stored.base_url}), pero este backend "
-            f"corre en {runtime_label}. Se está usando el proveedor del despliegue para no quedarse colgado en un timeout. "
-            "Para un modelo en tu equipo: o bien FastAPI corre en el mismo equipo, "
-            "o bien publicas LM Studio detrás de un túnel HTTPS autenticado."
+            f"El endpoint local seleccionado ({stored.base_url}) no es alcanzable desde {runtime_label}. "
+            "No se cambia automáticamente a Anthropic: las funciones que necesiten el LLM fallarán "
+            "de forma controlada hasta que el endpoint vuelva a estar disponible o un administrador "
+            "cambie explícitamente de proveedor."
         )
     elif active.is_local:
         notice = WARNING_LOCAL
@@ -131,7 +103,9 @@ def _status(db: Session, user: User) -> LLMEndpointStatusOut:
         backend_runtime=runtime,
         backend_runtime_label=runtime_label,
         local_endpoint_supported=runtime == "local",
-        ignored_override=ignored.public_dict() if ignored else None,
+        # Kept for response compatibility. vNext no longer ignores a selected
+        # provider and silently routes to another one.
+        ignored_override=None,
     )
 
 
@@ -140,7 +114,6 @@ def read_llm_settings(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Which model is serving the app right now."""
     return _status(db, user)
 
 
@@ -150,10 +123,14 @@ def update_llm_settings(
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    """Point the inference agents at a different endpoint."""
     settings = get_settings()
     if not settings.llm_allow_runtime_override:
         raise HTTPException(status_code=403, detail=WARNING_DISABLED)
+    if payload.provider == llm_config.PROVIDER_ANTHROPIC and not settings.model_allow_commercial:
+        raise HTTPException(
+            status_code=422,
+            detail="Anthropic no está aprobado en este despliegue (MODEL_ALLOW_COMMERCIAL=false).",
+        )
 
     try:
         config = llm_config.set_active(
@@ -179,7 +156,6 @@ def update_llm_settings(
         action="llm_endpoint_changed",
         entity_type="llm_endpoint_config",
         entity_id=config.config_id,
-        # The endpoint is recorded; the key never is.
         extra={
             "provider": config.provider,
             "base_url": config.base_url,
@@ -196,7 +172,6 @@ def reset_llm_settings(
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    """Go back to the model configured in the deployment environment."""
     settings = get_settings()
     if not settings.llm_allow_runtime_override:
         raise HTTPException(status_code=403, detail=WARNING_DISABLED)
@@ -217,15 +192,15 @@ def test_llm_endpoint(
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    """Try a candidate endpoint before committing to it.
-
-    Sends one trivial prompt and reports what came back. Nothing is saved and
-    no patient text is involved, so this is safe to run against a server that
-    turns out to be the wrong one.
-    """
+    """Test a candidate provider without saving it or sending patient text."""
     settings = get_settings()
     if not settings.llm_allow_runtime_override:
         raise HTTPException(status_code=403, detail=WARNING_DISABLED)
+    if payload.provider == llm_config.PROVIDER_ANTHROPIC and not settings.model_allow_commercial:
+        raise HTTPException(
+            status_code=422,
+            detail="Anthropic no está aprobado en este despliegue (MODEL_ALLOW_COMMERCIAL=false).",
+        )
 
     try:
         fields = llm_config.validate(
@@ -240,15 +215,14 @@ def test_llm_endpoint(
     except llm_config.LLMConfigError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
+    local_key = payload.api_key or settings.local_api_key or settings.llm_openai_compatible_api_key
     candidate = llm_config.ResolvedConfig(
         provider=fields["provider"],
         chat_model=fields["chat_model"],
         analysis_model=fields["analysis_model"],
         copilot_model=fields["copilot_model"],
         base_url=fields["base_url"],
-        # A Claude selection obtains its key exclusively from the deployment
-        # secret. A value sent by a browser must never substitute it.
-        api_key=(payload.api_key or "") if fields["provider"] == LOCAL_PROVIDER else "",
+        api_key=local_key if fields["provider"] == LOCAL_PROVIDER else settings.anthropic_api_key,
         max_tokens=512,
         timeout_seconds=payload.timeout_seconds,
     )
@@ -277,16 +251,20 @@ def test_llm_endpoint(
             base_url=candidate.base_url,
         )
     except RuntimeError as exc:
-        logger.warning("LLM endpoint test failed: %s", exc)
+        logger.warning("LLM endpoint test failed: %s", type(exc).__name__)
         detail = (
             "Falta ANTHROPIC_API_KEY en el secreto del servidor."
             if candidate.provider == llm_config.PROVIDER_ANTHROPIC
-            else "Revisa el token de LM Studio y la configuración segura del endpoint Gemma 2."
+            else "Revisa la autenticación y la configuración segura del endpoint del modelo."
         )
         return LLMEndpointTestOut(
             ok=False,
             detail=detail,
-            error_code="api_key_not_configured" if candidate.provider == LOCAL_PROVIDER else "anthropic_api_key_not_configured",
+            error_code=(
+                "api_key_not_configured"
+                if candidate.provider == LOCAL_PROVIDER
+                else "anthropic_api_key_not_configured"
+            ),
             base_url=candidate.base_url,
         )
     except Exception as exc:  # noqa: BLE001
@@ -315,29 +293,20 @@ def _test_failure_detail(safe_kind: str, error_code: str | None) -> str:
         if llm_config.backend_runtime() == "cloud":
             return (
                 f"Este backend corre en {llm_config.backend_runtime_label()} y no alcanzó el "
-                "servidor del modelo. Una IP de tu red local no es enrutable desde Frankfurt. "
-                "Usa un túnel HTTPS público protegido por Cloudflare Access."
+                "servidor del modelo. Usa un túnel HTTPS público y autenticado."
             )
         return (
-            "No se llegó al servidor del modelo. Comprueba que LM Studio está "
-            "arrancado y que la URI es exactamente la que escucha (por ejemplo "
-            "http://127.0.0.1:1234/v1)."
+            "No se llegó al servidor del modelo. Comprueba que el servidor local está "
+            "arrancado y que la URI coincide con la que está escuchando."
         )
     if error_code == "local_endpoint_timeout":
-        return (
-            "El servidor no respondió a tiempo. El fallo rápido de conexión es 10 s; "
-            "la espera de inferencia es la que configuraste. Si el modelo se está "
-            "cargando en memoria, sube el tiempo de espera (hasta 5.000 s)."
-        )
+        return "El servidor no respondió a tiempo. Revisa la carga del modelo o aumenta el tiempo de espera."
     if error_code == "api_key_not_configured":
-        return (
-            "El token de LM Studio no está configurado en el servidor. Se lee del secreto "
-            "de entorno de Render, no de este formulario."
-        )
+        return "El endpoint requiere autenticación y no hay un token configurado en el servidor."
     if error_code == "http_404":
-        return "El servidor respondió 404. Suele faltar el sufijo /v1 en la URL o el modelo no existe."
+        return "El servidor respondió 404. Revisa el sufijo /v1 y el identificador del modelo."
     if error_code in ("http_401", "http_403"):
-        return "El servidor pide autenticación. Si es un modelo propio, rellena la API key opcional."
+        return "El servidor rechazó la autenticación. Revisa el token del endpoint."
     if safe_kind == "configuration_error":
-        return "Configuración rechazada por el servidor. Revisa la URL, la clave y el nombre del modelo."
+        return "Configuración rechazada por el servidor. Revisa URL, autenticación y nombre del modelo."
     return f"El endpoint devolvió un error ({error_code or safe_kind})."
