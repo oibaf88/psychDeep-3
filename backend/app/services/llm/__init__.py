@@ -1,4 +1,9 @@
-"""Gemma 2 local provider factory with Claude as a server-keyed alternative."""
+"""Low-level LLM provider adapters.
+
+Application/domain code must obtain a provider through the vNext Model Gateway.
+`build_provider` remains only as a compatibility helper for legacy unit tests;
+it is not used to resolve production deployment configuration.
+"""
 from app.services.llm.anthropic_provider import AnthropicProvider
 from app.services.llm.base import (
     ChatResult,
@@ -23,7 +28,7 @@ __all__ = [
 
 
 def build_provider(config) -> LLMProvider:
-    """Construct the provider one resolved configuration describes."""
+    """Legacy provider constructor retained for isolated adapter tests."""
     from app.services import llm_config
 
     if config.provider == llm_config.PROVIDER_LOCAL:
@@ -50,7 +55,12 @@ def build_provider(config) -> LLMProvider:
 
 
 def get_llm_provider(db=None) -> LLMProvider:
-    """Return the provider currently in force."""
-    from app.services import llm_config
+    """Return the provider for the server-selected approved deployment.
 
-    return build_provider(llm_config.resolve(db))
+    `db` is accepted for source compatibility only. Runtime database endpoint
+    rows are intentionally ignored in vNext: deployment URLs and credentials
+    resolve from server-side environment/secret configuration via ModelGateway.
+    """
+    from app.services.model_gateway import get_model_gateway
+
+    return get_model_gateway().provider()
