@@ -34,7 +34,7 @@ export class ApiError extends Error {
   }
 }
 
-function errorDetail(body: unknown, fallback: string): string {
+export function errorDetail(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object" || !("detail" in body)) return fallback;
   const detail = body.detail;
   if (typeof detail === "string") return detail;
