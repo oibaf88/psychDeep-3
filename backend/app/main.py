@@ -112,21 +112,21 @@ def _verify_production_schema() -> None:
                 "WHERE table_schema = current_schema()"
             )
         ).all()
+        # Fetch the schema catalogue once and filter in Python. Avoid binding a
+        # Python list to PostgreSQL ANY(), whose adaptation varies by driver.
         hardened = conn.execute(
             text(
                 "SELECT relation.relname, owner_role.rolname, relation.relrowsecurity, relation.relforcerowsecurity "
                 "FROM pg_class relation "
                 "JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace "
                 "JOIN pg_roles owner_role ON owner_role.oid = relation.relowner "
-                "WHERE namespace.nspname = current_schema() "
-                "AND relation.relname = ANY(:tables)"
-            ),
-            {"tables": list(canonical_tables)},
+                "WHERE namespace.nspname = current_schema() AND relation.relkind = 'r'"
+            )
         ).all()
         policies = conn.execute(
             text(
-                "SELECT tablename FROM pg_policies WHERE schemaname = current_schema() "
-                "AND policyname = 'backend_full_access' AND 'psychdeep_backend' = ANY(roles)"
+                "SELECT tablename, roles FROM pg_policies "
+                "WHERE schemaname = current_schema() AND policyname = 'backend_full_access'"
             )
         ).all()
 
@@ -138,7 +138,7 @@ def _verify_production_schema() -> None:
             + ", ".join(f"{table}.{column}" for table, column in missing)
         )
 
-    hardening_by_table = {row[0]: row[1:] for row in hardened}
+    hardening_by_table = {row[0]: tuple(row[1:]) for row in hardened if row[0] in canonical_tables}
     bad_hardening = sorted(
         table
         for table in canonical_tables
@@ -147,7 +147,11 @@ def _verify_production_schema() -> None:
     if bad_hardening:
         raise RuntimeError("vNext canonical RLS hardening incomplete: " + ", ".join(bad_hardening))
 
-    policy_tables = {row[0] for row in policies}
+    policy_tables = {
+        row[0]
+        for row in policies
+        if row[0] in canonical_tables and "psychdeep_backend" in (row[1] or [])
+    }
     missing_policies = sorted(canonical_tables - policy_tables)
     if missing_policies:
         raise RuntimeError("vNext backend RLS policies missing: " + ", ".join(missing_policies))
