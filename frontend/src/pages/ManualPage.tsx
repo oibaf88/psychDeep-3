@@ -653,7 +653,7 @@ score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
                       [
                         ["1", "N4_declaracion_ideacion_o_plan", 4, "Declaración crítica ideation_active o planning en 48 h; requiere valoración urgente"],
                         ["2", "N4_senal_linguistica_ideacion_directa", 4, "Ideación directa activa y reciente, actual o retenida en la ventana de 12 h"],
-                        ["3", "N4_convergencia_interpersonal_despedida", 4, "Ideación indirecta + señal interpersonal vigente + despedida; valoración urgente"],
+                        ["3", "N3_convergencia_interpersonal_despedida", 3, "Ideación indirecta + señal interpersonal vigente + despedida; valoración prioritaria"],
                         ["4", "N3_senal_linguistica_ideacion_indirecta", 3, "Posible ideación no explicitada activa en 12 h: valoración prioritaria sin compensación"],
                         ["5", "N3_convergencia_critica_extrema", 3, "Componente adverso > 2.4, rumiación > 0.85 y sueño descendente; no emergencia inferida de la suma"],
                         ["6", "N3_declaracion_crisis_consumo", 3, "Crisis de consumo declarada en 48 h"],
