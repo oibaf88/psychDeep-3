@@ -114,6 +114,7 @@ class Settings(BaseSettings):
 
     # --- Seed data ----------------------------------------------------
     seed_demo_data: bool = True
+    demo_password: str = ""
 
 
 @lru_cache

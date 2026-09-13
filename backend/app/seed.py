@@ -21,15 +21,15 @@ from sqlalchemy.orm import Session
 
 from app.models import CheckIn, ConfirmedFact, Consent, PatientProfessionalAssignment, SafetyPlan, User
 from app.security import hash_password
+from app.config import get_settings
 
-DEMO_PASSWORD = "DemoPass123!"
 
 
-def _get_or_create_user(db: Session, email: str, display_name: str, role: str) -> User:
+def _get_or_create_user(db: Session, email: str, display_name: str, role: str, password: str) -> User:
     user = db.query(User).filter(func.lower(User.email) == email.lower()).first()
     if user:
         return user
-    user = User(email=email, hashed_password=hash_password(DEMO_PASSWORD), display_name=display_name, role=role)
+    user = User(email=email, hashed_password=hash_password(password), display_name=display_name, role=role)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -41,13 +41,19 @@ def _get_or_create_user(db: Session, email: str, display_name: str, role: str) -
 
 
 def seed_demo_data(db: Session) -> None:
+    settings = get_settings()
+    demo_password = settings.demo_password
+    if not demo_password:
+        print("Skipping seed data: DEMO_PASSWORD not set in environment.")
+        return
+
     if db.query(User).filter(func.lower(User.email) == "patient@demo.psychapp.example.com").first():
         return  # already seeded
 
-    patient = _get_or_create_user(db, "patient@demo.psychapp.example.com", "Paciente Demo", "patient")
-    therapist = _get_or_create_user(db, "therapist@demo.psychapp.example.com", "Dra. Terapeuta Demo", "therapist")
-    _get_or_create_user(db, "supervisor@demo.psychapp.example.com", "Supervisor Demo", "supervisor")
-    _get_or_create_user(db, "admin@demo.psychapp.example.com", "Admin Clínico Demo", "admin_clinical")
+    patient = _get_or_create_user(db, "patient@demo.psychapp.example.com", "Paciente Demo", "patient", demo_password)
+    therapist = _get_or_create_user(db, "therapist@demo.psychapp.example.com", "Dra. Terapeuta Demo", "therapist", demo_password)
+    _get_or_create_user(db, "supervisor@demo.psychapp.example.com", "Supervisor Demo", "supervisor", demo_password)
+    _get_or_create_user(db, "admin@demo.psychapp.example.com", "Admin Clínico Demo", "admin_clinical", demo_password)
 
     assignment = PatientProfessionalAssignment(patient_id=patient.id, professional_id=therapist.id, status="active")
     db.add(assignment)
