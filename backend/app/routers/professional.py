@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.content.safety_resources import (
     LEVEL3_PROFESSIONAL_NOTIFICATION_TEMPLATE,
@@ -391,6 +392,108 @@ def _patient_summary(db: Session, patient: User, status_label: str) -> PatientSu
     )
 
 
+
+def _batch_patient_summaries(db: Session, patients: list[tuple[User, str]]) -> list[PatientSummaryOut]:
+    patient_ids = [p.id for p, _ in patients if p]
+    if not patient_ids:
+        return []
+
+    # 1. Fetch all latest assessments for these patients
+    # We use a subquery to find the max calculated_at per patient, then join to get the actual row
+    subq = (
+        db.query(
+            RiskAssessment.user_id,
+            func.max(RiskAssessment.calculated_at).label('max_calc_at')
+        )
+        .filter(RiskAssessment.user_id.in_(patient_ids))
+        .group_by(RiskAssessment.user_id)
+        .subquery()
+    )
+
+    assessments = (
+        db.query(RiskAssessment)
+        .join(subq, (RiskAssessment.user_id == subq.c.user_id) & (RiskAssessment.calculated_at == subq.c.max_calc_at))
+        .all()
+    )
+    assessments_by_user = {a.user_id: a for a in assessments}
+
+    # 2. Fetch open alerts for these patients
+    alerts = (
+        db.query(ProfessionalAlert)
+        .filter(
+            ProfessionalAlert.user_id.in_(patient_ids),
+            ProfessionalAlert.status.in_(["open", "acknowledged"]),
+            ProfessionalAlert.source == "rule_engine",
+        )
+        .order_by(ProfessionalAlert.user_id, ProfessionalAlert.alert_level.desc(), ProfessionalAlert.created_at.desc())
+        .all()
+    )
+
+    alerts_by_user = {}
+    for alert in alerts:
+        if alert.user_id not in alerts_by_user:
+            alerts_by_user[alert.user_id] = []
+        alerts_by_user[alert.user_id].append(alert)
+
+    # 3. Fetch checkin counts
+    checkin_counts = (
+        db.query(CheckIn.user_id, func.count(CheckIn.id).label('count'))
+        .filter(CheckIn.user_id.in_(patient_ids))
+        .group_by(CheckIn.user_id)
+        .all()
+    )
+    counts_by_user = {row.user_id: row.count for row in checkin_counts}
+
+    # 4. Fetch last checkin times
+    ci_subq = (
+        db.query(
+            CheckIn.user_id,
+            func.max(CheckIn.created_at).label('max_created_at')
+        )
+        .filter(CheckIn.user_id.in_(patient_ids))
+        .group_by(CheckIn.user_id)
+        .subquery()
+    )
+
+    last_checkins = db.query(ci_subq.c.user_id, ci_subq.c.max_created_at).all()
+    last_checkin_by_user = {row.user_id: row.max_created_at for row in last_checkins}
+
+    # 5. Assemble the summaries
+    summaries = []
+    for patient, status_label in patients:
+        if patient is None:
+            continue
+
+        assessment = assessments_by_user.get(patient.id)
+        latest_score = None
+        latest_band = None
+        if assessment and isinstance(assessment.input_signals, dict):
+            latest_score = assessment.input_signals.get("structural_score")
+            latest_band = assessment.input_signals.get("confidence_band")
+
+        user_alerts = alerts_by_user.get(patient.id, [])
+        pending = user_alerts[0] if user_alerts else None
+
+        summaries.append(
+            PatientSummaryOut(
+                id=patient.id,
+                display_name=patient.display_name,
+                email=patient.email,
+                assignment_status=status_label,
+                latest_alert_level=assessment.alert_level if assessment else None,
+                latest_structural_score=latest_score,
+                latest_confidence_band=latest_band,
+                pending_alert_level=pending.alert_level if pending else None,
+                pending_alert_status=pending.status if pending else None,
+                open_alerts=len(user_alerts),
+                checkin_count=counts_by_user.get(patient.id, 0),
+                last_checkin_at=last_checkin_by_user.get(patient.id)
+            )
+        )
+
+    return summaries
+
+
 @router.get("/patients", response_model=list[PatientSummaryOut])
 def list_patients(db: Session = Depends(get_db), professional: User = Depends(require_professional)):
     if professional.role == "therapist":
@@ -406,26 +509,26 @@ def list_patients(db: Session = Depends(get_db), professional: User = Depends(re
     else:
         patients = [(u, "roster") for u in db.query(User).filter(User.role == "patient").all()]
 
+    if professional.role != "admin_clinical":
+        return _batch_patient_summaries(db, patients)
+
     summaries: list[PatientSummaryOut] = []
     for patient, status_label in patients:
         if patient is None:
             continue
-        if professional.role == "admin_clinical":
-            summaries.append(
-                PatientSummaryOut(
-                    id=patient.id,
-                    display_name=patient.display_name,
-                    email=patient.email,
-                    assignment_status=status_label,
-                    latest_alert_level=None,
-                    pending_alert_level=None,
-                    pending_alert_status=None,
-                    open_alerts=0,
-                    checkin_count=0,
-                )
+        summaries.append(
+            PatientSummaryOut(
+                id=patient.id,
+                display_name=patient.display_name,
+                email=patient.email,
+                assignment_status=status_label,
+                latest_alert_level=None,
+                pending_alert_level=None,
+                pending_alert_status=None,
+                open_alerts=0,
+                checkin_count=0,
             )
-            continue
-        summaries.append(_patient_summary(db, patient, status_label))
+        )
     return summaries
 
 
