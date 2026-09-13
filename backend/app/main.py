@@ -20,6 +20,7 @@ from app.routers import (
     consents,
     diary,
     facts,
+    llm_settings,
     notifications,
     professional,
     safety,
@@ -40,7 +41,7 @@ app = FastAPI(
         "Cloud-first longitudinal self-regulation platform. Clinical state and "
         "deterministic safety remain independent of the replaceable LLM deployment."
     ),
-    version="0.3.0-vnext",
+    version="0.3.1-vnext",
 )
 
 origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
@@ -242,4 +243,5 @@ app.include_router(assignments.router)
 app.include_router(professional.router)
 app.include_router(notifications.router)
 app.include_router(audit.router)
+app.include_router(llm_settings.router)
 app.include_router(vnext.router)
