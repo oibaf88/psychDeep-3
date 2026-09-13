@@ -18,10 +18,11 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Operaciones (E12):** PARTIAL
 
 ## Current technical debt
-- Need to expand frontend component testing and accessibility attributes (ARIA roles) for professional panels.
+- Need to expand frontend component testing.
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
+- Audited and added A11y enhancements (ARIA labels, semantic HTML tags, roles) across main view panels (PatientDashboard, ProfessionalDashboard, Consents, Assignments).
 - Implemented frontend manual chunk splitting in `vite.config.ts` to solve large Vite bundle sizes (>500kB) and improve application initial load times.
 - Created this documentation (`docs/JULES_PROGRESS.md`) to adhere to the spec requirements.
 - Fixed an absolute path bug in `backend/tests/test_llm_endpoint.py` so tests can be run regardless of the directory they're executed from.
@@ -30,4 +31,3 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 1. **Implement RAG de Contenidos (Epic E9)**: Build the versioned, curated content library mechanism for the conversational assistant.
 2. **Complete Professional Panel (Epic E10)**: Finish selective sharing, professional workflows, and robust UI elements for patient-clinician linkages.
 3. **Complete Consent Verification**: Ensure granular revocation flows (E1) are fully robust and visible in the UI.
-4. **A11y Review**: Inspect and add keyboard navigation and screen-reader accessibility enhancements to both Patient and Professional Dashboards.

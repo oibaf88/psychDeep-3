@@ -53,7 +53,7 @@ export default function ProfessionalDashboard() {
         : "Administración clínica — roster de pacientes";
 
   return (
-    <div className="page">
+    <main className="page" aria-label="Panel Profesional">
       <h1>{title}</h1>
       <p className="subtitle">
         Rol: <strong>{ROLE_LABELS[role]}</strong>
@@ -78,11 +78,11 @@ export default function ProfessionalDashboard() {
             />
             <button type="submit">Solicitar</button>
           </form>
-          {message && <p className="info">{message}</p>}
+          {message && <p className="info" role="status">{message}</p>}
         </section>
       )}
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
 
       <div className="table-wrap">
         <table className="table">
@@ -168,6 +168,6 @@ export default function ProfessionalDashboard() {
           </tbody>
         </table>
       </div>
-    </div>
+    </main>
   );
 }

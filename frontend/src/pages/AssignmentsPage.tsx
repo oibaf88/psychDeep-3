@@ -41,7 +41,7 @@ export default function AssignmentsPage() {
   const isSupervisor = role === "supervisor";
 
   return (
-    <div className="page">
+    <main className="page" aria-label="Vinculaciones">
       <h1>{isPatient ? "Vinculación con profesionales" : "Asignaciones paciente–profesional"}</h1>
       <p className="subtitle">
         {isPatient
@@ -51,7 +51,7 @@ export default function AssignmentsPage() {
             : "Solicitudes y vínculos con tus pacientes."}
       </p>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
 
       {rows.length === 0 && <p className="info">No hay asignaciones todavía.</p>}
 
@@ -82,30 +82,30 @@ export default function AssignmentsPage() {
             <div className="alert-actions">
               {isPatient && a.status === "pending" && (
                 <>
-                  <button disabled={!!busy} onClick={() => act(a.id, "accept")}>
+                  <button disabled={!!busy} onClick={() => act(a.id, "accept")} aria-label={`Aceptar asignación con ${a.professional_display_name || a.professional_email}`}>
                     Aceptar
                   </button>
-                  <button className="btn-secondary" disabled={!!busy} onClick={() => act(a.id, "reject")}>
+                  <button className="btn-secondary" disabled={!!busy} onClick={() => act(a.id, "reject")} aria-label={`Rechazar asignación con ${a.professional_display_name || a.professional_email}`}>
                     Rechazar
                   </button>
                 </>
               )}
               {a.status === "active" && (
                 <>
-                  <button className="btn-secondary" disabled={!!busy} onClick={() => act(a.id, "pause")}>
+                  <button className="btn-secondary" disabled={!!busy} onClick={() => act(a.id, "pause")} aria-label={`Pausar asignación con ${isPatient ? a.professional_display_name || a.professional_email : a.patient_display_name || a.patient_email}`}>
                     Pausar
                   </button>
-                  <button className="btn-danger" disabled={!!busy} onClick={() => act(a.id, "end")}>
+                  <button className="btn-danger" disabled={!!busy} onClick={() => act(a.id, "end")} aria-label={`Finalizar asignación con ${isPatient ? a.professional_display_name || a.professional_email : a.patient_display_name || a.patient_email}`}>
                     Finalizar
                   </button>
                 </>
               )}
               {a.status === "paused" && (
                 <>
-                  <button disabled={!!busy} onClick={() => act(a.id, "resume")}>
+                  <button disabled={!!busy} onClick={() => act(a.id, "resume")} aria-label={`Reanudar asignación con ${isPatient ? a.professional_display_name || a.professional_email : a.patient_display_name || a.patient_email}`}>
                     Reanudar
                   </button>
-                  <button className="btn-danger" disabled={!!busy} onClick={() => act(a.id, "end")}>
+                  <button className="btn-danger" disabled={!!busy} onClick={() => act(a.id, "end")} aria-label={`Finalizar asignación con ${isPatient ? a.professional_display_name || a.professional_email : a.patient_display_name || a.patient_email}`}>
                     Finalizar
                   </button>
                 </>
@@ -114,6 +114,6 @@ export default function AssignmentsPage() {
           </article>
         ))}
       </div>
-    </div>
+    </main>
   );
 }
