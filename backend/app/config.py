@@ -23,13 +23,15 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 12
 
     # --- vNext Model Gateway ---------------------------------------------
-    # Stable alias selected server-side. No patient/admin UI may replace it.
+    # Deployment default. When LLM_ALLOW_RUNTIME_OVERRIDE=true, only an
+    # admin_clinical account may explicitly supersede it with another approved
+    # provider. There is never an automatic provider fallback.
     model_deployment_alias: str = "local-tunnel"
     model_policy_version: str = "support-policy-v1"
 
     # Profile A: user-controlled OpenAI-compatible model via authenticated
-    # HTTPS tunnel. Legacy LLM_* names remain read-only fallbacks during the
-    # transition so an existing Render deployment does not lose its endpoint.
+    # HTTPS tunnel. Legacy LLM_* names remain fallbacks during the transition
+    # so an existing Render deployment does not lose its endpoint.
     model_local_base_url: str = ""
     model_local_api_key: str = ""
     model_local_chat_model: str = ""
@@ -48,8 +50,8 @@ class Settings(BaseSettings):
     model_cloud_timeout_seconds: int = 45
     model_cloud_max_tokens: int = 8192
 
-    # Optional commercial deployment retained only as an explicitly approved
-    # migration bridge. vNext never silently fails over to it.
+    # Optional commercial deployment. It is selectable only when explicitly
+    # approved by MODEL_ALLOW_COMMERCIAL; vNext never silently fails over to it.
     model_allow_commercial: bool = False
     anthropic_api_key: str = ""
     anthropic_chat_model: str = "claude-opus-5"
@@ -62,11 +64,9 @@ class Settings(BaseSettings):
     anthropic_analysis_effort: str = "high"
     anthropic_copilot_effort: str = ""
 
-    # Legacy environment names: compatibility input only. Runtime DB endpoint
-    # overrides are permanently disabled in vNext. Keep the historical
-    # default value so older configuration/guard tests and deployments remain
-    # stable; Model Gateway selection is controlled exclusively by
-    # MODEL_DEPLOYMENT_ALIAS.
+    # Legacy compatibility inputs plus the deployment-level runtime-switch
+    # gate. False remains the fail-safe library default; production Render sets
+    # LLM_ALLOW_RUNTIME_OVERRIDE=true explicitly.
     llm_default_provider: str = "anthropic"
     llm_openai_compatible_base_url: str = ""
     llm_openai_compatible_api_key: str = ""
