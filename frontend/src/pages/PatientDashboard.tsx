@@ -10,6 +10,7 @@ export default function PatientDashboard() {
   const [form, setForm] = useState<CheckInIn>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [pendingLinks, setPendingLinks] = useState<AssignmentOut[]>([]);
 
   async function loadTimeline() {
@@ -18,7 +19,7 @@ export default function PatientDashboard() {
   }
 
   useEffect(() => {
-    loadTimeline().catch(() => setMessage("No se pudo cargar tu historial."));
+    loadTimeline().catch(() => setError("No se pudo cargar tu historial."));
     api
       .get<AssignmentOut[]>("/api/v1/assignments/mine")
       .then((rows) => setPendingLinks(rows.filter((r) => r.status === "pending")))
@@ -29,13 +30,14 @@ export default function PatientDashboard() {
     e.preventDefault();
     setSubmitting(true);
     setMessage(null);
+    setError(null);
     try {
       await api.post("/api/v1/checkins", form);
       setMessage("Check-in registrado. Gracias por dedicarte este momento.");
       setForm(emptyForm);
       await loadTimeline();
     } catch (err) {
-      setMessage((err as Error).message);
+      setError((err as Error).message);
     } finally {
       setSubmitting(false);
     }
@@ -142,13 +144,15 @@ export default function PatientDashboard() {
             {submitting ? "Guardando..." : "Guardar check-in"}
           </button>
         </form>
-        {message && <p className="info">{message}</p>}
+        {message && <p className="info" aria-live="polite" role="status">{message}</p>}
+        {error && <p className="error" aria-live="assertive" role="alert">{error}</p>}
       </section>
 
       <section className="card">
         <h2>Tu tendencia (últimos 30 días)</h2>
         {timeline && timeline.points.length > 0 ? (
           <>
+            <div aria-label="Tendencia de ánimo, craving y autoeficacia" role="region">
             <ResponsiveContainer width="100%" height={320}>
               <LineChart data={timeline.points} margin={{ top: 8, right: 8, bottom: 4, left: -16 }}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -163,6 +167,7 @@ export default function PatientDashboard() {
                 <Line yAxisId="sleep" type="monotone" dataKey="sleep_hours" name="Sueño (h)" stroke="#199e70" strokeWidth={2} strokeDasharray="5 3" connectNulls={false} dot={{ r: 2 }} />
               </LineChart>
             </ResponsiveContainer>
+            </div>
             <p className="meta">Ánimo, craving y autoeficacia: 0–10. Sueño: horas, en el eje derecho.</p>
           </>
         ) : (

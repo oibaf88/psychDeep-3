@@ -78,28 +78,29 @@ export default function ProfessionalDashboard() {
             />
             <button type="submit">Solicitar</button>
           </form>
-          {message && <p className="info">{message}</p>}
+          {message && <p className="info" aria-live="polite" role="status">{message}</p>}
         </section>
       )}
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error" aria-live="assertive" role="alert">{error}</p>}
 
       <div className="table-wrap">
         <table className="table">
+          <caption>Lista de pacientes</caption>
           <thead>
             <tr>
-              <th>Paciente</th>
-              <th>Email</th>
-              <th>Asignación</th>
-              {canSeeClinicalColumns && <th>Nivel operativo</th>}
+              <th scope="col">Paciente</th>
+              <th scope="col">Email</th>
+              <th scope="col">Asignación</th>
+              {canSeeClinicalColumns && <th scope="col">Nivel operativo</th>}
               {canSeeClinicalColumns && (
-                <th title="Similitud de sus check-ins de 7 días con su línea base de 21 días. 1.00 = sin cambios. NO es una escala de riesgo.">
+                <th scope="col" title="Similitud de sus check-ins de 7 días con su línea base de 21 días. 1.00 = sin cambios. NO es una escala de riesgo.">
                   Estabilidad de check-ins ⓘ
                 </th>
               )}
-              {canSeeClinicalColumns && <th>Check-ins</th>}
-              {canSeeClinicalColumns && <th>Alertas abiertas</th>}
-              <th></th>
+              {canSeeClinicalColumns && <th scope="col">Check-ins</th>}
+              {canSeeClinicalColumns && <th scope="col">Alertas abiertas</th>}
+              <th scope="col"></th>
             </tr>
           </thead>
           <tbody>
