@@ -31,6 +31,11 @@ services:
       - key: MODEL_ALLOW_COMMERCIAL
         value: "false"
 
+      # Optional commercial bridge credential slot retained for compatibility.
+      # MODEL_ALLOW_COMMERCIAL=false means the gateway cannot select it.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
       # Transitional server-only aliases for the existing tunnel/model secret.
       # vNext accepts these as compatibility inputs; no runtime DB/UI override
       # can redirect clinical text. Rotate/rename later without domain changes.
