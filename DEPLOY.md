@@ -1,153 +1,135 @@
-# Deploy PsychDeep 3
+# PsychDeep vNext deployment runbook
 
-This is the single runbook for the **PsychDeep 3 Local · Offline · Tunnel · Sync** architecture. Claude through Anthropic is the connected-service default; Gemma 2 through LM Studio is the autonomous/offline alternative. A green local test does not prove Supabase, Render, Anthropic, Cloudflare Access, or the Gemma 2 tunnel is live.
+This runbook deploys the cloud-first vNext architecture without adding paid infrastructure during the prototype stage.
 
-## Target architecture
+## Target
 
-| Component | Service | Boundary |
+| Plane | Prototype deployment | Rule |
 |---|---|---|
-| Browser client | Render static site `psychdeep-web` | Public HTTPS; API base is baked at build time |
-| API | Render Docker service `psychdeep-api` | No direct laptop/LAN route |
-| Cloud data | Supabase PostgreSQL, `psychdeep_v12` | TLS, RLS/FORCE RLS, backend role |
-| Local data | Docker PostgreSQL 17 | `127.0.0.1:5433` only |
-| Local model | LM Studio, Gemma 2 | Authenticated OpenAI-compatible `…/v1` |
-| LLM bridge | Cloudflare named Tunnel + Access | Outbound PC connection; LLM endpoint only |
-| Cloud/local alignment | SymmetricDS 3.18 | Opt-in 19-table allowlist; laptop initiated |
+| Web | Render static `psychdeep-web` | Public HTTPS; no persistent clinical offline store |
+| API/domain | Render `psychdeep-api` | FastAPI; deterministic safety independent of LLM |
+| Clinical data | existing Supabase `psychdeep`, schema `psychdeep_v12` | only authoritative clinical database |
+| Model profile A | existing local OpenAI-compatible server via authenticated HTTPS tunnel | inference only; no local clinical DB/API/frontend |
+| Model profile B | optional approved managed compatible endpoint | disabled until reviewed/configured |
+| CI/CD | GitHub Actions + Render auto-deploy | migrations/tests before merge |
 
-[`render.yaml`](render.yaml) is the Render source of truth: repository `oibaf88/psychDeep-3`, branch `master`, Claude as default with a server-only Anthropic secret, Gemma 2 fallback values, and no Render database.
+No Render Postgres, paid worker, paid cron, managed GPU or additional Supabase project is required.
 
-## 0. Preflight
+## 0. Release gates before touching production
 
-```powershell
-git remote -v
-git branch --show-current
-docker compose --env-file .env.local -f docker-compose.offline.yml config --quiet
+Run/verify the pull-request checks:
 
-Set-Location backend
-.\.venv\Scripts\python.exe -m pytest tests -q
+1. backend pytest, including deterministic safety and authorization-negative tests;
+2. frontend tests, typecheck and Vite build;
+3. migration apply + re-apply on clean PostgreSQL;
+4. `supabase/verify.sql`;
+5. security checks/CodeQL where enabled;
+6. the eight-item checklist in `docs/release/CHECKLIST.md`.
 
-Set-Location ..\frontend
-npm ci
-npm test
-npm run build
-Set-Location ..
-```
+Do not merge if any P0 gate is red.
 
-Expected authority is `https://github.com/oibaf88/psychDeep-3.git` on `master`. Resolve unrelated local changes before pushing; do not reset or discard a worktree that may contain data-operation work.
+## 1. Supabase — expand first
 
-## 1. Supabase — expand first, preserve history
+Project: existing `psychdeep` (`ifwexmoltnybvmrsuwtu`). Do not create a second production database.
 
-Project: `psychdeep` (`ifwexmoltnybvmrsuwtu`). Schema: `psychdeep_v12`.
+Apply the vNext foundation migration before the application release. It is expand-only:
 
-1. Take a current Supabase backup/snapshot.
-2. Review `supabase/migrations/20260909062808_add_user_account_security.sql`. It is one transaction, adds only `users.first_name`, `last_name`, `phone`, `auth_version`, and `updated_at`, and does not delete, rename, rebuild, or reinterpret clinical tables/rows.
-3. With an authenticated, linked Supabase CLI, inspect migration state:
+- creates canonical observation/feature/baseline/change/inference/model-run tables;
+- adds compatibility columns to historical tables;
+- backfills canonical references without changing legacy rows;
+- enables + forces RLS and grants only the backend role;
+- does not grant the old sync role access to new canonical data.
 
-   ```powershell
-   npx --yes supabase migration list --linked
-   ```
+Before and after migration record row counts for historical tables and verify representative UUIDs/read paths. Any loss or reinterpretation is a rollback blocker.
 
-4. Apply the pending migration using the approved project migration workflow: Supabase CLI `db push --linked` or the Supabase SQL Editor migration batch. Use an owner-capable migration operator, never the app backend role. Never commit a database password.
-5. Run the read-only [`supabase/verify.sql`](supabase/verify.sql). Every row must be `ok`: required columns, ownership, RLS/FORCE RLS, backend policy, no PostgREST read grants, and no application tables in `public`.
-6. Run a read-only count/UUID/provenance check against established clinical tables before/after. Do not export clinical text. A failure must roll back as a unit; never hand-edit partial state.
+## 2. Render — existing free services
 
-## 2. Cloudflare — publish only LM Studio inference
+`render.yaml` remains the declarative source for:
 
-1. In Cloudflare Zero Trust create a **named** Tunnel. Do not use a disposable quick tunnel.
-2. Map a hostname such as `llm.example.org` only to `http://host.docker.internal:1234` on the PC running Docker Desktop and LM Studio.
-3. Put Cloudflare Access in front of the hostname and create the necessary machine/service authorization for the Render API boundary.
-4. Load Gemma 2 in LM Studio, enable API-token authentication, start the server, and confirm the exact name from `GET /v1/models` (initially `gemma-2-2b-it`).
-5. On the PC run:
+- `psychdeep-api`, free plan, Frankfurt;
+- `psychdeep-web`, static/free;
+- no Render database.
 
-   ```powershell
-   ./ops/local/start-tunnel.ps1
-   ```
-
-6. Test the protected public URL from an authorized operator context. It must be HTTPS and end in `/v1`.
-
-Never publish `5432`, `5433`, `31415`, Docker, the local web UI, or an unauthenticated LM Studio server. Rotate any exposed tunnel/LM Studio token.
-
-## 3. Render Blueprint and secret values
-
-In Render: **New → Blueprint**, select `oibaf88/psychDeep-3`, choose the intended workspace, and let Render read [`render.yaml`](render.yaml). Do not create a competing service/database architecture manually.
-
-Set the Render `psychdeep-api` values marked `sync: false`:
-
-| Key | Exact value shape |
-|---|---|
-| `DATABASE_URL` | Supabase session-pooler SQLAlchemy URI with TLS and `search_path=psychdeep_v12` |
-| `ANTHROPIC_API_KEY` | Anthropic API key stored only as a Render secret; required by the default Claude route |
-| `LLM_OPENAI_COMPATIBLE_BASE_URL` | `https://<protected-cloudflare-host>/v1` |
-| `LLM_OPENAI_COMPATIBLE_API_KEY` | LM Studio API token; supply Access authorization at the proxy boundary when required |
-| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` | Optional; only for outbound alert email |
-
-The tracked blueprint sets:
-
-```dotenv
-LLM_DEFAULT_PROVIDER=anthropic
-ANTHROPIC_CHAT_MODEL=claude-opus-5
-ANTHROPIC_ANALYSIS_MODEL=claude-opus-5
-LLM_OPENAI_COMPATIBLE_CHAT_MODEL=gemma-2-2b-it
-LLM_OPENAI_COMPATIBLE_ANALYSIS_MODEL=gemma-2-2b-it
-LLM_OPENAI_COMPATIBLE_COPILOT_MODEL=gemma-2-2b-it
-LLM_ALLOW_RUNTIME_OVERRIDE=false
-SEED_DEMO_DATA=false
-```
-
-For `psychdeep-web`, set `VITE_API_BASE_URL` to the public `psychdeep-api` URL, for example `https://psychdeep-api.onrender.com`. Vite compiles that value into the static bundle, so redeploy `psychdeep-web` after changing it. Set API `CORS_ORIGINS` to the exact static-site/custom-domain origins; never use a wildcard in production.
-
-Render generates `JWT_SECRET`. Do not seed demo accounts in a public/cloud environment.
-
-## 4. Release sequence
-
-1. Supabase backup, migration, and verification complete.
-2. `ANTHROPIC_API_KEY` is configured as a Render secret for the default Claude route; if Gemma 2 is selected, its Cloudflare Tunnel endpoint is authenticated and reachable from the cloud boundary.
-3. Render secrets, CORS, and static API base are configured.
-4. Deploy `psychdeep-api` and wait for a healthy release.
-5. Deploy/redeploy `psychdeep-web`.
-6. Exercise the hosted flow only with non-clinical test accounts first.
-
-Health endpoint:
+Required non-secret API environment:
 
 ```text
-https://<psychdeep-api>/api/v1/health
+APP_ENV=production
+DATABASE_SCHEMA=psychdeep_v12
+MODEL_DEPLOYMENT_ALIAS=local-tunnel
+MODEL_POLICY_VERSION=support-policy-v1
+LLM_ALLOW_RUNTIME_OVERRIDE=false
 ```
 
-It proves API health/configuration, not successful model inference. Use the authorized administrator endpoint test and inspect sanitized Render logs to test the protected LLM route.
+The current local-model URL/token may remain under the legacy environment names during the transition; vNext reads them only as server-side compatibility inputs. They are never exposed to the browser or clinical configuration DB. A subsequent secret-rotation window can rename them to `MODEL_LOCAL_BASE_URL` and `MODEL_LOCAL_API_KEY` without changing domain logic.
 
-## 5. Post-release acceptance
+Render auto-deploys `master`; do not manually trigger a duplicate deployment after a merge unless auto-deploy is disabled or a cache-clearing redeploy is specifically required.
 
-- [ ] Public `/api/v1/health` succeeds.
-- [ ] Static web points at the API without CORS errors.
-- [ ] Claude/Anthropic is effective by default and its key is a Render secret; if Gemma 2 is selected, its endpoint is protected HTTPS and not a LAN/loopback address from Render.
-- [ ] Deterministic risk remains available when the model/tunnel fails; no LLM controls alert levels.
-- [ ] Patient, therapist, supervisor, and clinical admin receive only authorized data/routes.
-- [ ] **Mi cuenta** works for every profile; password change requires fresh login.
-- [ ] Selected-user permissions view/print excludes clinical data; revoke blocks existing tokens; restore requires new login.
-- [ ] Existing clinical history, risk traces, timelines, and historic model provenance remain readable.
-- [ ] `supabase/verify.sql` remains all `ok`.
-- [ ] Logs contain no clinical prompt, secret, tunnel token, or raw provider error body.
+## 3. Local model + tunnel
 
-## 6. Enable sync only after cloud acceptance
+The only supported local process is the inference server and, when needed, its tunnel client.
 
-Synchronization does not start on Render or in `start-local.ps1`. On the local PC, after backup, explicit operator review, and a disposable non-clinical test:
+Requirements:
 
-```powershell
-./ops/sync/configure-sync.ps1
-./ops/sync/start-sync.ps1 -Initialize
-```
+- LM Studio/Ollama/other OpenAI-compatible server bound locally;
+- a named HTTPS tunnel/Access policy or equivalent authenticated outbound tunnel;
+- no router port-forwarding;
+- no PostgreSQL, Docker API, product frontend or product backend exposed;
+- prompt/request logs disabled or minimized where the runtime supports it;
+- independent endpoint token plus tunnel access control and rotation.
 
-The configuration stores the `psychdeep_sync` credential under Git-ignored `ops/local/secrets/`. Initialization performs the cloud preflight, creates SymmetricDS metadata in `psychdeep_sync`, installs the fixed 19-table allowlist, opens a narrowly scoped registration, and starts the local node.
+The cloud API selects the alias server-side. If the tunnel is offline, `/api/v1/health` remains healthy and core functions remain available; `/api/v1/model/deployments/status` reports the model unavailable.
 
-Check `127.0.0.1:31415`, container logs, queued batches, and cloud/local audit markers. Do not use a clinical record to test. If concurrent mutable account/admin changes conflict, retain audit facts, resolve to the latest authorized update under clinical governance, and record the resolution—never silently discard a clinical decision.
+## 4. Deploy application
 
-## 7. Incident posture
+After the database expand migration and green CI:
 
-- **Model/tunnel failure:** stop/disable the tunnel; deterministic features remain safe. Never point Render to `localhost` or a private LAN IP.
-- **Render failure after migration:** retain the prior healthy service while investigating. Do not roll back additive fields that a new release may already use; forward-fix after backup.
-- **Sync issue:** stop only the `symmetricds` profile, retain the local Docker volume and cloud DB, inspect batches/audit state, then resolve. Never run `down -v`.
-- **Secret exposure:** rotate the relevant Cloudflare, LM Studio, Supabase, SMTP, or Render credential and redeploy.
+1. merge the reviewed PR to `master`;
+2. allow Render auto-deploy to deploy API and web;
+3. monitor both deploys to completion;
+4. check `GET /api/v1/health`;
+5. authenticate a test user and verify: check-in, diary without linguistic consent, consent grant/revoke, Trends, safety plan, deterministic safety evaluation and model status;
+6. verify a local-model outage does not prevent saving data or displaying crisis resources;
+7. inspect logs for schema errors and accidental PHI/secrets.
 
-## Change control
+## 5. Retire the old sync path
 
-`psychDeep-3`/`master` is authoritative. Schema/security changes are reviewed and deployed explicitly, then evidenced in the live environment. The local stack is a real autonomous copy—not a browser mockup of the Render service.
+Only after the cloud release is healthy:
+
+- drop `sync_replication_access` policies;
+- revoke `psychdeep_sync` privileges on clinical tables/schemas;
+- disable/drop the sync role and SymmetricDS metadata when safe;
+- null any historical `llm_endpoint_configs.api_key` values and keep only non-secret audit/history fields if the table is retained;
+- verify no production code references SymmetricDS/local clinical PostgreSQL.
+
+The removed implementation remains recoverable from branch `past/local-offline-sync-20260913`; it is not a runtime fallback.
+
+## 6. Rollback
+
+### Application rollback
+
+Revert the vNext merge or redeploy the last known-good Render commit. The expand migration is intentionally backward-compatible, so the old application can still read its legacy tables.
+
+### Model rollback
+
+Change only the server-side approved deployment alias/version. Do not change risk, consent, storage or audit logic. Never silently fall back across providers.
+
+### Database rollback
+
+The initial vNext database change is additive. Prefer application rollback and leave canonical tables dormant. A destructive database rollback is not required and must not be attempted without verified export/backup and Data + QA + Clinical Safety sign-off.
+
+### Sync-retirement rollback
+
+Do not re-enable bidirectional clinical synchronization as an emergency workaround. If access was retired too early, restore only from an explicitly reviewed migration while production remains cloud-authoritative.
+
+## 7. Post-release evidence
+
+Archive in the PR/release record:
+
+- commit SHA and migration name/version;
+- CI results;
+- historical and canonical row-count checks;
+- Supabase security/performance advisor output;
+- Render deploy IDs and health result;
+- active model alias and health result, never its secret/URL;
+- answers to all eight release-checklist questions;
+- rollback commit/migration reference.
