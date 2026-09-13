@@ -1,16 +1,16 @@
 """Resolve and audit the LLM deployment selected at runtime.
 
 PsychDeep vNext keeps clinical storage, consent, deterministic risk and audit
-independent from the generative model.  The deployment supplies approved model
+independent from the generative model. The deployment supplies approved model
 endpoints and secrets, while an ``admin_clinical`` may switch between Anthropic
 and an OpenAI-compatible local/tunnel endpoint when
 ``LLM_ALLOW_RUNTIME_OVERRIDE`` is enabled.
 
 Runtime changes are append-only rows in ``llm_endpoint_configs``: the previous
-row is deactivated and the new selection is recorded.  Historical model
-provenance therefore remains interpretable after a switch.
+row is deactivated and the new selection is recorded. Credentials are never
+stored in these rows; they remain server-side environment secrets.
 
-A selected model never silently fails over to the other provider.  If the
+A selected model never silently fails over to the other provider. If the
 chosen endpoint is unavailable, model-dependent functions fail safely while
 clinical data, deterministic safety and static crisis resources continue to
 work.
@@ -81,7 +81,7 @@ class ResolvedConfig:
             has_key = bool(settings.anthropic_api_key)
             provider_label = "Claude / API de Anthropic"
         else:
-            has_key = bool(self.api_key)
+            has_key = bool(settings.local_api_key)
             provider_label = "Modelo local / API compatible con OpenAI"
         return {
             "provider": self.provider,
@@ -99,7 +99,7 @@ class ResolvedConfig:
             "config_id": self.config_id,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "has_api_key": has_key,
-            "uses_server_api_key": self.provider == PROVIDER_ANTHROPIC,
+            "uses_server_api_key": True,
         }
 
 
@@ -269,13 +269,7 @@ def environment_config() -> ResolvedConfig:
 
 def _from_row(row: LLMEndpointConfig) -> ResolvedConfig:
     settings = get_settings()
-    if row.provider == PROVIDER_ANTHROPIC:
-        api_key = settings.anthropic_api_key
-    else:
-        # Existing rows were deliberately scrubbed during the vNext cutover.
-        # A blank row-level token therefore falls back to the server secret;
-        # secrets never need to be exposed back to the browser.
-        api_key = row.api_key or settings.local_api_key or settings.llm_openai_compatible_api_key
+    api_key = settings.anthropic_api_key if row.provider == PROVIDER_ANTHROPIC else settings.local_api_key
     return ResolvedConfig(
         provider=row.provider,
         chat_model=row.chat_model,
@@ -316,9 +310,9 @@ def resolve(db: Session | None = None) -> ResolvedConfig:
     """Return the model configuration currently selected for inference.
 
     Database lookup failures fall back to the deployment default because the
-    override cannot be established. A *valid stored selection*, however, is
-    never silently replaced by the other provider merely because its endpoint
-    is unavailable.
+override cannot be established. A *valid stored selection*, however, is
+never silently replaced by the other provider merely because its endpoint
+is unavailable.
     """
     global _cached
     settings = get_settings()
@@ -434,7 +428,11 @@ def set_active(
     copilot_model: str | None = None,
     actor_id=None,
 ) -> ResolvedConfig:
-    """Insert a new active configuration and retire the previous one."""
+    """Insert a new active configuration and retire the previous one.
+
+    ``api_key`` is accepted for API compatibility but deliberately ignored:
+    model credentials remain server-side deployment secrets.
+    """
     fields = validate(
         provider=provider,
         base_url=base_url,
@@ -444,11 +442,6 @@ def set_active(
         max_tokens=max_tokens,
         timeout_seconds=timeout_seconds,
     )
-
-    previous = active_row(db)
-    effective_key = (
-        api_key if api_key is not None else (previous.api_key if previous and previous.provider == PROVIDER_LOCAL else None)
-    ) if fields["provider"] == PROVIDER_LOCAL else None
 
     now = datetime.utcnow()
     for row in db.query(LLMEndpointConfig).filter(LLMEndpointConfig.is_active == True).all():  # noqa: E712
@@ -462,7 +455,7 @@ def set_active(
         chat_model=fields["chat_model"],
         analysis_model=fields["analysis_model"],
         copilot_model=fields["copilot_model"] or None,
-        api_key=effective_key or None,
+        api_key=None,
         max_tokens=fields["max_tokens"],
         timeout_seconds=fields["timeout_seconds"],
         label=(label or "").strip()[:120],
