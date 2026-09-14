@@ -308,12 +308,12 @@ class InterpersonalEvidenceTests(unittest.TestCase):
                 psychosocial=harness._interpersonal_context(),
                 preferred_signal_id=current_signal_id,
             )
-        self.assertEqual(decision.triggering_rules, ["N4_convergencia_interpersonal_despedida"])
+        self.assertEqual(decision.triggering_rules, ["N3_convergencia_interpersonal_despedida"])
         self.assertEqual(decision.input_signals["safety_driver_signal_id"], str(prior_signal_id))
         self.assertEqual(decision.linguistic_signal_id, current_signal_id)
 
     def _evidence_fixture(self):
-        assessment = _assessment(level=4, rule="N4_convergencia_interpersonal_despedida")
+        assessment = _assessment(level=3, rule="N3_convergencia_interpersonal_despedida")
         signal_id, trace_id, message_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         assessment.linguistic_signal_id_used = uuid.uuid4()
         assessment.input_signals["safety_driver_signal_id"] = str(signal_id)
@@ -367,7 +367,7 @@ class RuleCatalogTests(unittest.TestCase):
         engine_codes = {
             "N4_declaracion_ideacion_o_plan",
             "N4_senal_linguistica_ideacion_directa",
-            "N4_convergencia_interpersonal_despedida",
+            "N3_convergencia_interpersonal_despedida",
             "N3_convergencia_critica_extrema",
             "N3_declaracion_crisis_consumo",
             "N3_declaracion_recaida",

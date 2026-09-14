@@ -620,33 +620,31 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
             )
         return rows
 
-    def test_the_whole_constellation_reaches_level_four(self):
+    def test_the_whole_constellation_reaches_level_three(self):
         decision = self._calculate(
             structural=_structural(score=0.9, band="stable"),
             linguistic=_linguistic(ideation_indirect=True, rumination=0.2),
             psychosocial=self._interpersonal_context(),
         )
-        self.assertEqual(decision.level, 4)
-        self.assertEqual(decision.triggering_rules, ["N4_convergencia_interpersonal_despedida"])
+        self.assertEqual(decision.level, 3)
+        self.assertEqual(decision.triggering_rules, ["N3_convergencia_interpersonal_despedida"])
 
-    def test_without_the_leave_taking_signal_it_does_not_reach_level_four(self):
+    def test_without_the_leave_taking_signal_it_does_not_reach_level_three(self):
         """Removing one leg must de-escalate: the rule is a conjunction."""
         decision = self._calculate(
             structural=_structural(score=0.9, band="stable"),
             linguistic=_linguistic(ideation_indirect=True, rumination=0.2),
             psychosocial=self._interpersonal_context(leave_taking=False),
         )
-        self.assertLess(decision.level, 4)
-        self.assertNotIn("N4_convergencia_interpersonal_despedida", decision.triggering_rules)
+        self.assertNotIn("N3_convergencia_interpersonal_despedida", decision.triggering_rules)
 
-    def test_without_indirect_ideation_it_does_not_reach_level_four(self):
+    def test_without_indirect_ideation_it_does_not_reach_level_three(self):
         decision = self._calculate(
             structural=_structural(score=0.9, band="stable"),
             linguistic=_linguistic(ideation_indirect=False, rumination=0.2),
             psychosocial=self._interpersonal_context(),
         )
-        self.assertLess(decision.level, 4)
-        self.assertNotIn("N4_convergencia_interpersonal_despedida", decision.triggering_rules)
+        self.assertNotIn("N3_convergencia_interpersonal_despedida", decision.triggering_rules)
 
     def test_chronic_interpersonal_risk_alone_does_not_keep_re_alerting(self):
         """Expressed months ago, it is context; expressed this week, a signal.
@@ -730,7 +728,7 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
         decision = self._calculate(structural=_structural(score=0.9, band="stable"))
         by_code = {rule["code"]: rule for rule in decision.calculation_trace["rules"]}
         for code in (
-            "N4_convergencia_interpersonal_despedida",
+            "N3_convergencia_interpersonal_despedida",
             "N3_riesgo_interpersonal_alto",
             "N3_riesgo_recaida_contextual",
             "N2_vulnerabilidad_psicosocial",
