@@ -4,7 +4,7 @@
 A web-based platform for longitudinal mental health monitoring that combines patient-authorized conversation data (check-ins, diary, chat), a deterministic clinical risk engine, and a conversational LLM orchestrator (Agent 1) to support self-regulation and professional review without autonomously prescribing or diagnosing.
 
 ## Specification coverage
-- **Consentimiento y control (E1):** PARTIAL
+- **Consentimiento y control (E1):** DONE
 - **Check-in y diario (E2):** DONE
 - **Perfil y baseline (E3):** DONE
 - **Timeline (E4):** DONE
@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
+- **Epic E1 (Consentimiento y control):** Wrote robust backend test suite (`backend/tests/test_consents.py`) to verify granular and append-only consent revocation flows, marking the Epic as fully complete.
 - **Clinical Safety:** Fixed the statistical convergence rule (`N3_convergencia_critica_extrema`) in the clinical risk engine (`backend/app/services/risk_engine.py`) to properly trigger a Level 3 review when severe structural deterioration is combined with rumination *or* sleep worsening, adhering to clinical safety guidelines.
 - **Performance:** Fixed N+1 query issue in the professional patient listing endpoint (`backend/app/routers/professional.py`) by utilizing batched DB queries for assessments, alerts and checkins.
 - **A11y Review:** Added accessibility enhancements (ARIA roles, live regions, labels) to both Patient and Professional Dashboards.
@@ -33,4 +34,3 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 ## Recommended next work
 1. **Implement RAG de Contenidos (Epic E9)**: Build the versioned, curated content library mechanism for the conversational assistant.
 2. **Complete Professional Panel (Epic E10)**: Finish selective sharing, professional workflows, and robust UI elements for patient-clinician linkages.
-3. **Complete Consent Verification**: Ensure granular revocation flows (E1) are fully robust and visible in the UI.
