@@ -6,6 +6,7 @@ Determinista") and the helper functions in doc 18. This module is the
 single source of truth for alert_level (0-4). No LLM call ever happens
 inside this module.
 """
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -106,10 +107,7 @@ def _facts_in_categories(db: Session, user_id, categories: set[str], window_hour
     # The persisted calculation snapshot needs the evidence identity and
     # category, not a second copy of the sensitive free-text fact.  Clinical
     # content remains in confirmed_facts under its existing RBAC rules.
-    return [
-        {"id": str(f.id), "category": f.category, "created_at": _utc_iso(f.created_at)}
-        for f in facts
-    ]
+    return [{"id": str(f.id), "category": f.category, "created_at": _utc_iso(f.created_at)} for f in facts]
 
 
 def _latest_linguistic_signal(db: Session, user_id) -> dict:
@@ -153,6 +151,7 @@ def _linguistic_flags(
         query = query.filter(AlfaSignal.id == signal_id)
     signals = query.order_by(AlfaSignal.timestamp.desc()).first()
     value = (signals.value if signals else {}) or {}
+
     # Agent 2 sometimes returns strings "true"/"false"; coerce carefully.
     def _truthy(v) -> bool:
         if isinstance(v, bool):
@@ -198,31 +197,39 @@ def _recent_safety_signals(db: Session, user_id, *, now: datetime) -> dict:
     and timestamp for review. Old text is not promoted to a current emergency.
     Open professional alerts remain open until their human adjudication.
     """
-    rows = db.query(AlfaSignal).filter(
-        AlfaSignal.user_id == user_id,
-        AlfaSignal.signal_type == "linguistic_analysis",
-        AlfaSignal.is_active == True,  # noqa: E712
-        AlfaSignal.timestamp >= now - timedelta(hours=12),
-        AlfaSignal.timestamp <= now,
-    ).order_by(AlfaSignal.timestamp.desc()).all()
+    rows = (
+        db.query(AlfaSignal)
+        .filter(
+            AlfaSignal.user_id == user_id,
+            AlfaSignal.signal_type == "linguistic_analysis",
+            AlfaSignal.is_active == True,  # noqa: E712
+            AlfaSignal.timestamp >= now - timedelta(hours=12),
+            AlfaSignal.timestamp <= now,
+        )
+        .order_by(AlfaSignal.timestamp.desc())
+        .all()
+    )
     evidence = []
     for row in rows:
         value = getattr(row, "value", None)
         if not isinstance(value, dict):
             continue
-        flags = {key: value.get(key) is True for key in (
-            "ideation_direct", "ideation_indirect", "consumption_crisis"
-        )}
+        flags = {key: value.get(key) is True for key in ("ideation_direct", "ideation_indirect", "consumption_crisis")}
         if any(flags.values()):
-            evidence.append({
-                "signal_id": str(row.id), "timestamp": _utc_iso(row.timestamp), **flags,
-            })
+            evidence.append(
+                {
+                    "signal_id": str(row.id),
+                    "timestamp": _utc_iso(row.timestamp),
+                    **flags,
+                }
+            )
     return {
         "window_hours": 12,
         "evidence": evidence,
-        **{key: any(item[key] for item in evidence) for key in (
-            "ideation_direct", "ideation_indirect", "consumption_crisis"
-        )},
+        **{
+            key: any(item[key] for item in evidence)
+            for key in ("ideation_direct", "ideation_indirect", "consumption_crisis")
+        },
     }
 
 
@@ -280,7 +287,9 @@ def _persistence_detail(db: Session, user_id, band: str, days_minimum: int) -> d
     }
 
 
-def _convergencia_critica_extrema(structural_score: float | None, rumination: float | None, sleep_worsening: bool) -> bool:
+def _convergencia_critica_extrema(
+    structural_score: float | None, rumination: float | None, sleep_worsening: bool
+) -> bool:
     if structural_score is None:
         return False
     rumination_extreme = rumination is not None and rumination > 0.85
@@ -299,11 +308,7 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
     from app.models import CheckIn
 
     recent_checkins = (
-        db.query(CheckIn)
-        .filter(CheckIn.user_id == user_id)
-        .order_by(CheckIn.created_at.desc())
-        .limit(7)
-        .all()
+        db.query(CheckIn).filter(CheckIn.user_id == user_id).order_by(CheckIn.created_at.desc()).limit(7).all()
     )
     sleep_values = [c.sleep_hours for c in reversed(recent_checkins)]
     sleep_trend = baseline_service.calculate_trend(db, user_id, sleep_values)
@@ -358,7 +363,9 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
     # (El bloque de convergencia extrema fue corregido y movido al Nivel 3)
 
     # ---------------- Nivel 3 (Alarma profesional) ----------------
-    if _convergencia_critica_extrema(structural.score, rumination if isinstance(rumination, (int, float)) else None, sleep_worsening):
+    if _convergencia_critica_extrema(
+        structural.score, rumination if isinstance(rumination, (int, float)) else None, sleep_worsening
+    ):
         triggering_rules.append("N3_convergencia_critica_extrema")
         return RiskDecision(
             level=3,
@@ -397,9 +404,11 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
             input_facts=input_facts,
         )
 
-    if structural.confidence_band == "unstable" and _persistence_band(
-        db, user_id, "unstable", STRUCTURAL_PERSISTENCE_DAYS_N3_CONVERGENT
-    ) and (sleep_worsening or rumination_trend == "aumentando"):
+    if (
+        structural.confidence_band == "unstable"
+        and _persistence_band(db, user_id, "unstable", STRUCTURAL_PERSISTENCE_DAYS_N3_CONVERGENT)
+        and (sleep_worsening or rumination_trend == "aumentando")
+    ):
         triggering_rules.append("N3_unstable_persistente_con_convergencia")
         return RiskDecision(
             level=3,
@@ -505,11 +514,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
     from app.models import CheckIn
 
     recent_checkins = (
-        db.query(CheckIn)
-        .filter(CheckIn.user_id == user_id)
-        .order_by(CheckIn.created_at.desc())
-        .limit(7)
-        .all()
+        db.query(CheckIn).filter(CheckIn.user_id == user_id).order_by(CheckIn.created_at.desc()).limit(7).all()
     )
     ordered_checkins = list(reversed(recent_checkins))
     sleep_values = [float(row.sleep_hours) for row in ordered_checkins]
@@ -589,7 +594,13 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
             4,
             "Agente 2 detectó ideación directa en una señal vigente",
             [
-                _trace_condition("Señal actual o evidencia de seguridad vigente", bool(agent2_available or safety["evidence"]), "eq", True, bool(agent2_available or safety["evidence"])),
+                _trace_condition(
+                    "Señal actual o evidencia de seguridad vigente",
+                    bool(agent2_available or safety["evidence"]),
+                    "eq",
+                    True,
+                    bool(agent2_available or safety["evidence"]),
+                ),
                 _trace_condition(
                     "ideation_direct",
                     ideation_direct if (agent2_available or safety["evidence"]) else None,
@@ -605,15 +616,23 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
             3,
             "Deterioro estadístico, rumiación o sueño: revisión profesional, no predicción suicida",
             [
-                _trace_condition("adverse_composite_z", structural.adverse_composite_z, "gt", 2.4, structural_extreme if structural.adverse_composite_z is not None else None),
-                _trace_condition("rumination_score", rumination, "gt", 0.85, rumination_extreme if rumination is not None else None),
+                _trace_condition(
+                    "adverse_composite_z",
+                    structural.adverse_composite_z,
+                    "gt",
+                    2.4,
+                    structural_extreme if structural.adverse_composite_z is not None else None,
+                ),
+                _trace_condition(
+                    "rumination_score", rumination, "gt", 0.85, rumination_extreme if rumination is not None else None
+                ),
                 _trace_condition("tendencia de sueño", sleep_detail.label, "eq", "empeorando", sleep_worsening),
             ],
             extreme_convergence if structural.adverse_composite_z is not None and rumination is not None else None,
         ),
         _trace_rule(
-            "N4_convergencia_interpersonal_despedida",
-            4,
+            "N3_convergencia_interpersonal_despedida",
+            3,
             "Ideación indirecta + riesgo interpersonal vivo + señal de despedida",
             [
                 _trace_condition(
@@ -655,14 +674,22 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
             "N3_senal_linguistica_ideacion_indirecta",
             3,
             "Posible ideación no explicitada: requiere valoración clínica prioritaria",
-            [_trace_condition("ideation_indirect reciente no refutada", ideation_indirect, "eq", True, ideation_indirect)],
+            [
+                _trace_condition(
+                    "ideation_indirect reciente no refutada", ideation_indirect, "eq", True, ideation_indirect
+                )
+            ],
             ideation_indirect,
         ),
         _trace_rule(
             "N3_declaracion_crisis_consumo",
             3,
             "Hecho confirmado reciente de crisis de consumo",
-            [_trace_condition("Hechos de crisis de consumo en 48 h", len(consumption_facts), "gt", 0, bool(consumption_facts))],
+            [
+                _trace_condition(
+                    "Hechos de crisis de consumo en 48 h", len(consumption_facts), "gt", 0, bool(consumption_facts)
+                )
+            ],
             bool(consumption_facts),
         ),
         _trace_rule(
@@ -677,7 +704,13 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
             3,
             "Agente 2 detectó crisis de consumo en una señal vigente",
             [
-                _trace_condition("Señal de Agente 2 vigente", bool(agent2_available or safety["evidence"]), "eq", True, bool(agent2_available or safety["evidence"])),
+                _trace_condition(
+                    "Señal de Agente 2 vigente",
+                    bool(agent2_available or safety["evidence"]),
+                    "eq",
+                    True,
+                    bool(agent2_available or safety["evidence"]),
+                ),
                 _trace_condition(
                     "consumption_crisis",
                     consumption_crisis if (agent2_available or safety["evidence"]) else None,
@@ -693,8 +726,16 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
             3,
             "Inestabilidad persistente 3 días con otra señal convergente",
             [
-                _trace_condition("banda estructural", deterioration_band, "eq", "unstable", deterioration_band == "unstable"),
-                _trace_condition("días inestables distintos", persistence_3["observed_distinct_days"], "gte", 3, persistence_3["passed"]),
+                _trace_condition(
+                    "banda estructural", deterioration_band, "eq", "unstable", deterioration_band == "unstable"
+                ),
+                _trace_condition(
+                    "días inestables distintos",
+                    persistence_3["observed_distinct_days"],
+                    "gte",
+                    3,
+                    persistence_3["passed"],
+                ),
                 _trace_condition(
                     "sueño empeorando o rumiación > 0.60",
                     {"sleep_trend": sleep_detail.label, "rumination_score": rumination},
@@ -710,8 +751,16 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
             3,
             "Inestabilidad estructural persistente durante 5 días",
             [
-                _trace_condition("banda estructural", deterioration_band, "eq", "unstable", deterioration_band == "unstable"),
-                _trace_condition("días inestables distintos", persistence_5["observed_distinct_days"], "gte", 5, persistence_5["passed"]),
+                _trace_condition(
+                    "banda estructural", deterioration_band, "eq", "unstable", deterioration_band == "unstable"
+                ),
+                _trace_condition(
+                    "días inestables distintos",
+                    persistence_5["observed_distinct_days"],
+                    "gte",
+                    5,
+                    persistence_5["passed"],
+                ),
             ],
             deterioration_band == "unstable" and persistence_5["passed"],
         ),
@@ -787,9 +836,11 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
                     craving_rising,
                 ),
             ],
-            None
-            if psychosocial.relapse_context_index is None
-            else bool(psychosocial.relapse_context_is_high and craving_rising),
+            (
+                None
+                if psychosocial.relapse_context_index is None
+                else bool(psychosocial.relapse_context_is_high and craving_rising)
+            ),
         ),
         _trace_rule(
             "N3_convergencia_psicosocial_estructural",
@@ -811,9 +862,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
                     deterioration_band == "unstable",
                 ),
             ],
-            (psycho_index_high and deterioration_band == "unstable")
-            if psycho_index is not None
-            else None,
+            (psycho_index_high and deterioration_band == "unstable") if psycho_index is not None else None,
         ),
         _trace_rule(
             "N2_desviacion_moderada",
@@ -829,8 +878,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
                     or (deterioration_band == "unstable" and persistence_1["passed"]),
                 )
             ],
-            deterioration_band == "transition"
-            or (deterioration_band == "unstable" and persistence_1["passed"]),
+            deterioration_band == "transition" or (deterioration_band == "unstable" and persistence_1["passed"]),
         ),
         _trace_rule(
             "N2_vulnerabilidad_psicosocial",
@@ -866,13 +914,15 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
                     psycho_index_moderate if psycho_index is not None else None,
                 ),
             ],
-            None
-            if not psychosocial.available
-            else bool(
-                psychosocial.support_is_low
-                or psychosocial.material_adversity_is_high
-                or psychosocial.has_acute_change
-                or psycho_index_moderate
+            (
+                None
+                if not psychosocial.available
+                else bool(
+                    psychosocial.support_is_low
+                    or psychosocial.material_adversity_is_high
+                    or psychosocial.has_acute_change
+                    or psycho_index_moderate
+                )
             ),
         ),
         _trace_rule(
@@ -886,7 +936,15 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
             "N1_datos_insuficientes_o_sin_criterios",
             1,
             "Datos insuficientes para una desviación estructural",
-            [_trace_condition("banda estructural", deterioration_band, "eq", "insufficient_data", deterioration_band == "insufficient_data")],
+            [
+                _trace_condition(
+                    "banda estructural",
+                    deterioration_band,
+                    "eq",
+                    "insufficient_data",
+                    deterioration_band == "insufficient_data",
+                )
+            ],
             deterioration_band == "insufficient_data",
         ),
         _trace_rule(
@@ -925,7 +983,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
         "N4_senal_linguistica_ideacion_directa": "Señal lingüística reciente de ideación directa (inferencia Agent 2; revisión humana prioritaria)",
         "N3_convergencia_critica_extrema": "Deterioro estadístico con rumiación o sueño empeorando: revisión profesional, no emergencia inferida de una suma",
         "N3_senal_linguistica_ideacion_indirecta": "Posible ideación no explicitada en el análisis textual; valoración clínica prioritaria pendiente, no ideación confirmada",
-        "N4_convergencia_interpersonal_despedida": (
+        "N3_convergencia_interpersonal_despedida": (
             "Convergencia interpersonal: ideación indirecta + carga percibida y pertenencia frustrada "
             "expresadas en 14 días + señal de despedida vigente. Cada pieza por separado es inofensiva; "
             "es justamente su coincidencia lo que se vigila"
@@ -963,7 +1021,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
     reason = reasons[selected["code"]]
     driver_flag = {
         "N3_senal_linguistica_ideacion_indirecta": "ideation_indirect",
-        "N4_convergencia_interpersonal_despedida": "ideation_indirect",
+        "N3_convergencia_interpersonal_despedida": "ideation_indirect",
         "N4_senal_linguistica_ideacion_directa": "ideation_direct",
         "N3_senal_linguistica_crisis_consumo": "consumption_crisis",
     }.get(selected["code"])
@@ -996,9 +1054,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
             "urgency_level": ling.get("urgency_level") if agent2_available else None,
             "emotional_complexity": ling.get("emotional_complexity") if agent2_available else None,
             "short_rationale": ling.get("short_rationale") if agent2_available else None,
-            "deviation_from_own_baseline": (
-                ling.get("deviation_from_own_baseline") if agent2_available else None
-            ),
+            "deviation_from_own_baseline": (ling.get("deviation_from_own_baseline") if agent2_available else None),
             "is_typical_for_patient": ling.get("is_typical_for_patient") if agent2_available else None,
         },
         "craving_trend": craving_detail.label,
@@ -1011,8 +1067,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
         # to tell "unusually high" from "unusual for them", because the second
         # is a claim about a baseline they can inspect and disagree with.
         "personal_comparison": {
-            "available": not rumination_deviation.insufficient_data
-            or not valence_deviation.insufficient_data,
+            "available": not rumination_deviation.insufficient_data or not valence_deviation.insufficient_data,
             "baseline_n": patient_profile.linguistic_baseline_n if patient_profile else 0,
             "minimum_n": profile_service.MIN_SIGNALS_FOR_LINGUISTIC_BASELINE,
             "sigma_threshold": PERSONAL_DEVIATION_SIGMA,
@@ -1054,9 +1109,11 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
                 "baseline_mean": baseline_mean,
                 "baseline_population_std": baseline_stats.get("std"),
                 "recent_mean": recent_mean,
-                "difference": round(recent_mean - baseline_mean, 3)
-                if isinstance(recent_mean, (int, float)) and isinstance(baseline_mean, (int, float))
-                else None,
+                "difference": (
+                    round(recent_mean - baseline_mean, 3)
+                    if isinstance(recent_mean, (int, float)) and isinstance(baseline_mean, (int, float))
+                    else None
+                ),
                 "effective_std": structural.effective_stds.get(key),
                 "formula": "(recent_mean - baseline_mean) / max(baseline_population_std, technical_scale_floor)",
                 "zero_std_policy": "technical_scale_floor; missing is not zero",
@@ -1409,10 +1466,10 @@ def run_and_persist(
 
 def _alert_title(decision: RiskDecision) -> str:
     if decision.level == 4:
-        if "N4_convergencia_interpersonal_despedida" in decision.triggering_rules:
-            return "ALERTA NIVEL 4 – EMERGENCIA (convergencia interpersonal y despedida)"
         return "ALERTA NIVEL 4 – EMERGENCIA"
     if decision.level == 3:
+        if "N3_convergencia_interpersonal_despedida" in decision.triggering_rules:
+            return "Alerta Nivel 3 – Convergencia interpersonal y despedida: valoración pendiente"
         if "N3_senal_linguistica_ideacion_indirecta" in decision.triggering_rules:
             return "Alerta Nivel 3 – Posible ideación no explicitada: valoración pendiente"
         if "N3_convergencia_critica_extrema" in decision.triggering_rules:

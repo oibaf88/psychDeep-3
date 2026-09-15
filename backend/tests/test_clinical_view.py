@@ -5,6 +5,7 @@ structural score sitting next to a level-4 alert must be explained, not
 just displayed, and every explanation must name the evidence family that
 actually drove the level.
 """
+
 import unittest
 import uuid
 from datetime import datetime
@@ -24,12 +25,16 @@ def _assessment(
     variables=None,
     facts=None,
 ):
-    z_scores = z_scores if z_scores is not None else {
-        "mood": -0.1,
-        "craving_inv": 0.2,
-        "sleep_hours": 0.05,
-        "self_efficacy": -0.15,
-    }
+    z_scores = (
+        z_scores
+        if z_scores is not None
+        else {
+            "mood": -0.1,
+            "craving_inv": 0.2,
+            "sleep_hours": 0.05,
+            "self_efficacy": -0.15,
+        }
+    )
     return SimpleNamespace(
         id=uuid.uuid4(),
         user_id=uuid.uuid4(),
@@ -93,9 +98,7 @@ class LevelExplanationTests(unittest.TestCase):
         self.assertIn("No hay contradicción", text)
 
     def test_confirmed_fact_level_is_marked_as_fact_not_inference(self):
-        explanation = clinical_view.level_explanation(
-            _assessment(level=4, rule="N4_declaracion_ideacion_o_plan")
-        )
+        explanation = clinical_view.level_explanation(_assessment(level=4, rule="N4_declaracion_ideacion_o_plan"))
         self.assertEqual(explanation["driver_family"], clinical_view.FAMILY_CONFIRMED_FACT)
         self.assertIn("HECHO", explanation["headline"])
 
@@ -110,7 +113,8 @@ class LevelExplanationTests(unittest.TestCase):
     def test_v2_structural_rule_explains_separate_adverse_component(self):
         assessment = _assessment(level=3, rule="N3_unstable_persistente", score=0.21, band="unstable")
         assessment.input_signals.update(
-            structural_calculation_version="structural-v2", deterioration_band="unstable",
+            structural_calculation_version="structural-v2",
+            deterioration_band="unstable",
         )
         explanation = clinical_view.level_explanation(assessment)
         self.assertEqual(explanation["driver_family"], clinical_view.FAMILY_STRUCTURAL)
@@ -137,7 +141,10 @@ class LevelExplanationTests(unittest.TestCase):
 class StructuralExplanationTests(unittest.TestCase):
     def _v2_assessment(self, z_scores=None):
         assessment = _assessment(
-            level=0, rule="N0_estable", score=0.4, band="transition",
+            level=0,
+            rule="N0_estable",
+            score=0.4,
+            band="transition",
             z_scores=z_scores or {"mood": 2.0, "craving_inv": 2.0, "sleep_hours": 0.0, "self_efficacy": 2.0},
         )
         structural = assessment.calculation_trace["inputs"]["structural"]
@@ -239,7 +246,8 @@ class StructuralExplanationTests(unittest.TestCase):
     def test_v2_prefers_persisted_unrounded_input_aggregates(self):
         assessment = self._v2_assessment()
         assessment.calculation_trace["inputs"]["structural"]["composite"].update(
-            adverse_composite_z=0.001, favourable_composite_z=1.499,
+            adverse_composite_z=0.001,
+            favourable_composite_z=1.499,
         )
         explanation = clinical_view.structural_explanation(assessment)
         self.assertEqual(explanation["adverse_composite_z"], 0.001)
@@ -308,25 +316,32 @@ class InterpersonalEvidenceTests(unittest.TestCase):
                 psychosocial=harness._interpersonal_context(),
                 preferred_signal_id=current_signal_id,
             )
-        self.assertEqual(decision.triggering_rules, ["N4_convergencia_interpersonal_despedida"])
+        self.assertEqual(decision.triggering_rules, ["N3_convergencia_interpersonal_despedida"])
         self.assertEqual(decision.input_signals["safety_driver_signal_id"], str(prior_signal_id))
         self.assertEqual(decision.linguistic_signal_id, current_signal_id)
 
     def _evidence_fixture(self):
-        assessment = _assessment(level=4, rule="N4_convergencia_interpersonal_despedida")
+        assessment = _assessment(level=3, rule="N3_convergencia_interpersonal_despedida")
         signal_id, trace_id, message_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         assessment.linguistic_signal_id_used = uuid.uuid4()
         assessment.input_signals["safety_driver_signal_id"] = str(signal_id)
         signal = SimpleNamespace(
-            id=signal_id, user_id=assessment.user_id, agent2_trace_id=trace_id,
+            id=signal_id,
+            user_id=assessment.user_id,
+            agent2_trace_id=trace_id,
             value={"ideation_indirect": True},
         )
         trace = SimpleNamespace(
-            id=trace_id, user_id=assessment.user_id, source_type="chat_message",
-            chat_message_id=message_id, diary_entry_id=None,
+            id=trace_id,
+            user_id=assessment.user_id,
+            source_type="chat_message",
+            chat_message_id=message_id,
+            diary_entry_id=None,
         )
         message = SimpleNamespace(
-            id=message_id, user_id=assessment.user_id, content="Texto sintético que originó la señal.",
+            id=message_id,
+            user_id=assessment.user_id,
+            content="Texto sintético que originó la señal.",
             created_at=assessment.calculated_at,
         )
         records = {
@@ -367,7 +382,7 @@ class RuleCatalogTests(unittest.TestCase):
         engine_codes = {
             "N4_declaracion_ideacion_o_plan",
             "N4_senal_linguistica_ideacion_directa",
-            "N4_convergencia_interpersonal_despedida",
+            "N3_convergencia_interpersonal_despedida",
             "N3_convergencia_critica_extrema",
             "N3_declaracion_crisis_consumo",
             "N3_declaracion_recaida",
@@ -386,8 +401,6 @@ class RuleCatalogTests(unittest.TestCase):
     def test_catalog_levels_match_their_rule_prefix(self):
         for code, info in clinical_view.RULE_CATALOG.items():
             self.assertEqual(int(code[1]), info["level"], code)
-
-
 
 
 class EvidenceBatchingTests(unittest.TestCase):
@@ -410,7 +423,9 @@ class EvidenceBatchingTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         assessments = []
         for i in range(5):
-            msg = ChatMessage(id=uuid.uuid4(), user_id=patient.id, role="user", content=f"Test message {i}", created_at=now)
+            msg = ChatMessage(
+                id=uuid.uuid4(), user_id=patient.id, role="user", content=f"Test message {i}", created_at=now
+            )
             db.add(msg)
             db.commit()
 
@@ -431,7 +446,7 @@ class EvidenceBatchingTests(unittest.TestCase):
                 schema_version="v1",
                 schema_sha256="s",
                 started_at=now,
-                created_at=now
+                created_at=now,
             )
             db.add(trace)
             db.commit()
@@ -442,7 +457,7 @@ class EvidenceBatchingTests(unittest.TestCase):
                 agent2_trace_id=trace.id,
                 signal_type="linguistic",
                 value={"short_rationale": "batch test"},
-                timestamp=now
+                timestamp=now,
             )
             db.add(signal)
             db.commit()
@@ -456,7 +471,7 @@ class EvidenceBatchingTests(unittest.TestCase):
                 input_signals={},
                 assessment_reason="test",
                 alert_level=2,
-                calculated_at=now
+                calculated_at=now,
             )
             db.add(assessment)
             db.commit()
