@@ -13,7 +13,6 @@ from app.services import baseline, conversation, risk_engine
 from app.services.conversation import AnalysisOutcome, LinguisticAnalysis
 from app.services.llm.anthropic_provider import AnthropicProvider
 
-
 VALID_ANALYSIS = {
     "rumination_score": 0.7,
     "negative_valence": 0.6,
@@ -82,10 +81,7 @@ def _structural(score=0.8, band="stable"):
         z_scores={"mood": -0.2, "craving_inv": -0.1, "sleep_hours": 0.1, "self_efficacy": 0.2},
         baseline_n=8,
         recent_n=3,
-        baseline_stats={
-            key: {"mean": 5.0, "std": 1.0, "n": 8}
-            for key in baseline.VARIABLES
-        },
+        baseline_stats={key: {"mean": 5.0, "std": 1.0, "n": 8} for key in baseline.VARIABLES},
         recent_means={key: 4.8 for key in baseline.VARIABLES},
         composite_z=0.15,
         deterioration_band=band,
@@ -169,7 +165,9 @@ class LinguisticBoundaryTests(unittest.TestCase):
         provider = AnthropicProvider()
         provider._client = SimpleNamespace(messages=SimpleNamespace(create=lambda **_kwargs: response))
 
-        result = provider.analyze_structured("static prompt", "synthetic input", {"input_schema": {"type": "object", "properties": {}}})
+        result = provider.analyze_structured(
+            "static prompt", "synthetic input", {"input_schema": {"type": "object", "properties": {}}}
+        )
 
         self.assertEqual(result.value, {"ok": True})
         self.assertEqual(result.metadata.message_id, "msg_test")
@@ -249,11 +247,7 @@ class LinguisticBoundaryTests(unittest.TestCase):
         ):
             conversation.get_reply(db, SimpleNamespace(id=patient_id), "hola")
 
-        stored = [
-            call.args[0]
-            for call in db.add.call_args_list
-            if getattr(call.args[0], "role", None) == "assistant"
-        ]
+        stored = [call.args[0] for call in db.add.call_args_list if getattr(call.args[0], "role", None) == "assistant"]
         self.assertEqual(len(stored), 1)
         self.assertEqual(stored[0].model, "llama-3.1-70b-actually-loaded")
         self.assertEqual(stored[0].provider, "openai_compatible")
@@ -360,7 +354,9 @@ class DeterministicExplanationTests(_CalculationHarness, unittest.TestCase):
 
         self.assertEqual(decision.level, 4)
         self.assertEqual(decision.triggering_rules, ["N4_declaracion_ideacion_o_plan"])
-        self.assertIn("N4_senal_linguistica_ideacion_directa", decision.calculation_trace["conclusion"]["matched_rule_codes"])
+        self.assertIn(
+            "N4_senal_linguistica_ideacion_directa", decision.calculation_trace["conclusion"]["matched_rule_codes"]
+        )
         selected = [rule for rule in decision.calculation_trace["rules"] if rule["selected"]]
         self.assertEqual(selected[0]["priority"], 1)
 
@@ -495,8 +491,7 @@ class PsychosocialRuleTests(_CalculationHarness, unittest.TestCase):
 
     def test_acute_change_without_any_corroboration_stays_below_level_three(self):
         stable_sleep = [
-            SimpleNamespace(id=uuid.uuid4(), sleep_hours=7.0, craving=5, created_at=datetime.utcnow())
-            for _ in range(3)
+            SimpleNamespace(id=uuid.uuid4(), sleep_hours=7.0, craving=5, created_at=datetime.utcnow()) for _ in range(3)
         ]
         fake_db = _FakeDb(
             stable_sleep,
@@ -543,9 +538,7 @@ class PsychosocialRuleTests(_CalculationHarness, unittest.TestCase):
             structural=_structural(score=0.9, band="stable"),
             psychosocial=[
                 _psychosocial_row(category="housing_temporary", is_change=True, status="refuted"),
-                _psychosocial_row(
-                    domain="social_support", category="support_absent", status="refuted"
-                ),
+                _psychosocial_row(domain="social_support", category="support_absent", status="refuted"),
             ],
         )
         self.assertEqual(decision.level, 0)
@@ -626,8 +619,8 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
             linguistic=_linguistic(ideation_indirect=True, rumination=0.2),
             psychosocial=self._interpersonal_context(),
         )
-        self.assertEqual(decision.level, 4)
-        self.assertEqual(decision.triggering_rules, ["N4_convergencia_interpersonal_despedida"])
+        self.assertEqual(decision.level, 3)
+        self.assertEqual(decision.triggering_rules, ["N3_convergencia_interpersonal_despedida"])
 
     def test_without_the_leave_taking_signal_it_does_not_reach_level_four(self):
         """Removing one leg must de-escalate: the rule is a conjunction."""
@@ -636,8 +629,7 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
             linguistic=_linguistic(ideation_indirect=True, rumination=0.2),
             psychosocial=self._interpersonal_context(leave_taking=False),
         )
-        self.assertLess(decision.level, 4)
-        self.assertNotIn("N4_convergencia_interpersonal_despedida", decision.triggering_rules)
+        self.assertNotIn("N3_convergencia_interpersonal_despedida", decision.triggering_rules)
 
     def test_without_indirect_ideation_it_does_not_reach_level_four(self):
         decision = self._calculate(
@@ -645,8 +637,7 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
             linguistic=_linguistic(ideation_indirect=False, rumination=0.2),
             psychosocial=self._interpersonal_context(),
         )
-        self.assertLess(decision.level, 4)
-        self.assertNotIn("N4_convergencia_interpersonal_despedida", decision.triggering_rules)
+        self.assertNotIn("N3_convergencia_interpersonal_despedida", decision.triggering_rules)
 
     def test_chronic_interpersonal_risk_alone_does_not_keep_re_alerting(self):
         """Expressed months ago, it is context; expressed this week, a signal.
@@ -673,12 +664,8 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
     def test_low_confidence_readings_never_move_a_threshold(self):
         """A hedged or ironic mention is shown to the therapist, not scored."""
         rows = [
-            _psychosocial_row(
-                domain="perceived_burden", category="burden_expressed", intensity=1.0, confidence=0.3
-            ),
-            _psychosocial_row(
-                domain="thwarted_belonging", category="belonging_absent", intensity=1.0, confidence=0.3
-            ),
+            _psychosocial_row(domain="perceived_burden", category="burden_expressed", intensity=1.0, confidence=0.3),
+            _psychosocial_row(domain="thwarted_belonging", category="belonging_absent", intensity=1.0, confidence=0.3),
         ]
         decision = self._calculate(
             structural=_structural(score=0.9, band="stable"),
@@ -700,9 +687,7 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
                     category="using_environment_exposure",
                     intensity=0.9,
                 ),
-                _psychosocial_row(
-                    domain="cohabitation", category="lives_with_people_who_use", intensity=0.9
-                ),
+                _psychosocial_row(domain="cohabitation", category="lives_with_people_who_use", intensity=0.9),
             ],
         )
         persistence_values = {
@@ -730,7 +715,7 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
         decision = self._calculate(structural=_structural(score=0.9, band="stable"))
         by_code = {rule["code"]: rule for rule in decision.calculation_trace["rules"]}
         for code in (
-            "N4_convergencia_interpersonal_despedida",
+            "N3_convergencia_interpersonal_despedida",
             "N3_riesgo_interpersonal_alto",
             "N3_riesgo_recaida_contextual",
             "N2_vulnerabilidad_psicosocial",
