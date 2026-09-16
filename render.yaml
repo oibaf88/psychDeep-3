@@ -1,7 +1,6 @@
 # Render Blueprint for PsychDeep vNext.
-# Clinical data lives only in the existing Supabase project. Render hosts the
-# cloud API and static web; no Render Postgres/Redis/worker is required in the
-# zero-cost prototype stage.
+# Clinical data lives only in the existing Supabase project. Only the LLM
+# runtime is local, reached from the cloud API through an authenticated tunnel.
 services:
   - type: web
     name: psychdeep-api
@@ -28,33 +27,34 @@ services:
         value: "true"
       - key: MODEL_LOCAL_BASE_URL
         sync: false
-      # The cloudflared tunnel connector token remains on the Windows machine.
-      # The hostname is pinned to stop users sending credentials to arbitrary endpoints.
+      # The cloudflared connector token remains on Windows, NEVER here.
+      # All three HTTP credentials belong exclusively to this backend.
       - key: MODEL_LOCAL_CF_ACCESS_REQUIRED
         value: "true"
       - key: MODEL_LOCAL_CF_ACCESS_HOST
         value: ai.bfab.io
-      # Legacy shared Access credentials are only used before personal mode.
       - key: MODEL_LOCAL_CF_ACCESS_CLIENT_ID
         sync: false
       - key: MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET
         sync: false
-      # A stable Fernet key for encrypted per-account credentials; do not rotate
-      # without first re-encrypting stored values and securely backing it up.
+      - key: MODEL_LOCAL_API_KEY
+        sync: false
+      # Retain the existing Fernet key until encrypted old per-user secrets
+      # are retired; NEVER regenerate it as part of this deployment.
       - key: LLM_USER_CREDENTIALS_KEY
         sync: false
-      # Explicit migration gate. Enable ONLY after Supabase migration and
-      # credential provisioning; absent per-account settings then fail closed.
+      # Enable only AFTER confirming both auth layers + model availability.
       - key: LLM_PERSONAL_MODE
         sync: false
+      # Set actual IDs shown by LM Studio /v1/models in Render Dashboard.
       - key: MODEL_LOCAL_CHAT_MODEL
-        value: gemma-2-2b-it
+        sync: false
       - key: MODEL_LOCAL_ANALYSIS_MODEL
-        value: gemma-2-2b-it
+        sync: false
       - key: MODEL_LOCAL_COPILOT_MODEL
-        value: gemma-2-2b-it
+        sync: false
       - key: MODEL_LOCAL_TIMEOUT_SECONDS
-        value: "45"
+        value: "120"
       - key: MODEL_LOCAL_MAX_TOKENS
         value: "8192"
       - key: ANTHROPIC_API_KEY
