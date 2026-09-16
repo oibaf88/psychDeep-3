@@ -44,6 +44,7 @@ def settings(**overrides):
         model_local_timeout_seconds=30,
         local_chat_model="test-model",
         local_analysis_model="test-model",
+        local_copilot_model="test-model",
         model_allow_commercial=True,
         anthropic_api_key="server-anthropic-test-key",
         anthropic_chat_model="claude-test",
@@ -82,13 +83,19 @@ class SharedGatewayTests(unittest.TestCase):
         self.assertEqual(headers["Authorization"], "Bearer shared-lm-bearer")
         self.assertEqual(headers["CF-Access-Client-Id"], "shared-access-id")
         self.assertEqual(headers["CF-Access-Client-Secret"], "shared-access-secret")
+        self.assertNotIn("shared-lm-bearer", repr(config))
+        self.assertNotIn("shared-access-secret", repr(config))
 
     def test_personal_choice_does_not_change_other_accounts_credentials_or_provider(self):
-        personal_llm.save(self.db, self.a, payload(model="model-a"))
+        personal_llm.save(self.db, self.a, payload(model="old-stale-model"))
         personal_llm.save(self.db, self.b, payload(provider="anthropic", model="claude-test"))
+        # A previously saved model ID must never override operator settings.
+        self.db.rows[self.a].chat_model = "obsolete-model"
+        self.db.rows[self.a].analysis_model = "obsolete-model"
         a = personal_llm.resolve(self.db, self.a)
         b = personal_llm.resolve(self.db, self.b)
-        self.assertEqual((a.provider, a.chat_model), ("openai_compatible", "model-a"))
+        self.assertEqual((a.provider, a.chat_model), ("openai_compatible", "test-model"))
+        self.assertEqual(personal_llm.status(self.db, self.a)["chat_model"], "test-model")
         self.assertEqual(b.provider, "anthropic")
         self.assertEqual(a.api_key, "shared-lm-bearer")
         self.assertNotIn("shared-access-secret", str(personal_llm.status(self.db, self.b)))
