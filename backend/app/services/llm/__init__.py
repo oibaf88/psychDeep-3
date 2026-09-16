@@ -1,10 +1,7 @@
-"""Provider adapters and account-scoped provider resolution."""
+"""Provider adapters with separate account choices and shared server credentials."""
 from app.services.llm.anthropic_provider import AnthropicProvider
 from app.services.llm.base import (
-    ChatResult,
-    LLMProvider,
-    ProviderMetadata,
-    StructuredAnalysisError,
+    ChatResult, LLMProvider, ProviderMetadata, StructuredAnalysisError,
     StructuredAnalysisResult,
 )
 from app.services.llm.cloudflare_access import CloudflareAccessOpenAICompatibleProvider
@@ -18,7 +15,7 @@ __all__ = [
 
 
 def build_provider(config) -> LLMProvider:
-    """Build the selected adapter; personal credentials never cross account boundaries."""
+    """Combine an account's model choice with operator-owned credentials."""
     from app.services import llm_config
     from app.services.personal_llm import PersonalResolvedConfig
 
@@ -31,25 +28,27 @@ def build_provider(config) -> LLMProvider:
         )
         if isinstance(config, PersonalResolvedConfig):
             if not config.api_key.strip():
-                raise RuntimeError("Falta la clave personal de LM Studio.")
-            # BOTH required: Bearer for LM Studio; CF headers for Cloudflare.
+                raise RuntimeError("La autenticación de LM Studio no está configurada en Render.")
             return CloudflareAccessOpenAICompatibleProvider(
                 **kwargs, access_client_id=config.access_client_id,
                 access_client_secret=config.access_client_secret,
                 access_hostname=config.access_hostname,
             )
+        # Transitional path: never silently remove the LM Studio bearer token
+        # when Cloudflare Access is enabled. Full personal routing is gated by
+        # LLM_PERSONAL_MODE until the operator completes deployment checks.
         settings = llm_config.get_settings()
         access = {
-            "access_client_id": getattr(settings, "model_local_cf_access_client_id", ""),
-            "access_client_secret": getattr(settings, "model_local_cf_access_client_secret", ""),
-            "access_hostname": getattr(settings, "model_local_cf_access_host", ""),
+            "access_client_id": settings.model_local_cf_access_client_id,
+            "access_client_secret": settings.model_local_cf_access_client_secret,
+            "access_hostname": settings.model_local_cf_access_host,
         }
-        access_required = getattr(settings, "model_local_cf_access_required", False)
-        if access_required or any(value.strip() for value in access.values()):
-            if not all(value.strip() for value in access.values()):
-                raise RuntimeError("La configuración global de Cloudflare Access está incompleta.")
-            # Legacy path preserved ONLY until operator enables personal mode.
-            kwargs["api_key"] = ""
+        if settings.model_local_cf_access_required or any(value.strip() for value in access.values()):
+            if not all(value.strip() for value in access.values()) or not settings.model_local_cf_access_required:
+                raise RuntimeError("Cloudflare Access está configurado parcialmente en Render.")
+            if not settings.model_local_api_key.strip():
+                raise RuntimeError("Falta MODEL_LOCAL_API_KEY en Render.")
+            kwargs["api_key"] = settings.model_local_api_key
             return CloudflareAccessOpenAICompatibleProvider(**kwargs, **access)
         return OpenAICompatibleProvider(**kwargs)
     if config.provider == llm_config.PROVIDER_ANTHROPIC:
@@ -63,7 +62,7 @@ def build_provider(config) -> LLMProvider:
 
 
 def get_llm_provider(db=None) -> LLMProvider:
-    """Use personal selection only after the explicit migration feature gate."""
+    """Use account-scoped resolution only after an explicitly staged cutover."""
     from app.services import llm_config, personal_llm
     from app.services.personal_resolution import personal_mode_enabled
 
