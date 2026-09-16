@@ -2,13 +2,13 @@
 
 The connector token authenticates the Windows cloudflared process and is never
 an HTTP credential. Render supplies one Cloudflare Access service-token pair
-and one LM Studio bearer token. Authenticated users choose models/providers but
-cannot submit, retrieve, replace, or redirect those shared credentials.
+and one LM Studio bearer token. Authenticated users may choose their provider;
+they cannot submit, retrieve, replace, or redirect shared credentials.
 """
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -32,8 +32,8 @@ class UserLLMPreference(Base):
     copilot_model: Mapped[str] = mapped_column(String(192), nullable=False, default="")
     max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=4096)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=120)
-    # Legacy encrypted fields remain mapped solely for a safe, staged rollout.
-    # Never read these fields for inference or populate them on new writes.
+    # Legacy encrypted fields retained only for a staged rollout/rollback.
+    # They are never read for inference or populated on new writes.
     lm_api_key_encrypted: Mapped[str | None] = mapped_column(Text)
     cf_client_id_encrypted: Mapped[str | None] = mapped_column(Text)
     cf_client_secret_encrypted: Mapped[str | None] = mapped_column(Text)
@@ -42,10 +42,11 @@ class UserLLMPreference(Base):
 
 @dataclass(frozen=True)
 class PersonalResolvedConfig(llm_config.ResolvedConfig):
-    """Per-user model choice paired with operator-owned server secrets."""
+    """Only safe model metadata may appear in a dataclass repr."""
 
-    access_client_id: str = ""
-    access_client_secret: str = ""
+    api_key: str = field(default="", repr=False)
+    access_client_id: str = field(default="", repr=False)
+    access_client_secret: str = field(default="", repr=False)
     access_hostname: str = ""
 
 
@@ -85,8 +86,7 @@ def shared_gateway():
         settings.model_local_api_key.strip(),
     )):
         raise RuntimeError("El administrador debe completar los secretos de Cloudflare Access y LM Studio en Render.")
-    endpoint = approved_endpoint(settings.model_local_base_url)
-    return settings, endpoint
+    return settings, approved_endpoint(settings.model_local_base_url)
 
 
 def shared_ready() -> bool:
@@ -100,14 +100,18 @@ def shared_ready() -> bool:
 def status(db: Session, user_id: uuid.UUID) -> dict:
     row = db.get(UserLLMPreference, user_id)
     settings = get_settings()
+    selected = row.provider if row else llm_config.PROVIDER_LOCAL
+    local = selected == llm_config.PROVIDER_LOCAL
     ready = shared_ready()
     return {
         "configured": row is not None,
-        "provider": row.provider if row else llm_config.PROVIDER_LOCAL,
+        "provider": selected,
         "base_url": settings.model_local_base_url if ready else "",
-        "chat_model": row.chat_model if row else settings.local_chat_model,
-        "analysis_model": row.analysis_model if row else settings.local_analysis_model,
-        "copilot_model": row.copilot_model if row else "",
+        "chat_model": settings.local_chat_model if local else row.chat_model,
+        "analysis_model": settings.local_analysis_model if local else row.analysis_model,
+        "copilot_model": "" if local else row.copilot_model,
+        "default_local_chat_model": settings.local_chat_model,
+        "default_local_analysis_model": settings.local_analysis_model,
         "max_tokens": row.max_tokens if row else min(settings.model_local_max_tokens, 32768),
         "timeout_seconds": row.timeout_seconds if row else settings.model_local_timeout_seconds,
         "local_available": ready,
@@ -121,11 +125,15 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
         if not settings.model_allow_commercial or not settings.anthropic_api_key:
             raise ValueError("Anthropic no está habilitado por el administrador.")
         endpoint = None
+        chat_model, analysis_model, copilot_model = payload.chat_model, payload.analysis_model, payload.copilot_model
     else:
         _, endpoint = shared_gateway()
+        # The operator's currently loaded model IDs are authoritative for ALL
+        # users, including accounts with stale IDs from the previous design.
+        chat_model, analysis_model, copilot_model = settings.local_chat_model, settings.local_analysis_model, ""
     fields = llm_config.validate(
-        provider=payload.provider, base_url=endpoint, chat_model=payload.chat_model,
-        analysis_model=payload.analysis_model, copilot_model=payload.copilot_model,
+        provider=payload.provider, base_url=endpoint, chat_model=chat_model,
+        analysis_model=analysis_model, copilot_model=copilot_model,
         max_tokens=payload.max_tokens, timeout_seconds=payload.timeout_seconds,
     )
     row = db.get(UserLLMPreference, user_id)
@@ -139,7 +147,7 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
     row.copilot_model = fields["copilot_model"]
     row.max_tokens = fields["max_tokens"]
     row.timeout_seconds = fields["timeout_seconds"]
-    # A preference update retires that account's old per-user encrypted secrets.
+    # A preference update retires that account's obsolete encrypted secrets.
     row.lm_api_key_encrypted = None
     row.cf_client_id_encrypted = None
     row.cf_client_secret_encrypted = None
@@ -166,13 +174,11 @@ def resolve(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
     if selected != llm_config.PROVIDER_LOCAL:
         raise RuntimeError("Proveedor personal no autorizado.")
     settings, endpoint = shared_gateway()
-    chat = row.chat_model if row else settings.local_chat_model
-    analysis = row.analysis_model if row else settings.local_analysis_model
-    copilot = row.copilot_model if row else ""
     return PersonalResolvedConfig(
-        provider=selected, base_url=endpoint, chat_model=chat,
-        analysis_model=analysis, copilot_model=copilot or chat,
-        copilot_model_explicit=copilot, api_key=settings.model_local_api_key,
+        provider=selected, base_url=endpoint, chat_model=settings.local_chat_model,
+        analysis_model=settings.local_analysis_model,
+        copilot_model=getattr(settings, "local_copilot_model", settings.local_chat_model),
+        copilot_model_explicit="", api_key=settings.model_local_api_key,
         max_tokens=row.max_tokens if row else min(settings.model_local_max_tokens, 32768),
         timeout_seconds=row.timeout_seconds if row else settings.model_local_timeout_seconds,
         label="Gateway compartido administrado", source="runtime",
