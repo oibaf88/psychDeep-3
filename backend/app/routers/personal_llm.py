@@ -42,13 +42,25 @@ def update_personal_settings(
         result = personal_llm.save(db, user.id, payload)
     except (ValueError, RuntimeError) as exc:
         db.rollback()
-        # The service raises fixed operator-facing errors, never plaintext or
-        # upstream response bodies. Do not log payload or model credentials.
         raise HTTPException(status_code=422, detail=str(exc)) from None
     audit.log(db, actor_id=user.id, actor_role=user.role,
               action="personal_llm_settings_updated", entity_type="llm_user_preferences",
               entity_id=user.id, extra={"provider": payload.provider})
     return result
+
+
+@router.delete("")
+def delete_personal_settings(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    row = db.get(personal_llm.UserLLMPreference, user.id)
+    if row is not None:
+        db.delete(row)
+        db.commit()
+    audit.log(db, actor_id=user.id, actor_role=user.role,
+              action="personal_llm_settings_deleted", entity_type="llm_user_preferences",
+              entity_id=user.id)
+    return personal_llm.status(db, user.id)
 
 
 @router.post("/test")
