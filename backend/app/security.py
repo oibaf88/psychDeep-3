@@ -14,21 +14,12 @@ from app.models import User
 settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
-# Using the `bcrypt` package directly (not passlib): recent bcrypt (>=4.1)
-# releases removed an internal attribute that older passlib versions
-# probe for, which raises spurious errors at import/hash time. Calling
-# bcrypt directly avoids that known incompatibility entirely.
-_BCRYPT_MAX_BYTES = 72  # bcrypt silently truncates longer inputs; enforce explicitly
+_BCRYPT_MAX_BYTES = 72
 _PASSWORD_MIN_LENGTH = 12
 
 
 def validate_new_password(password: str) -> None:
-    """Reject weak or ambiguous new passwords before bcrypt can truncate them.
-
-    Verification deliberately retains bcrypt's 72-byte behaviour so a legacy
-    account can still sign in. New credentials, however, are never silently
-    changed by a suffix that bcrypt would discard.
-    """
+    """Avoid bcrypt's silent 72-byte truncation on newly issued passwords."""
     if not isinstance(password, str) or len(password) < _PASSWORD_MIN_LENGTH:
         raise ValueError(f"La contraseña debe tener al menos {_PASSWORD_MIN_LENGTH} caracteres.")
     if len(password.encode("utf-8")) > _BCRYPT_MAX_BYTES:
@@ -37,8 +28,7 @@ def validate_new_password(password: str) -> None:
 
 def hash_password(password: str) -> str:
     validate_new_password(password)
-    password_bytes = password.encode("utf-8")
-    return bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode("utf-8")
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -76,6 +66,10 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         current_auth_version = 1
     if user is None or not user.is_active or auth_version != current_auth_version:
         raise credentials_exception
+    # Session.info belongs to THIS request's database session, not process-wide
+    # state. Provider calls must not infer ownership from patient dossier data.
+    if isinstance(getattr(db, "info", None), dict):
+        db.info["authenticated_user_id"] = user.id
     return user
 
 
