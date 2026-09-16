@@ -18,7 +18,7 @@ __all__ = [
 
 
 def build_provider(config) -> LLMProvider:
-    """Build the configured adapter; personal credentials never come from a second account."""
+    """Build the selected adapter; personal credentials never cross account boundaries."""
     from app.services import llm_config
     from app.services.personal_llm import PersonalResolvedConfig
 
@@ -30,13 +30,11 @@ def build_provider(config) -> LLMProvider:
             timeout_seconds=float(config.timeout_seconds),
         )
         if isinstance(config, PersonalResolvedConfig):
-            # Both credentials are mandatory and sent in the SAME request:
-            # Access checks CF-Access-*; LM Studio checks Authorization Bearer.
             if not config.api_key.strip():
                 raise RuntimeError("Falta la clave personal de LM Studio.")
+            # BOTH required: Bearer for LM Studio; CF headers for Cloudflare.
             return CloudflareAccessOpenAICompatibleProvider(
-                **kwargs,
-                access_client_id=config.access_client_id,
+                **kwargs, access_client_id=config.access_client_id,
                 access_client_secret=config.access_client_secret,
                 access_hostname=config.access_hostname,
             )
@@ -50,8 +48,7 @@ def build_provider(config) -> LLMProvider:
         if access_required or any(value.strip() for value in access.values()):
             if not all(value.strip() for value in access.values()):
                 raise RuntimeError("La configuración global de Cloudflare Access está incompleta.")
-            # Existing deployment-level Access-only configuration stays compatible
-            # until the per-account migration is complete and deployed.
+            # Legacy path preserved ONLY until operator enables personal mode.
             kwargs["api_key"] = ""
             return CloudflareAccessOpenAICompatibleProvider(**kwargs, **access)
         return OpenAICompatibleProvider(**kwargs)
@@ -66,10 +63,14 @@ def build_provider(config) -> LLMProvider:
 
 
 def get_llm_provider(db=None) -> LLMProvider:
-    """Use the current authenticated account's own provider when known."""
+    """Use personal selection only after the explicit migration feature gate."""
     from app.services import llm_config, personal_llm
+    from app.services.personal_resolution import personal_mode_enabled
 
-    user_id = db.info.get("authenticated_user_id") if db is not None else None
-    if user_id is not None:
+    info = getattr(db, "info", None) if db is not None else None
+    user_id = info.get("authenticated_user_id") if isinstance(info, dict) else None
+    if personal_mode_enabled():
+        if db is None or user_id is None:
+            raise RuntimeError("Inferencia bloqueada: falta la identidad de cuenta verificada.")
         return build_provider(personal_llm.resolve(db, user_id))
     return build_provider(llm_config.resolve(db))
