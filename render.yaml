@@ -1,6 +1,6 @@
 # Render Blueprint for PsychDeep vNext.
-# Clinical data lives only in the existing Supabase project. Only the LLM
-# runtime is local, reached from the cloud API through an authenticated tunnel.
+# Clinical data lives in the existing Supabase project. The model alone runs
+# locally and is reached over HTTPS through an authenticated tunnel.
 services:
   - type: web
     name: psychdeep-api
@@ -27,8 +27,8 @@ services:
         value: "true"
       - key: MODEL_LOCAL_BASE_URL
         sync: false
-      # The cloudflared connector token remains on Windows, NEVER here.
-      # All three HTTP credentials belong exclusively to this backend.
+      # cloudflared connector token stays on Windows, never in this Blueprint.
+      # Cloudflare Access service credentials are shared, backend-only secrets.
       - key: MODEL_LOCAL_CF_ACCESS_REQUIRED
         value: "true"
       - key: MODEL_LOCAL_CF_ACCESS_HOST
@@ -37,16 +37,16 @@ services:
         sync: false
       - key: MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET
         sync: false
-      - key: MODEL_LOCAL_API_KEY
-        sync: false
-      # Retain the existing Fernet key until encrypted old per-user secrets
-      # are retired; NEVER regenerate it as part of this deployment.
+      # Do NOT provision MODEL_LOCAL_API_KEY for personal mode: each account
+      # saves its own LM Studio token encrypted in Supabase. An existing Render
+      # shared key may remain only for an explicitly reviewed legacy rollback.
+      # Preserve this SAME Fernet key across deployments; never regenerate it.
       - key: LLM_USER_CREDENTIALS_KEY
         sync: false
-      # Enable only AFTER confirming both auth layers + model availability.
+      # Enable only after two-account, per-key, cross-account and Access tests.
       - key: LLM_PERSONAL_MODE
         sync: false
-      # Set actual IDs shown by LM Studio /v1/models in Render Dashboard.
+      # Use exact model IDs shown by LM Studio /v1/models.
       - key: MODEL_LOCAL_CHAT_MODEL
         sync: false
       - key: MODEL_LOCAL_ANALYSIS_MODEL
