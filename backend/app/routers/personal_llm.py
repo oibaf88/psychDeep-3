@@ -67,13 +67,13 @@ def test_personal_settings(db: Session = Depends(get_db), user: User = Depends(g
         return {"ok": bool(answer.text.strip()), "detail": "Respuesta recibida." if answer.text.strip() else "El modelo devolvió una respuesta vacía."}
     except StructuredAnalysisError as exc:
         labels = {
-            "http_401": "Autenticación rechazada (HTTP 401). Comprueba el token de LM Studio y Cloudflare Access.",
-            "http_403": "Acceso denegado (HTTP 403). Comprueba la política Service Auth de Cloudflare.",
+            "http_401": "Autenticación rechazada (HTTP 401). Comprueba las credenciales de Cloudflare Access y LM Studio.",
+            "http_403": "Acceso denegado por el gateway o el servidor del modelo (HTTP 403). Comprueba la política Service Auth de Cloudflare y la autenticación de LM Studio.",
             "http_404": "Ruta o modelo no encontrado (HTTP 404). Comprueba el ID exacto del modelo en LM Studio.",
             "http_400": "Solicitud rechazada (HTTP 400). Comprueba el ID del modelo y los parámetros admitidos.",
             "local_endpoint_unreachable": "No se alcanza el servidor. Comprueba que cloudflared y LM Studio estén encendidos.",
             "local_endpoint_timeout": "Tiempo de espera agotado. Comprueba si el modelo está cargado.",
-            "non_json_response": "Respuesta no JSON. Revisa que Cloudflare Access permita el Service Token del backend.",
+            "non_json_response": "Respuesta no JSON. Revisa la autenticación del gateway y la ruta del servidor.",
         }
         return {"ok": False, "detail": labels.get(exc.error_code, "El proveedor ha rechazado la prueba. Revisa los registros seguros del backend.")}
     except (ValueError, RuntimeError):
