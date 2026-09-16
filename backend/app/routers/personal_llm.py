@@ -1,4 +1,4 @@
-"""Authenticated provider preferences. Secrets are configured by the operator in Render."""
+"""Authenticated account model preferences; Access credentials remain in Render."""
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
@@ -13,8 +13,8 @@ router = APIRouter(prefix="/personal", tags=["personal-llm"])
 
 
 class PersonalLLMSettingsIn(BaseModel):
-    # An old client must NOT be allowed to submit a cloudflared token,
-    # Access service secret, personal LM key or arbitrary endpoint.
+    # Reject arbitrary endpoints, Access secrets and the cloudflared token.
+    # None preserves ciphertext, an empty string revokes, nonempty rotates.
     model_config = ConfigDict(extra="forbid")
     provider: str = Field(pattern="^(anthropic|openai_compatible)$")
     chat_model: str = Field(min_length=1, max_length=192)
@@ -22,6 +22,7 @@ class PersonalLLMSettingsIn(BaseModel):
     copilot_model: str = Field(default="", max_length=192)
     max_tokens: int = Field(default=4096, ge=256, le=32768)
     timeout_seconds: int = Field(default=120, ge=5, le=5000)
+    lm_api_key: str | None = Field(default=None, max_length=8192, repr=False)
 
 
 @router.get("")
@@ -59,7 +60,7 @@ def delete_personal_settings(db: Session = Depends(get_db), user: User = Depends
 
 @router.post("/test")
 def test_personal_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Send only a synthetic prompt and return a whitelist of safe diagnostics."""
+    """Send a synthetic prompt using only the current account's saved key."""
     try:
         from app.services.llm import build_provider
         provider = build_provider(personal_llm.resolve(db, user.id))
@@ -67,17 +68,17 @@ def test_personal_settings(db: Session = Depends(get_db), user: User = Depends(g
         return {"ok": bool(answer.text.strip()), "detail": "Respuesta recibida." if answer.text.strip() else "El modelo devolvió una respuesta vacía."}
     except StructuredAnalysisError as exc:
         labels = {
-            "http_401": "Autenticación rechazada (HTTP 401). Comprueba las credenciales de Cloudflare Access y LM Studio.",
-            "http_403": "Acceso denegado por el gateway o el servidor del modelo (HTTP 403). Comprueba la política Service Auth de Cloudflare y la autenticación de LM Studio.",
-            "http_404": "Ruta o modelo no encontrado (HTTP 404). Comprueba el ID exacto del modelo en LM Studio.",
-            "http_400": "Solicitud rechazada (HTTP 400). Comprueba el ID del modelo y los parámetros admitidos.",
-            "local_endpoint_unreachable": "No se alcanza el servidor. Comprueba que cloudflared y LM Studio estén encendidos.",
-            "local_endpoint_timeout": "Tiempo de espera agotado. Comprueba si el modelo está cargado.",
-            "non_json_response": "Respuesta no JSON. Revisa la autenticación del gateway y la ruta del servidor.",
+            "http_401": "Autenticación rechazada (HTTP 401). Revisa el Service Token de Cloudflare y tu API key de LM Studio.",
+            "http_403": "Acceso denegado (HTTP 403) por Cloudflare o LM Studio. Revisa ambas políticas; el código no identifica qué capa lo devolvió.",
+            "http_404": "Ruta o modelo no encontrado (HTTP 404). Revisa el ID real del modelo en LM Studio.",
+            "http_400": "Solicitud rechazada (HTTP 400). Revisa el modelo y los parámetros admitidos.",
+            "local_endpoint_unreachable": "No se alcanza el servidor. Comprueba cloudflared y LM Studio.",
+            "local_endpoint_timeout": "Tiempo agotado. Comprueba si el modelo está cargado.",
+            "non_json_response": "Respuesta no JSON. Revisa las credenciales del gateway y la ruta del servidor.",
         }
         return {"ok": False, "detail": labels.get(exc.error_code, "El proveedor ha rechazado la prueba. Revisa los registros seguros del backend.")}
     except (ValueError, RuntimeError):
-        return {"ok": False, "detail": "El gateway no está listo. El administrador debe completar la configuración en Render."}
+        return {"ok": False, "detail": "La configuración de tu cuenta o del gateway está incompleta. Revisa tu API key o contacta con la administración."}
     except Exception:
-        # Never relay exceptions or raw proxy responses: they may contain secrets.
+        # Never relay exception text: proxies can echo headers and credentials.
         return {"ok": False, "detail": "Error de conexión no identificado. Revisa los registros seguros del backend."}
