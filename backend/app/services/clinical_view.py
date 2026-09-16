@@ -29,6 +29,7 @@ readers of the previous UI:
    evidence actually drove the level, and says so in the same sentence as
    the score when the two appear to disagree.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -146,9 +147,9 @@ RULE_CATALOG: dict[str, dict[str, Any]] = {
             "«corrección» y descarta la alerta indicando el motivo."
         ),
     },
-    "N4_convergencia_interpersonal_despedida": {
+    "N3_convergencia_interpersonal_despedida": {
         "family": FAMILY_CONVERGENCE,
-        "level": 4,
+        "level": 3,
         "title": "Posible ideación con contexto interpersonal y despedida",
         "plain": (
             "Coinciden una señal textual reciente de ideación indirecta, carga percibida y "
@@ -161,20 +162,6 @@ RULE_CATALOG: dict[str, dict[str, Any]] = {
             "la alerta. Contacta de inmediato para valorar seguridad, intención, plan y "
             "conducta mediante indagación directa y juicio clínico, aplicando el protocolo "
             "local de seguridad cuando corresponda."
-        ),
-    },
-    "N4_convergencia_critica_extrema": {
-        "family": FAMILY_CONVERGENCE,
-        "level": 4,
-        "title": "Convergencia extrema de tres señales independientes",
-        "plain": (
-            "Se dieron a la vez: score estructural por debajo de 0.20 (check-ins muy alejados de "
-            "su línea base), rumiación por encima de 0.85 en el último texto analizado, y "
-            "tendencia de sueño empeorando en los últimos 7 check-ins."
-        ),
-        "what_now": (
-            "Ninguna de las tres señales bastaría por sí sola. Revisa las tres gráficas de esta "
-            "ficha y contacta con el paciente."
         ),
     },
     "N3_declaracion_crisis_consumo": {
@@ -313,8 +300,7 @@ RULE_CATALOG: dict[str, dict[str, Any]] = {
             "personal, así que el score estructural no existe todavía."
         ),
         "what_now": (
-            "El nivel 1 aquí significa «no lo sé», no «bajo riesgo». Anima al paciente a hacer "
-            "check-ins diarios."
+            "El nivel 1 aquí significa «no lo sé», no «bajo riesgo». Anima al paciente a hacer " "check-ins diarios."
         ),
     },
     "N1_sin_criterios_superiores": {
@@ -653,7 +639,8 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
             direction = "cambio"
             reading = (
                 "Más horas que su línea base; no implica por sí solo mejoría."
-                if z > 0 else "Menos horas que su línea base; conviene revisar duración, calidad y contexto."
+                if z > 0
+                else "Menos horas que su línea base; conviene revisar duración, calidad y contexto."
             )
         elif z < 0:
             direction = "peor"
@@ -675,7 +662,8 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
                 "label": VARIABLE_LABELS.get(key, key),
                 "note": (
                     "Horas declaradas: el cambio respecto a su media se revisa en ambas direcciones."
-                    if key == "sleep_hours" else VARIABLE_NOTES.get(key)
+                    if key == "sleep_hours"
+                    else VARIABLE_NOTES.get(key)
                 ),
                 "baseline_mean": baseline_mean,
                 "baseline_std": number(row.get("baseline_population_std")),
@@ -722,13 +710,9 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
             f"personal de 21 días. Esto describe continuidad, no bienestar."
         )
     elif band == "transition":
-        summary = (
-            f"{score:.2f} · transición. Hay una desviación moderada respecto a su propia normalidad."
-        )
+        summary = f"{score:.2f} · transición. Hay una desviación moderada respecto a su propia normalidad."
     else:
-        summary = (
-            f"{score:.2f} · inestable. Sus últimos 7 días se alejan claramente de su línea base personal."
-        )
+        summary = f"{score:.2f} · inestable. Sus últimos 7 días se alejan claramente de su línea base personal."
 
     sleep_variable = next((v for v in variables if v["key"] == "sleep_hours"), None)
     sleep_change = sleep_variable["abs_z"] if sleep_variable is not None else None
@@ -742,7 +726,9 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
             f"y hacia arriba. Ojo: un score bajo no implica empeoramiento — el cálculo usa valores "
             f"absolutos, así que una mejora grande también baja el score."
         )
-    elif is_v2 and sleep_change is not None and sleep_change >= 0.5 and (worst is None or sleep_change >= worst["abs_z"]):
+    elif (
+        is_v2 and sleep_change is not None and sleep_change >= 0.5 and (worst is None or sleep_change >= worst["abs_z"])
+    ):
         direction_summary = (
             "El cambio dominante está en las horas de sueño. Se cuenta como cambio para revisión en "
             "ambas direcciones; dormir más o menos no establece por sí solo deterioro clínico."
@@ -762,24 +748,30 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         "Los textos de chat y diario NO entran en este score. Se analizan por separado (Agente 2).",
     ]
     if is_v2:
-        caveats.extend([
-            "structural-v2: score = 1 / (1 + media de |z|). z = (media reciente − media base) / "
-            "max(DE base, suelo técnico): 1 punto para ánimo, craving invertido y autoeficacia; 0.5 h para sueño.",
-            "El componente adverso usa max(−z, 0), salvo sueño, que usa |z|. Tanto la media adversa "
-            "como la favorable dividen entre los cuatro ejes, incluidos los ceros observados; sin los cuatro "
-            "ejes no hay compuesto. Deterioration score = 1 / (1 + media adversa).",
-            "Fórmula, suelos y bandas son heurísticos técnicos de seguimiento, no una escala clínica "
-            "validada ni una probabilidad de suicidio, recaída o patología dual.",
-        ])
+        caveats.extend(
+            [
+                "structural-v2: score = 1 / (1 + media de |z|). z = (media reciente − media base) / "
+                "max(DE base, suelo técnico): 1 punto para ánimo, craving invertido y autoeficacia; 0.5 h para sueño.",
+                "El componente adverso usa max(−z, 0), salvo sueño, que usa |z|. Tanto la media adversa "
+                "como la favorable dividen entre los cuatro ejes, incluidos los ceros observados; sin los cuatro "
+                "ejes no hay compuesto. Deterioration score = 1 / (1 + media adversa).",
+                "Fórmula, suelos y bandas son heurísticos técnicos de seguimiento, no una escala clínica "
+                "validada ni una probabilidad de suicidio, recaída o patología dual.",
+            ]
+        )
     elif version == "structural-v1":
-        caveats.extend([
-            "Registro histórico structural-v1: score = max(0, 1 − media de |z| / 3). Podía saturarse "
-            "en cero ante grandes mejoras o empeoramientos; esta pantalla conserva el cálculo guardado.",
-            "Los resúmenes direccionales históricos usaban medias por grupo de signos y contaban más "
-            "sueño como favorable. No equivalen al componente de deterioro bilateral de structural-v2.",
-        ])
+        caveats.extend(
+            [
+                "Registro histórico structural-v1: score = max(0, 1 − media de |z| / 3). Podía saturarse "
+                "en cero ante grandes mejoras o empeoramientos; esta pantalla conserva el cálculo guardado.",
+                "Los resúmenes direccionales históricos usaban medias por grupo de signos y contaban más "
+                "sueño como favorable. No equivalen al componente de deterioro bilateral de structural-v2.",
+            ]
+        )
     else:
-        caveats.append("Versión de cálculo no reconocida; consulta la fórmula guardada en la traza antes de interpretar sus bandas.")
+        caveats.append(
+            "Versión de cálculo no reconocida; consulta la fórmula guardada en la traza antes de interpretar sus bandas."
+        )
     if baseline_is_stale:
         caveats.append(
             "La línea base ha superado 21 días sin reemplazo por falta de observaciones válidas suficientes. "
@@ -893,11 +885,7 @@ def _psychosocial_index_readings(indices: dict[str, float | None]) -> list[dict[
         elif meta["direction"] == "higher_is_better":
             crossed = value <= meta["threshold"]
             state = "alerta" if crossed else "ok"
-            note = (
-                "Por debajo del umbral de apoyo bajo."
-                if crossed
-                else "Por encima del umbral de apoyo bajo."
-            )
+            note = "Por debajo del umbral de apoyo bajo." if crossed else "Por encima del umbral de apoyo bajo."
         else:
             crossed = value >= meta["threshold"]
             state = "alerta" if crossed else "ok"
@@ -1183,12 +1171,10 @@ def build_evidence_feed(db: Session, patient_id, limit: int = 60) -> list[dict[s
     diary_ids = [t.diary_entry_id for t in traces if t.diary_entry_id]
 
     chat_by_id = {
-        row.id: row
-        for row in (db.query(ChatMessage).filter(ChatMessage.id.in_(chat_ids)).all() if chat_ids else [])
+        row.id: row for row in (db.query(ChatMessage).filter(ChatMessage.id.in_(chat_ids)).all() if chat_ids else [])
     }
     diary_by_id = {
-        row.id: row
-        for row in (db.query(DiaryEntry).filter(DiaryEntry.id.in_(diary_ids)).all() if diary_ids else [])
+        row.id: row for row in (db.query(DiaryEntry).filter(DiaryEntry.id.in_(diary_ids)).all() if diary_ids else [])
     }
 
     signals = (
@@ -1214,9 +1200,7 @@ def build_evidence_feed(db: Session, patient_id, limit: int = 60) -> list[dict[s
     alert_ids = [a.generated_alert_id for a in assessments if a.generated_alert_id]
     alert_by_id = {
         row.id: row
-        for row in (
-            db.query(ProfessionalAlert).filter(ProfessionalAlert.id.in_(alert_ids)).all() if alert_ids else []
-        )
+        for row in (db.query(ProfessionalAlert).filter(ProfessionalAlert.id.in_(alert_ids)).all() if alert_ids else [])
     }
 
     feed: list[dict[str, Any]] = []
@@ -1281,8 +1265,6 @@ def build_evidence_feed(db: Session, patient_id, limit: int = 60) -> list[dict[s
     return feed
 
 
-
-
 def evidence_for_assessments(
     db: Session,
     assessments: list[RiskAssessment],
@@ -1302,7 +1284,7 @@ def evidence_for_assessments(
             continue
         code = selected_rule_code(assessment)
         family = rule_info(code)["family"]
-        if family == FAMILY_LINGUISTIC or code == "N4_convergencia_interpersonal_despedida":
+        if family == FAMILY_LINGUISTIC or code == "N3_convergencia_interpersonal_despedida":
             driver_id = _as_dict(assessment.input_signals).get("safety_driver_signal_id")
             signal_id_raw = driver_id or assessment.linguistic_signal_id_used
             if signal_id_raw:
@@ -1315,11 +1297,7 @@ def evidence_for_assessments(
 
     signals_by_id = {
         s.id: s
-        for s in (
-            db.query(AlfaSignal).filter(AlfaSignal.id.in_(list(signal_uuids))).all()
-            if signal_uuids
-            else []
-        )
+        for s in (db.query(AlfaSignal).filter(AlfaSignal.id.in_(list(signal_uuids))).all() if signal_uuids else [])
     }
 
     # Signals might point to additional trace IDs
@@ -1346,19 +1324,11 @@ def evidence_for_assessments(
 
     chats_by_id = {
         c.id: c
-        for c in (
-            db.query(ChatMessage).filter(ChatMessage.id.in_(list(chat_uuids))).all()
-            if chat_uuids
-            else []
-        )
+        for c in (db.query(ChatMessage).filter(ChatMessage.id.in_(list(chat_uuids))).all() if chat_uuids else [])
     }
     diaries_by_id = {
         d.id: d
-        for d in (
-            db.query(DiaryEntry).filter(DiaryEntry.id.in_(list(diary_uuids))).all()
-            if diary_uuids
-            else []
-        )
+        for d in (db.query(DiaryEntry).filter(DiaryEntry.id.in_(list(diary_uuids))).all() if diary_uuids else [])
     }
 
     results = {}
@@ -1372,6 +1342,7 @@ def evidence_for_assessments(
             diaries_by_id=diaries_by_id,
         )
     return results
+
 
 def evidence_for_assessment(
     db: Session,
@@ -1392,7 +1363,7 @@ def evidence_for_assessment(
     code = selected_rule_code(assessment)
     family = rule_info(code)["family"]
 
-    if family == FAMILY_LINGUISTIC or code == "N4_convergencia_interpersonal_despedida":
+    if family == FAMILY_LINGUISTIC or code == "N3_convergencia_interpersonal_despedida":
         # A recent safety signal can retain priority through a later neutral
         # message. Show the source that drove the rule, not that neutral text.
         driver_id = _as_dict(assessment.input_signals).get("safety_driver_signal_id")
@@ -1474,9 +1445,7 @@ def evidence_for_assessment(
         # to the heaviest adverse domain for the convergence rule.
         psycho_trace = _as_dict(_as_dict(trace_inputs(assessment)).get("psychosocial"))
         domain_rows = [row for row in _as_list(psycho_trace.get("domains")) if isinstance(row, dict)]
-        contribution_by_id = {
-            row.get("observation_id"): _number(row.get("contribution")) or 0.0 for row in domain_rows
-        }
+        contribution_by_id = {row.get("observation_id"): _number(row.get("contribution")) or 0.0 for row in domain_rows}
         candidates = _as_list(psycho_trace.get("acute_changes")) or [
             row for row in domain_rows if row.get("valence") == "risk"
         ]
@@ -1613,12 +1582,10 @@ def build_metrics(db: Session, patient_id, window_days: int = 90) -> dict[str, A
     chat_ids = [t.chat_message_id for t in traces_by_id.values() if t.chat_message_id]
     diary_ids = [t.diary_entry_id for t in traces_by_id.values() if t.diary_entry_id]
     chat_by_id = {
-        row.id: row
-        for row in (db.query(ChatMessage).filter(ChatMessage.id.in_(chat_ids)).all() if chat_ids else [])
+        row.id: row for row in (db.query(ChatMessage).filter(ChatMessage.id.in_(chat_ids)).all() if chat_ids else [])
     }
     diary_by_id = {
-        row.id: row
-        for row in (db.query(DiaryEntry).filter(DiaryEntry.id.in_(diary_ids)).all() if diary_ids else [])
+        row.id: row for row in (db.query(DiaryEntry).filter(DiaryEntry.id.in_(diary_ids)).all() if diary_ids else [])
     }
 
     checkin_series = [
@@ -1682,17 +1649,27 @@ def build_metrics(db: Session, patient_id, window_days: int = 90) -> dict[str, A
                 "negative_valence": _number(value.get("negative_valence")),
                 "urgency_level": _number(value.get("urgency_level")),
                 "ambivalence": _number(value.get("ambivalence")),
-                "ideation_direct": value.get("ideation_direct") if isinstance(value.get("ideation_direct"), bool) else None,
-                "ideation_indirect": value.get("ideation_indirect") if isinstance(value.get("ideation_indirect"), bool) else None,
-                "consumption_crisis": value.get("consumption_crisis") if isinstance(value.get("consumption_crisis"), bool) else None,
-                "is_typical_for_patient": value.get("is_typical_for_patient") if isinstance(value.get("is_typical_for_patient"), bool) else None,
+                "ideation_direct": (
+                    value.get("ideation_direct") if isinstance(value.get("ideation_direct"), bool) else None
+                ),
+                "ideation_indirect": (
+                    value.get("ideation_indirect") if isinstance(value.get("ideation_indirect"), bool) else None
+                ),
+                "consumption_crisis": (
+                    value.get("consumption_crisis") if isinstance(value.get("consumption_crisis"), bool) else None
+                ),
+                "is_typical_for_patient": (
+                    value.get("is_typical_for_patient")
+                    if isinstance(value.get("is_typical_for_patient"), bool)
+                    else None
+                ),
                 "deviation_from_own_baseline": value.get("deviation_from_own_baseline"),
                 "emotional_complexity": value.get("emotional_complexity"),
                 "short_rationale": value.get("short_rationale"),
                 "source_type": source_type,
-                "source_label": None
-                if source_type is None
-                else ("Chat" if source_type == "chat_message" else "Diario"),
+                "source_label": (
+                    None if source_type is None else ("Chat" if source_type == "chat_message" else "Diario")
+                ),
                 "source_id": str(source_id) if source_id else None,
                 "source_at": _utc_iso(source_created_at),
                 "source_excerpt": _excerpt(source_text, 200),
@@ -1806,8 +1783,13 @@ def build_metrics(db: Session, patient_id, window_days: int = 90) -> dict[str, A
         "window_days": window_days,
         "generated_at": _utc_iso(datetime.utcnow()),
         "daily_statistics": daily_statistics_service.load_daily_statistics(
-            db, patient_id, window_days, now=now,
-            checkins=checkins, linguistic_signals=linguistic_signals, observations=observations,
+            db,
+            patient_id,
+            window_days,
+            now=now,
+            checkins=checkins,
+            linguistic_signals=linguistic_signals,
+            observations=observations,
         ),
         "checkins": checkin_series,
         "structural": structural_series,
