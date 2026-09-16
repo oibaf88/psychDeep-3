@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
+- **Clinical Safety:** Downgraded the interpersonal convergence rule (`N4_convergencia_interpersonal_despedida` to `N3_convergencia_interpersonal_despedida`) in the clinical risk engine (`backend/app/services/risk_engine.py`) from Level 4 to Level 3, adhering to clinical safety guidelines where only explicit self-harm declarations trigger Level 4.
 - **Clinical Safety:** Fixed the statistical convergence rule (`N3_convergencia_critica_extrema`) in the clinical risk engine (`backend/app/services/risk_engine.py`) to properly trigger a Level 3 review when severe structural deterioration is combined with rumination *or* sleep worsening, adhering to clinical safety guidelines.
 - **Performance:** Fixed N+1 query issue in the professional patient listing endpoint (`backend/app/routers/professional.py`) by utilizing batched DB queries for assessments, alerts and checkins.
 - **A11y Review:** Added accessibility enhancements (ARIA roles, live regions, labels) to both Patient and Professional Dashboards.

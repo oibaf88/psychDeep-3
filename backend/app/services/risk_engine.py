@@ -612,8 +612,8 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
             extreme_convergence if structural.adverse_composite_z is not None and rumination is not None else None,
         ),
         _trace_rule(
-            "N4_convergencia_interpersonal_despedida",
-            4,
+            "N3_convergencia_interpersonal_despedida",
+            3,
             "Ideación indirecta + riesgo interpersonal vivo + señal de despedida",
             [
                 _trace_condition(
@@ -898,10 +898,6 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
         ),
     ]
 
-    # Place statistical N3 convergence after all N4 safety rules.
-    extreme_rule = rules.pop(2)
-    rules.insert(4, extreme_rule)
-
     # The closing rule is a true fallback: it only matches when none of the
     # preceding ten rules did.  Recording it as an unconditional match would
     # make every historic explanation claim two simultaneous conclusions.
@@ -925,7 +921,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
         "N4_senal_linguistica_ideacion_directa": "Señal lingüística reciente de ideación directa (inferencia Agent 2; revisión humana prioritaria)",
         "N3_convergencia_critica_extrema": "Deterioro estadístico con rumiación o sueño empeorando: revisión profesional, no emergencia inferida de una suma",
         "N3_senal_linguistica_ideacion_indirecta": "Posible ideación no explicitada en el análisis textual; valoración clínica prioritaria pendiente, no ideación confirmada",
-        "N4_convergencia_interpersonal_despedida": (
+        "N3_convergencia_interpersonal_despedida": (
             "Convergencia interpersonal: ideación indirecta + carga percibida y pertenencia frustrada "
             "expresadas en 14 días + señal de despedida vigente. Cada pieza por separado es inofensiva; "
             "es justamente su coincidencia lo que se vigila"
@@ -963,7 +959,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
     reason = reasons[selected["code"]]
     driver_flag = {
         "N3_senal_linguistica_ideacion_indirecta": "ideation_indirect",
-        "N4_convergencia_interpersonal_despedida": "ideation_indirect",
+        "N3_convergencia_interpersonal_despedida": "ideation_indirect",
         "N4_senal_linguistica_ideacion_directa": "ideation_direct",
         "N3_senal_linguistica_crisis_consumo": "consumption_crisis",
     }.get(selected["code"])
@@ -1409,10 +1405,10 @@ def run_and_persist(
 
 def _alert_title(decision: RiskDecision) -> str:
     if decision.level == 4:
-        if "N4_convergencia_interpersonal_despedida" in decision.triggering_rules:
-            return "ALERTA NIVEL 4 – EMERGENCIA (convergencia interpersonal y despedida)"
         return "ALERTA NIVEL 4 – EMERGENCIA"
     if decision.level == 3:
+        if "N3_convergencia_interpersonal_despedida" in decision.triggering_rules:
+            return "Alerta Nivel 3 – Convergencia interpersonal y despedida"
         if "N3_senal_linguistica_ideacion_indirecta" in decision.triggering_rules:
             return "Alerta Nivel 3 – Posible ideación no explicitada: valoración pendiente"
         if "N3_convergencia_critica_extrema" in decision.triggering_rules:

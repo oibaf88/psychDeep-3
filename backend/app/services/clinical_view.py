@@ -146,9 +146,9 @@ RULE_CATALOG: dict[str, dict[str, Any]] = {
             "«corrección» y descarta la alerta indicando el motivo."
         ),
     },
-    "N4_convergencia_interpersonal_despedida": {
+    "N3_convergencia_interpersonal_despedida": {
         "family": FAMILY_CONVERGENCE,
-        "level": 4,
+        "level": 3,
         "title": "Posible ideación con contexto interpersonal y despedida",
         "plain": (
             "Coinciden una señal textual reciente de ideación indirecta, carga percibida y "
@@ -1302,7 +1302,7 @@ def evidence_for_assessments(
             continue
         code = selected_rule_code(assessment)
         family = rule_info(code)["family"]
-        if family == FAMILY_LINGUISTIC or code == "N4_convergencia_interpersonal_despedida":
+        if family == FAMILY_LINGUISTIC or code == "N3_convergencia_interpersonal_despedida":
             driver_id = _as_dict(assessment.input_signals).get("safety_driver_signal_id")
             signal_id_raw = driver_id or assessment.linguistic_signal_id_used
             if signal_id_raw:
@@ -1392,7 +1392,7 @@ def evidence_for_assessment(
     code = selected_rule_code(assessment)
     family = rule_info(code)["family"]
 
-    if family == FAMILY_LINGUISTIC or code == "N4_convergencia_interpersonal_despedida":
+    if family == FAMILY_LINGUISTIC or code == "N3_convergencia_interpersonal_despedida":
         # A recent safety signal can retain priority through a later neutral
         # message. Show the source that drove the rule, not that neutral text.
         driver_id = _as_dict(assessment.input_signals).get("safety_driver_signal_id")
