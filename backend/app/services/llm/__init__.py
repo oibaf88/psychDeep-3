@@ -49,13 +49,18 @@ def build_provider(config) -> LLMProvider:
             "access_client_secret": getattr(settings, "model_local_cf_access_client_secret", ""),
             "access_hostname": getattr(settings, "model_local_cf_access_host", ""),
         }
-        if any(value.strip() for value in access.values()):
+        access_required = getattr(settings, "model_local_cf_access_required", False)
+        if access_required or any(value.strip() for value in access.values()):
             if not all(value.strip() for value in access.values()):
                 raise RuntimeError(
-                    "Configuración incompleta de Cloudflare Access: configura "
-                    "MODEL_LOCAL_CF_ACCESS_CLIENT_ID, MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET "
+                    "Cloudflare Access es obligatorio o está configurado parcialmente: "
+                    "revisa MODEL_LOCAL_CF_ACCESS_CLIENT_ID, MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET "
                     "y MODEL_LOCAL_CF_ACCESS_HOST en el backend."
                 )
+            # Access handles the public endpoint authentication. The cloudflared
+            # connector token is never an HTTP credential, and a legacy LM Studio
+            # bearer token must not be forwarded in this mode.
+            kwargs["api_key"] = ""
             return CloudflareAccessOpenAICompatibleProvider(**kwargs, **access)
         return OpenAICompatibleProvider(**kwargs)
     if config.provider == llm_config.PROVIDER_ANTHROPIC:
