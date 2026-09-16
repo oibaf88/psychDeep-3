@@ -1,8 +1,7 @@
-"""Register the per-account LLM settings under the existing LLM router.
-
-Importing this package occurs before the application registers llm_settings.
-"""
+"""Register account-scoped LLM settings and select the per-request resolver."""
 from . import llm_settings as _llm_settings
 from . import personal_llm as _personal_llm
+from app.services.personal_resolution import install as _install_personal_resolution
 
+_install_personal_resolution()
 _llm_settings.router.include_router(_personal_llm.router)
