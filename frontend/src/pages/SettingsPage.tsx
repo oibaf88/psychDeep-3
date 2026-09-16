@@ -13,6 +13,7 @@ interface PersonalStatus {
   max_tokens: number;
   timeout_seconds: number;
   local_available: boolean;
+  lm_api_key_configured: boolean;
   anthropic_allowed: boolean;
 }
 interface FormState {
@@ -39,6 +40,8 @@ function fromStatus(status: PersonalStatus): FormState {
 export default function SettingsPage() {
   const [status, setStatus] = useState<PersonalStatus | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
+  const [lmApiKey, setLmApiKey] = useState("");
+  const [revokeLmKey, setRevokeLmKey] = useState(false);
   const [busy, setBusy] = useState<"" | "save" | "test" | "remove">("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -67,9 +70,12 @@ export default function SettingsPage() {
     if (!form) return;
     setBusy("save"); setError(""); setMessage("");
     try {
-      const next = await api.put<PersonalStatus>(endpoint, form);
+      // null preserves encrypted ciphertext; "" revokes; nonempty rotates.
+      const lm_api_key = revokeLmKey ? "" : (lmApiKey.trim() || null);
+      const next = await api.put<PersonalStatus>(endpoint, { ...form, lm_api_key });
       setStatus(next); setForm(fromStatus(next));
-      setMessage("Preferencia guardada. Tu selección no afecta a otras cuentas.");
+      setLmApiKey(""); setRevokeLmKey(false);
+      setMessage("Preferencia y credenciales personales guardadas. No se ha modificado ninguna otra cuenta.");
     } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(""); }
   }
@@ -85,50 +91,70 @@ export default function SettingsPage() {
   }
 
   async function remove() {
-    if (!window.confirm("¿Restaurar la selección local predeterminada de tu cuenta?")) return;
+    if (!window.confirm("¿Eliminar tu selección y tu API key guardada? Solo afecta a tu cuenta.")) return;
     setBusy("remove"); setError(""); setMessage("");
     try {
       const next = await api.del<PersonalStatus>(endpoint);
       setStatus(next); setForm(fromStatus(next));
-      setMessage("Restaurado el proveedor predeterminado de tu cuenta.");
+      setLmApiKey(""); setRevokeLmKey(false);
+      setMessage("Se ha eliminado la configuración personal. Necesitarás introducir tu API key para volver a usar LM Studio.");
     } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(""); }
   }
 
+  const local = form?.provider === "openai_compatible";
+  const keyAvailable = Boolean((status?.lm_api_key_configured && !revokeLmKey) || lmApiKey.trim());
+  const maySave = Boolean(form && (!local || (status?.local_available && keyAvailable)));
+  const mayTest = Boolean(status?.configured && (!local || (status?.local_available && status?.lm_api_key_configured)));
+
   return (
     <div className="page">
       <h1>Mis modelos</h1>
-      <p className="subtitle">Selecciona el proveedor de inferencia de tu cuenta. La administración mantiene las credenciales del servidor fuera de esta pantalla.</p>
+      <p className="subtitle">Cada cuenta elige su proveedor y guarda exclusivamente su propia API key de LM Studio. El acceso al túnel lo gestiona la administración.</p>
       <section className="card">
         <h2>Proveedor de inferencia personal</h2>
-        {status && <p className="info">{status.configured ? `Selección actual: ${status.provider === "anthropic" ? "Anthropic" : "LM Studio"}` : "Selección predeterminada: LM Studio compartido."}</p>}
-        {status && !status.local_available && <p className="warning" role="status">El acceso al modelo local todavía no está configurado. Contacta con la administración.</p>}
-        {status?.local_available && <p className="info">La configuración del servidor está presente; utiliza «Probar mi conexión» para verificar que funciona.</p>}
+        {status && <p className="info">{status.configured ? `Selección actual: ${status.provider === "anthropic" ? "Anthropic" : "LM Studio"}` : "Todavía no has completado tu configuración personal."}</p>}
+        {status && !status.local_available && <p className="warning" role="status">El acceso al modelo local todavía no está preparado en el servidor. Contacta con la administración.</p>}
         {form && <>
           <label className="field"><span>Proveedor</span>
             <select value={form.provider} onChange={(event) => chooseProvider(event.target.value as Provider)}>
-              <option value="openai_compatible">LM Studio compartido</option>
+              <option value="openai_compatible">LM Studio</option>
               <option value="anthropic" disabled={!status?.anthropic_allowed}>Anthropic / Claude</option>
             </select>
           </label>
-          {form.provider === "openai_compatible" ? <p className="info">Modelos del servidor: conversación <code>{status?.default_local_chat_model || "pendiente"}</code>; análisis <code>{status?.default_local_analysis_model || "pendiente"}</code>. No necesitas introducir credenciales.</p> : <div className="field-row">
+          {local ? <>
+            <p className="info">Modelos disponibles: conversación <code>{status?.default_local_chat_model || "pendiente"}</code>; análisis <code>{status?.default_local_analysis_model || "pendiente"}</code>.</p>
+            <label className="field" htmlFor="personal-lm-api-key">
+              <span>Tu API key de LM Studio</span>
+              <input id="personal-lm-api-key" type="password" autoComplete="new-password"
+                value={lmApiKey} disabled={busy !== "" || revokeLmKey}
+                placeholder={status?.lm_api_key_configured ? "Configurada · deja vacío para conservar" : "Pega aquí tu API key"}
+                onChange={(event) => { setLmApiKey(event.target.value); setError(""); setMessage(""); }} />
+              <span className="meta">Estado: {status?.lm_api_key_configured ? "configurada" : "no configurada"}. Se envía al backend y se guarda cifrada; no se mostrará de nuevo.</span>
+            </label>
+            {status?.lm_api_key_configured && <label className="field">
+              <span><input type="checkbox" checked={revokeLmKey} disabled={busy !== ""}
+                onChange={(event) => { setRevokeLmKey(event.target.checked); setError(""); }} /> Revocar mi API key al guardar</span>
+            </label>}
+            {!keyAvailable && <p className="warning">Para activar LM Studio introduce tu API key personal. La clave del túnel no se comparte con los usuarios.</p>}
+          </> : <div className="field-row">
             <label className="field"><span>Modelo de conversación</span><input value={form.chat_model} onChange={(event) => patch({ chat_model: event.target.value })} /></label>
             <label className="field"><span>Modelo de análisis</span><input value={form.analysis_model} onChange={(event) => patch({ analysis_model: event.target.value })} /></label>
           </div>}
-          {form.provider === "anthropic" && <label className="field"><span>Modelo de copiloto (vacío = conversación)</span><input value={form.copilot_model} onChange={(event) => patch({ copilot_model: event.target.value })} /></label>}
+          {!local && <label className="field"><span>Modelo de copiloto (vacío = conversación)</span><input value={form.copilot_model} onChange={(event) => patch({ copilot_model: event.target.value })} /></label>}
           <div className="field-row">
             <label className="field"><span>Máximo de tokens</span><input type="number" min={256} max={32768} value={form.max_tokens} onChange={(event) => patch({ max_tokens: Number(event.target.value) })} /></label>
             <label className="field"><span>Timeout (s)</span><input type="number" min={5} max={5000} value={form.timeout_seconds} onChange={(event) => patch({ timeout_seconds: Number(event.target.value) })} /></label>
           </div>
           <div className="alert-actions">
-            <button disabled={busy !== "" || (form.provider === "openai_compatible" && !status?.local_available)} onClick={save}>{busy === "save" ? "Guardando…" : "Guardar mi preferencia"}</button>
-            <button className="btn-secondary" disabled={busy !== "" || (form.provider === "openai_compatible" && !status?.local_available)} onClick={test}>{busy === "test" ? "Probando…" : "Probar mi conexión"}</button>
-            <button className="btn-secondary" disabled={busy !== "" || !status?.configured} onClick={remove}>Restaurar valor predeterminado</button>
+            <button disabled={busy !== "" || !maySave} onClick={save}>{busy === "save" ? "Guardando…" : "Guardar mi configuración"}</button>
+            <button className="btn-secondary" disabled={busy !== "" || !mayTest} onClick={test}>{busy === "test" ? "Probando…" : "Probar mi conexión"}</button>
+            <button className="btn-secondary" disabled={busy !== "" || !status?.configured} onClick={remove}>Eliminar mi configuración</button>
           </div>
         </>}
         {error && <p className="error" role="alert">{error}</p>}
         {message && <p className="info" role="status">{message}</p>}
-        <p className="meta">Tu elección no cambia la de otras cuentas. Si el proveedor falla, no se envía información clínica automáticamente a otro.</p>
+        <p className="meta">La selección de tu cuenta no afecta a las demás. Si el modelo falla, no se envía información clínica automáticamente a otro proveedor.</p>
       </section>
     </div>
   );
