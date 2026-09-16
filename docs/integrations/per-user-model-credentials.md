@@ -1,42 +1,28 @@
-# PsychDeep: shared, operator-managed local LLM gateway
+# PsychDeep: shared Cloudflare Access, personal LM Studio API keys
 
-## Contract
+## Security contract
 
-The clinical administrator/operator provisions the shared gateway ONCE in **Render `psychdeep-api` → Environment**. Every authenticated PsychDeep role can then use the local model with **zero secret entry**. Each account can independently select local inference or Anthropic if explicitly permitted. The exact local model IDs are controlled by the operator in Render so obsolete account preferences cannot accidentally target an unloaded model. New accounts default to local inference when `LLM_PERSONAL_MODE=true`; failures never trigger a silent Anthropic fallback.
+The operator configures **one Cloudflare Access Service Token** (Client ID and Client Secret) in the Render **backend** `psychdeep-api`, never in the React frontend. The `cloudflared` **connector** token belongs only to the Windows `cloudflared` service and is not an HTTP authentication credential. Cloudflare Access protects `ai.bfab.io`; its policy must allow the exact Service Token used by Render.
 
-The Windows `cloudflared` connector token/secret is **not** an HTTP credential and remains on Windows. Render stores a separate **Cloudflare Access Service Token** (Client ID + Client Secret) and one LM Studio API token. Never place these secrets in `VITE_*` frontend variables, GitHub, Supabase, or user settings. Every local inference request sends both Cloudflare Access headers and the LM Studio Authorization bearer header from the backend.
+Each authenticated PsychDeep account independently selects **LM Studio or Anthropic**. To select LM Studio, that account provides **its own LM Studio API token** in **Mis modelos**. The backend encrypts the token using the existing stable Fernet `LLM_USER_CREDENTIALS_KEY` held only in Render, stores ciphertext in the account's `llm_user_preferences` row, and retrieves it only for authenticated inference by that same account. GET returns a presence flag, never a plaintext token. Null on PUT preserves, empty string revokes, nonempty value rotates; DELETE removes only that account's configuration and token. Tokens are cleared from browser component state on successful save; nothing goes into localStorage or frontend build variables.
 
-## One-time setup for the clinical administrator/operator
+When contacting LM Studio, the backend sends **both authentication layers** on the HTTPS request to its approved, pinned `https://ai.bfab.io/v1` endpoint: `CF-Access-Client-Id` and `CF-Access-Client-Secret` from Render, plus `Authorization: Bearer <current account's decrypted LM Studio API token>`. Missing/undecipherable personal token, incomplete Access setup or invalid target **fails closed**; it must never reuse Render's old global `MODEL_LOCAL_API_KEY` or another account's token or fall back silently to Anthropic. Anthropic, when permitted, still uses the operator's shared Anthropic key; personal Anthropic billing keys and account spending caps are not implemented here.
 
-1. On Windows, keep tunnel `workflare` online. Publish hostname `ai.bfab.io` to `http://localhost:1234`. Run LM Studio's server bound to loopback, with **Require Authentication** enabled, and create one dedicated inference API token. Do not expose TCP port 1234 via LAN or your router.
-2. Create a Cloudflare Access **Self-hosted** application protecting `ai.bfab.io` with a **Service Auth** policy that permits only a dedicated PsychDeep backend Service Token and rejects unauthenticated requests. Copy its **Client ID** and **Client Secret**, not the `cloudflared` token.
-3. In Render → `psychdeep-api` → Environment (never `psychdeep-web`), set:
+## One-time operator setup
 
-   | Variable | Value |
-   | --- | --- |
-   | `MODEL_LOCAL_BASE_URL` | `https://ai.bfab.io/v1` |
-   | `MODEL_LOCAL_CF_ACCESS_HOST` | `ai.bfab.io` |
-   | `MODEL_LOCAL_CF_ACCESS_REQUIRED` | `true` |
-   | `MODEL_LOCAL_CF_ACCESS_CLIENT_ID` | Dedicated Access Service Token Client ID |
-   | `MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET` | Dedicated Access Service Token Client Secret |
-   | `MODEL_LOCAL_API_KEY` | One LM Studio inference API token |
-   | `MODEL_LOCAL_CHAT_MODEL` | Exact model ID from LM Studio `/v1/models` |
-   | `MODEL_LOCAL_ANALYSIS_MODEL` | Exact model ID from LM Studio `/v1/models` |
-   | `MODEL_LOCAL_COPILOT_MODEL` | Optional exact model ID, otherwise conversation model |
+1. Windows: keep tunnel `workflare` online; Cloudflare public hostname `ai.bfab.io` targets `http://localhost:1234`. Keep LM Studio bound to loopback and **Require Authentication** enabled. Issue individually revocable LM Studio API tokens to users; do not expose port 1234 publicly.
+2. Cloudflare Zero Trust: create a self-hosted Access application for `ai.bfab.io` and a **Service Auth** policy specifically including the Service Token provisioned for the backend. An Access token that exists but is not included in the policy returns 401/403. Do not bypass Access or disable LM Studio authentication to address errors.
+3. Render `psychdeep-api` → Environment: configure `MODEL_LOCAL_BASE_URL=https://ai.bfab.io/v1`, `MODEL_LOCAL_CF_ACCESS_HOST=ai.bfab.io`, `MODEL_LOCAL_CF_ACCESS_REQUIRED=true`, `MODEL_LOCAL_CF_ACCESS_CLIENT_ID` and `MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET`. Configure the exact `MODEL_LOCAL_CHAT_MODEL` and `MODEL_LOCAL_ANALYSIS_MODEL` IDs returned by LM Studio, and optionally `MODEL_LOCAL_COPILOT_MODEL`.
+4. **Preserve** the existing `LLM_USER_CREDENTIALS_KEY` Fernet key. Never replace it without a migration that decrypts and re-encrypts all existing ciphertext; users would otherwise lose their credentials. No separate Supabase migration is required beyond the existing `psychdeep_v12.llm_user_preferences` table (backend-owned and FORCE RLS). Existing personal Access ciphertext fields are legacy-only and are ignored; a user's next save clears their obsolete Access ciphertext.
+5. Remove `MODEL_LOCAL_API_KEY` / legacy shared LM Studio bearer **only after** validating the personal routing cutover. These settings are retained solely for deliberate rollback of the old global mode; do not treat their presence as permission to authenticate a user without a personal key. `sync: false` in an updated `render.yaml` does not prompt for new secrets or remove existing values automatically.
+6. Before enabling `LLM_PERSONAL_MODE=true`, deploy the frontend and backend together, confirm both authentication layers with synthetic requests, and test two separate accounts with **different** LM Studio keys, including one revoked key and a new account with no key. Check chat, analysis and professional copilot, no cross-account leakage, server-down handling, logging and any needed usage/rate limits. Only then enable personal mode and redeploy. In personal mode, missing key must stop local inference; deterministic safety functionality remains independent. The legacy flag `false` intentionally allows the old global provider path and should be retained only for an explicitly reviewed rollback.
 
-   Preserve `LLM_USER_CREDENTIALS_KEY`: old per-account ciphertext exists and should remain recoverable during staged rollback. It is never used for inference under the new design. `sync: false` Blueprint entries are **not re-prompted** on updates; set secrets in Render Dashboard yourself.
-4. Test that anonymous HTTP requests to `https://ai.bfab.io/v1/models` are denied and that requests with BOTH valid Access headers and the LM Studio bearer work. Use synthetic data only; never paste credentials or full headers into chat, screenshots, GitHub or logs. Verify `cloudflared` and LM Studio stay running.
-5. Check Supabase `psychdeep_v12.llm_user_preferences` exists with backend-only RLS. This redesign needs **no new database schema**. Old per-user ciphertext columns remain until rollback is retired; preference updates clear the obsolete ciphertext only for that account. Never bulk-delete old credentials before recovery planning.
-6. Merge and deploy frontend/backend only after CI and a security review. Test two accounts (local and Anthropic selections), a newly registered account with no preferences, revoked tokens, misconfigured host, and disconnected Windows server. Confirm that unauthorized users cannot access someone else's data or choose a different upstream destination.
-7. Set `LLM_PERSONAL_MODE=true` in Render only after verifying the live gateway and policy. Monitor usage, concurrency and rate limits: a shared LM Studio key identifies the app, not individual users, so authentication and per-account authorization remain in PsychDeep.
+## User experience
 
-## Simplified end-user interface
+Any authenticated role opens **Mis modelos**, chooses LM Studio, enters only **their own LM Studio API key**, saves, and presses **Probar mi conexión**. An existing token is represented only by `configurada`; leaving its input blank preserves it. An explicit revoke option deletes it. The model IDs are controlled by the operator; the user does not enter the tunnel hostname, Cloudflare credentials or `cloudflared` token. The user may also choose Anthropic when permitted, without changing other accounts.
 
-Users log in and open **Mis modelos**. Local inference is the default; they enter no key, Access credential, URL or model ID. The screen displays read-only local model names provisioned by the administrator. Users may switch to Anthropic if permitted; its approved API key remains on the server. Personal Anthropic API keys and per-account spending limits are **not** implemented by this change.
+## Diagnosing a 403 safely
 
-## Security and rollback
+A 403 from the synthetic probe can originate at Cloudflare Access **or** LM Studio: the code intentionally does not assume one is responsible. First verify that the Access app's Service Auth policy includes the correct Service Token and that the Access ID/secret in Render match it; independently verify the LM Studio user's token against `http://localhost:1234/v1/models` and that the model is running. Run an HTTP probe **from the backend path** with synthetic content to isolate the layer, checking only response status and safe request IDs; never log headers, token values, clinical prompts or raw error bodies. No access token in the browser or bypass policy is an acceptable workaround.
 
-- Backend pins the operator-approved HTTPS `/v1` hostname. The preference API rejects unknown fields, including credentials and arbitrary URLs. Both independent HTTP authentication layers are required for local inference; secrets are not sent to browsers or returned by preferences/status endpoints.
-- Shared-key provisioning reduces complexity but increases the impact of compromise. Revoke both shared server tokens if compromised, restrict signup/account permissions, monitor usage and enforce quotas or rate limiting before exposing service to untrusted users. An LM Studio key alone never grants access to clinical records.
-- Prompts still travel via Render and Cloudflare to your Windows machine. Local weights do not make this an offline app and do not remove clinical-data compliance requirements.
-- If the gateway fails after cutover, model-dependent functions must fail safely without switching automatically to Anthropic; retain independent deterministic safety functions. `LLM_PERSONAL_MODE=false` intentionally restores the older global provider path and requires separate review before rollback.
+All clinical text still passes through the Render backend and Cloudflare on its way to the Windows machine; local model weights do not make this application offline. Protect patient access separately from model-token possession. Granting someone a LM Studio key alone must not grant a PsychDeep account, patient permissions or access to protected data.
