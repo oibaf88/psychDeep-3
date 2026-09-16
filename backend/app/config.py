@@ -33,7 +33,14 @@ class Settings(BaseSettings):
     # HTTPS tunnel. Legacy LLM_* names remain fallbacks during the transition
     # so an existing Render deployment does not lose its endpoint.
     model_local_base_url: str = ""
-    model_local_api_key: str = ""
+    model_local_api_key: str = ""  # Legacy/fallback for endpoints not using Access.
+    # Access service credentials are NOT the cloudflared connector token/secret.
+    # When required, absent/partial credentials cause the local provider to fail
+    # closed. The hostname must match the HTTPS model endpoint exactly.
+    model_local_cf_access_required: bool = False
+    model_local_cf_access_host: str = ""
+    model_local_cf_access_client_id: str = ""
+    model_local_cf_access_client_secret: str = ""
     model_local_chat_model: str = ""
     model_local_analysis_model: str = ""
     model_local_copilot_model: str = ""
