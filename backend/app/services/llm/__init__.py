@@ -12,6 +12,7 @@ from app.services.llm.base import (
     StructuredAnalysisError,
     StructuredAnalysisResult,
 )
+from app.services.llm.cloudflare_access import CloudflareAccessOpenAICompatibleProvider
 from app.services.llm.openai_compatible import OpenAICompatibleProvider
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "StructuredAnalysisResult",
     "AnthropicProvider",
     "OpenAICompatibleProvider",
+    "CloudflareAccessOpenAICompatibleProvider",
     "get_llm_provider",
     "build_provider",
 ]
@@ -32,7 +34,7 @@ def build_provider(config) -> LLMProvider:
     from app.services import llm_config
 
     if config.provider == llm_config.PROVIDER_LOCAL:
-        return OpenAICompatibleProvider(
+        kwargs = dict(
             base_url=config.base_url or "",
             chat_model=config.chat_model,
             analysis_model=config.analysis_model,
@@ -41,6 +43,21 @@ def build_provider(config) -> LLMProvider:
             max_tokens=config.max_tokens,
             timeout_seconds=float(config.timeout_seconds),
         )
+        settings = llm_config.get_settings()
+        access = {
+            "access_client_id": getattr(settings, "model_local_cf_access_client_id", ""),
+            "access_client_secret": getattr(settings, "model_local_cf_access_client_secret", ""),
+            "access_hostname": getattr(settings, "model_local_cf_access_host", ""),
+        }
+        if any(value.strip() for value in access.values()):
+            if not all(value.strip() for value in access.values()):
+                raise RuntimeError(
+                    "Configuración incompleta de Cloudflare Access: configura "
+                    "MODEL_LOCAL_CF_ACCESS_CLIENT_ID, MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET "
+                    "y MODEL_LOCAL_CF_ACCESS_HOST en el backend."
+                )
+            return CloudflareAccessOpenAICompatibleProvider(**kwargs, **access)
+        return OpenAICompatibleProvider(**kwargs)
     if config.provider == llm_config.PROVIDER_ANTHROPIC:
         from app.services.llm_usage import record_usage_safely
 
