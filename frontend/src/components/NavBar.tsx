@@ -76,7 +76,7 @@ export default function NavBar() {
           </>
         )}
         <Link to="/account">Mi cuenta</Link>
-        <Link to="/settings">{isAdmin ? "Modelos" : "Estado"}</Link>
+        <Link to="/settings">Mis modelos</Link>
       </div>
       <div className="navbar-user">
         <span>{user.display_name} · {ROLE_LABELS[role] || role}</span>

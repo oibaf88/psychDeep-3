@@ -1,27 +1,23 @@
 import { useEffect, useState } from "react";
 import { api, clearLegacyApiBaseOverride, getApiBase, getLegacyApiBaseOverride } from "../api";
+import { useAuth } from "../auth/AuthContext";
 
 type Provider = "anthropic" | "openai_compatible";
-type Credential = "lm_api_key" | "cf_client_id" | "cf_client_secret";
-
 interface PersonalStatus {
   configured: boolean;
   provider: Provider;
-  base_url: string;
   chat_model: string;
   analysis_model: string;
   copilot_model: string;
+  default_local_chat_model: string;
+  default_local_analysis_model: string;
   max_tokens: number;
   timeout_seconds: number;
-  lm_api_key_configured: boolean;
-  cf_client_id_configured: boolean;
-  cf_client_secret_configured: boolean;
+  local_available: boolean;
   anthropic_allowed: boolean;
 }
-
 interface FormState {
   provider: Provider;
-  base_url: string;
   chat_model: string;
   analysis_model: string;
   copilot_model: string;
@@ -30,16 +26,9 @@ interface FormState {
 }
 
 const endpoint = "/api/v1/settings/llm/personal";
-const credentialFields: { key: Credential; title: string; hint: string; status: keyof PersonalStatus }[] = [
-  { key: "cf_client_id", title: "Cloudflare Access · Client ID", hint: "Service Token individual, no es el token de cloudflared.", status: "cf_client_id_configured" },
-  { key: "cf_client_secret", title: "Cloudflare Access · Client Secret", hint: "Se envía exclusivamente al backend para su almacenamiento cifrado.", status: "cf_client_secret_configured" },
-  { key: "lm_api_key", title: "LM Studio · API token", hint: "Token propio que LM Studio valida después de Cloudflare Access.", status: "lm_api_key_configured" },
-];
-
 function fromStatus(status: PersonalStatus): FormState {
   return {
     provider: status.provider,
-    base_url: status.base_url || "https://ai.bfab.io/v1",
     chat_model: status.chat_model,
     analysis_model: status.analysis_model,
     copilot_model: status.copilot_model,
@@ -49,10 +38,10 @@ function fromStatus(status: PersonalStatus): FormState {
 }
 
 export default function SettingsPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin_clinical";
   const [status, setStatus] = useState<PersonalStatus | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
-  const [secrets, setSecrets] = useState<Record<Credential, string>>({ cf_client_id: "", cf_client_secret: "", lm_api_key: "" });
-  const [clear, setClear] = useState<Record<Credential, boolean>>({ cf_client_id: false, cf_client_secret: false, lm_api_key: false });
   const [busy, setBusy] = useState<"" | "save" | "test" | "remove">("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -60,7 +49,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (getLegacyApiBaseOverride()) clearLegacyApiBaseOverride();
     api.get<PersonalStatus>(endpoint)
-      .then((value) => { setStatus(value); setForm(fromStatus(value)); })
+      .then((next) => { setStatus(next); setForm(fromStatus(next)); })
       .catch((reason: Error) => setError(reason.message));
   }, []);
 
@@ -70,35 +59,21 @@ export default function SettingsPage() {
   }
 
   function chooseProvider(provider: Provider) {
-    if (!form) return;
+    if (!form || !status) return;
     if (provider === "anthropic") {
       patch({ provider, chat_model: "claude-opus-5", analysis_model: "claude-opus-5", copilot_model: "" });
     } else {
-      const model = status?.provider === "openai_compatible" ? status.chat_model : "";
-      patch({ provider, chat_model: model, analysis_model: model, copilot_model: "", base_url: status?.base_url || "https://ai.bfab.io/v1" });
+      patch({ provider, chat_model: status.default_local_chat_model, analysis_model: status.default_local_analysis_model, copilot_model: "" });
     }
-  }
-
-  function credentialValue(key: Credential): string | null {
-    if (clear[key]) return "";
-    return secrets[key].trim() || null; // Null means preserve an already encrypted value.
   }
 
   async function save() {
     if (!form) return;
     setBusy("save"); setError(""); setMessage("");
     try {
-      const next = await api.put<PersonalStatus>(endpoint, {
-        ...form,
-        lm_api_key: credentialValue("lm_api_key"),
-        cf_client_id: credentialValue("cf_client_id"),
-        cf_client_secret: credentialValue("cf_client_secret"),
-      });
+      const next = await api.put<PersonalStatus>(endpoint, form);
       setStatus(next); setForm(fromStatus(next));
-      // Never persist secrets in browser storage; clear them immediately after a save.
-      setSecrets({ cf_client_id: "", cf_client_secret: "", lm_api_key: "" });
-      setClear({ cf_client_id: false, cf_client_secret: false, lm_api_key: false });
-      setMessage("Preferencia personal guardada. No se han modificado otras cuentas.");
+      setMessage("Preferencia guardada. Las credenciales compartidas no se han modificado.");
     } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(""); }
   }
@@ -114,14 +89,12 @@ export default function SettingsPage() {
   }
 
   async function remove() {
-    if (!window.confirm("¿Eliminar tu selección y tus credenciales de modelos? No afecta a otros usuarios.")) return;
+    if (!window.confirm("¿Restaurar la selección local predeterminada de tu cuenta?")) return;
     setBusy("remove"); setError(""); setMessage("");
     try {
       const next = await api.del<PersonalStatus>(endpoint);
       setStatus(next); setForm(fromStatus(next));
-      setSecrets({ cf_client_id: "", cf_client_secret: "", lm_api_key: "" });
-      setClear({ cf_client_id: false, cf_client_secret: false, lm_api_key: false });
-      setMessage("Configuración personal eliminada.");
+      setMessage("Restaurado el proveedor predeterminado de tu cuenta.");
     } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(""); }
   }
@@ -129,57 +102,54 @@ export default function SettingsPage() {
   return (
     <div className="page">
       <h1>Mis modelos</h1>
-      <p className="subtitle">Cada cuenta decide qué proveedor utilizar y administra exclusivamente sus propias credenciales.</p>
+      <p className="subtitle">El modelo local funciona sin introducir claves personales. El administrador configura las credenciales una sola vez en Render.</p>
       <section className="card">
         <h2>API de PsychDeep</h2>
         <p><code>{getApiBase() || "mismo origen"}</code></p>
-        <p className="meta">Las credenciales del túnel cloudflared se mantienen en el ordenador. Aquí solo se aceptan las credenciales de Cloudflare Access y LM Studio.</p>
+        <p className="meta">El token de cloudflared permanece en Windows. Las credenciales HTTP de Cloudflare Access y LM Studio solo están en el backend de Render.</p>
       </section>
+      {isAdmin && <section className="card">
+        <h2>Administración del gateway compartido</h2>
+        <p>Configura una sola vez en <a href="https://dashboard.render.com/web/srv-d9s0p0navr4c73a7tcfg" target="_blank" rel="noopener noreferrer">Render → psychdeep-api → Environment</a>. No pegues secretos en GitHub ni en variables VITE_* del frontend.</p>
+        <p><code>MODEL_LOCAL_BASE_URL</code> = <code>https://ai.bfab.io/v1</code></p>
+        <p><code>MODEL_LOCAL_CF_ACCESS_HOST</code> = <code>ai.bfab.io</code></p>
+        <p><code>MODEL_LOCAL_CF_ACCESS_REQUIRED</code> = <code>true</code></p>
+        <p><code>MODEL_LOCAL_CF_ACCESS_CLIENT_ID</code> y <code>MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET</code>: Service Token con política Service Auth.</p>
+        <p><code>MODEL_LOCAL_API_KEY</code>: token de inferencia de LM Studio. Mantén activado «Require Authentication».</p>
+        <p><code>MODEL_LOCAL_CHAT_MODEL</code> y <code>MODEL_LOCAL_ANALYSIS_MODEL</code>: identificadores reales devueltos por LM Studio.</p>
+        <p><code>LLM_PERSONAL_MODE=true</code>: solo tras verificar las dos autenticaciones y las pruebas entre cuentas.</p>
+        <p className="meta">No regeneres <code>LLM_USER_CREDENTIALS_KEY</code>: conserva acceso a credenciales antiguas mientras se completa la transición.</p>
+      </section>}
       <section className="card">
         <h2>Proveedor de inferencia personal</h2>
-        {status && <p className="info">{status.configured ? `Selección actual: ${status.provider === "anthropic" ? "Anthropic" : "LM Studio"}` : "Todavía no has configurado un proveedor personal."}</p>}
+        {status && <p className="info">{status.configured ? `Selección actual: ${status.provider === "anthropic" ? "Anthropic" : "LM Studio"}` : "Selección predeterminada: LM Studio compartido."}</p>}
+        {status && !status.local_available && <p className="warning" role="status">El gateway local no está configurado por completo en Render. El administrador debe completar las dos autenticaciones antes de activarlo.</p>}
+        {status?.local_available && <p className="info">Las credenciales del gateway están configuradas en Render. No necesitas ninguna API key personal. La conexión real debe comprobarse con el botón de prueba.</p>}
         {form && <>
           <label className="field"><span>Proveedor</span>
             <select value={form.provider} onChange={(event) => chooseProvider(event.target.value as Provider)}>
+              <option value="openai_compatible">LM Studio compartido</option>
               <option value="anthropic" disabled={!status?.anthropic_allowed}>Anthropic / Claude</option>
-              <option value="openai_compatible">LM Studio mediante Cloudflare Access</option>
             </select>
           </label>
-          {form.provider === "openai_compatible" ? <>
-            <label className="field"><span>URL del túnel autorizada</span>
-              <input type="url" value={form.base_url} onChange={(event) => patch({ base_url: event.target.value })} placeholder="https://ai.bfab.io/v1" autoComplete="off" />
-              <span className="meta">El servidor solo acepta el hostname autorizado en Render; nunca URLs arbitrarias.</span>
-            </label>
-            {credentialFields.map(({ key, title, hint, status: statusField }) => (
-              <div className="field" key={key}>
-                <label htmlFor={key}>{title}</label>
-                <input id={key} type="password" value={secrets[key]} autoComplete="new-password"
-                  disabled={clear[key] || busy !== ""} placeholder={status?.[statusField] ? "Configurado · dejar vacío para conservar" : "Pega tu credencial"}
-                  onChange={(event) => setSecrets((previous) => ({ ...previous, [key]: event.target.value }))} />
-                <span className="meta">{hint} Estado: {status?.[statusField] ? "configurada" : "no configurada"}.</span>
-                {status?.[statusField] && <label><input type="checkbox" checked={clear[key]} onChange={(event) => setClear((previous) => ({ ...previous, [key]: event.target.checked }))} /> Revocar esta credencial al guardar</label>}
-              </div>
-            ))}
-            <p className="warning">Cloudflare Access debe permitir tu Service Token y LM Studio debe tener habilitada la autenticación con tu API token. Se requieren ambas.</p>
-          </> : <p className="info">Anthropic utiliza la clave del servidor aprobada por el operador; tu selección no cambia la de los demás usuarios.</p>}
-          <div className="field-row">
+          {form.provider === "openai_compatible" ? <p className="info">Modelos configurados por el administrador: conversación <code>{status?.default_local_chat_model || "pendiente"}</code>; análisis <code>{status?.default_local_analysis_model || "pendiente"}</code>. No tienes que elegirlos ni introducir secretos.</p> : <div className="field-row">
             <label className="field"><span>Modelo de conversación</span><input value={form.chat_model} onChange={(event) => patch({ chat_model: event.target.value })} /></label>
             <label className="field"><span>Modelo de análisis</span><input value={form.analysis_model} onChange={(event) => patch({ analysis_model: event.target.value })} /></label>
-          </div>
+          </div>}
+          {form.provider === "anthropic" && <label className="field"><span>Modelo de copiloto (vacío = conversación)</span><input value={form.copilot_model} onChange={(event) => patch({ copilot_model: event.target.value })} /></label>}
           <div className="field-row">
-            <label className="field"><span>Copiloto (vacío = conversación)</span><input value={form.copilot_model} onChange={(event) => patch({ copilot_model: event.target.value })} /></label>
             <label className="field"><span>Máximo de tokens</span><input type="number" min={256} max={32768} value={form.max_tokens} onChange={(event) => patch({ max_tokens: Number(event.target.value) })} /></label>
             <label className="field"><span>Timeout (s)</span><input type="number" min={5} max={5000} value={form.timeout_seconds} onChange={(event) => patch({ timeout_seconds: Number(event.target.value) })} /></label>
           </div>
           <div className="alert-actions">
-            <button disabled={busy !== ""} onClick={save}>{busy === "save" ? "Guardando…" : "Guardar mi configuración"}</button>
-            <button className="btn-secondary" disabled={busy !== "" || !status?.configured} onClick={test}>{busy === "test" ? "Probando…" : "Probar mi conexión"}</button>
-            <button className="btn-secondary" disabled={busy !== "" || !status?.configured} onClick={remove}>Eliminar mi configuración</button>
+            <button disabled={busy !== "" || (form.provider === "openai_compatible" && !status?.local_available)} onClick={save}>{busy === "save" ? "Guardando…" : "Guardar mi preferencia"}</button>
+            <button className="btn-secondary" disabled={busy !== "" || (form.provider === "openai_compatible" && !status?.local_available)} onClick={test}>{busy === "test" ? "Probando…" : "Probar mi conexión"}</button>
+            <button className="btn-secondary" disabled={busy !== "" || !status?.configured} onClick={remove}>Restaurar valor predeterminado</button>
           </div>
         </>}
         {error && <p className="error" role="alert">{error}</p>}
         {message && <p className="info" role="status">{message}</p>}
-        <p className="meta">No hay cambio automático a otro proveedor si tu modelo falla. La lógica clínica determinista sigue siendo independiente.</p>
+        <p className="meta">La elección de una cuenta no cambia las demás. Un fallo del modelo nunca envía contenido clínico automáticamente a otro proveedor.</p>
       </section>
     </div>
   );
