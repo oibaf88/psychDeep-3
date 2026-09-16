@@ -28,17 +28,25 @@ services:
         value: "true"
       - key: MODEL_LOCAL_BASE_URL
         sync: false
-      # Cloudflare Access service credentials belong only in this backend.
-      # They are distinct from the cloudflared connector token. Never commit values.
+      # The cloudflared tunnel connector token remains on the Windows machine.
+      # The hostname is pinned to stop users sending credentials to arbitrary endpoints.
       - key: MODEL_LOCAL_CF_ACCESS_REQUIRED
         value: "true"
       - key: MODEL_LOCAL_CF_ACCESS_HOST
         value: ai.bfab.io
+      # Legacy shared Access credentials are only used before personal mode.
       - key: MODEL_LOCAL_CF_ACCESS_CLIENT_ID
         sync: false
       - key: MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET
         sync: false
-      # No LM Studio API token required when Access protects the tunnel.
+      # A stable Fernet key for encrypted per-account credentials; do not rotate
+      # without first re-encrypting stored values and securely backing it up.
+      - key: LLM_USER_CREDENTIALS_KEY
+        sync: false
+      # Explicit migration gate. Enable ONLY after Supabase migration and
+      # credential provisioning; absent per-account settings then fail closed.
+      - key: LLM_PERSONAL_MODE
+        sync: false
       - key: MODEL_LOCAL_CHAT_MODEL
         value: gemma-2-2b-it
       - key: MODEL_LOCAL_ANALYSIS_MODEL
