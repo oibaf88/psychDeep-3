@@ -1,7 +1,4 @@
-"""Cloudflare Access is the gateway credential, not the cloudflared tunnel token.
-
-No real secrets or real Cloudflare requests are used in these tests.
-"""
+"""Test both backend-owned authentication layers with disposable fixture values."""
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -38,16 +35,17 @@ def config(url="https://ai.bfab.io/v1"):
         base_url=url,
         chat_model="test-model",
         analysis_model="test-model",
-        api_key="legacy-lm-token-must-not-leak",
+        api_key="obsolete-legacy-token-do-not-forward",
     )
 
 
-def settings(required=True, host="ai.bfab.io", client_id="test-id", secret="test-secret"):
+def settings(required=True, host="ai.bfab.io", client_id="test-id", secret="test-secret", lm_key="shared-lm-token"):
     return SimpleNamespace(
         model_local_cf_access_required=required,
         model_local_cf_access_host=host,
         model_local_cf_access_client_id=client_id,
         model_local_cf_access_client_secret=secret,
+        model_local_api_key=lm_key,
     )
 
 
@@ -55,7 +53,7 @@ class AccessGatewayTests(unittest.TestCase):
     def setUp(self):
         FakeClient.requests = []
 
-    def test_sends_only_access_credentials_not_lm_studio_bearer_token(self):
+    def test_sends_access_credentials_and_shared_lm_studio_bearer_token(self):
         with patch.object(llm_config, "get_settings", return_value=settings()):
             provider = build_provider(config())
         self.assertIsInstance(provider, CloudflareAccessOpenAICompatibleProvider)
@@ -65,17 +63,18 @@ class AccessGatewayTests(unittest.TestCase):
         self.assertEqual(url, "https://ai.bfab.io/v1/chat/completions")
         self.assertEqual(headers["CF-Access-Client-Id"], "test-id")
         self.assertEqual(headers["CF-Access-Client-Secret"], "test-secret")
-        self.assertNotIn("Authorization", headers)
-        self.assertNotIn("legacy-lm-token-must-not-leak", str(headers))
+        self.assertEqual(headers["Authorization"], "Bearer shared-lm-token")
+        self.assertNotIn("obsolete-legacy-token-do-not-forward", str(headers))
 
-    def test_fails_closed_when_required_service_token_is_missing(self):
+    def test_fails_closed_when_required_service_token_or_bearer_is_missing(self):
         for credentials in (
             settings(client_id="", secret=""),
             settings(client_id="", secret="test-secret"),
             settings(client_id="test-id", secret=""),
             settings(host=""),
+            settings(lm_key=""),
         ):
-            with self.subTest(credentials=bool(credentials.model_local_cf_access_client_id)):
+            with self.subTest(credentials=bool(credentials.model_local_cf_access_client_id), lm=bool(credentials.model_local_api_key)):
                 with patch.object(llm_config, "get_settings", return_value=credentials):
                     with self.assertRaises(RuntimeError):
                         build_provider(config())
@@ -95,17 +94,14 @@ class AccessGatewayTests(unittest.TestCase):
 
     def test_access_not_silently_bypassed_when_partially_configured(self):
         with patch.object(
-            llm_config,
-            "get_settings",
-            return_value=settings(required=False, secret=""),
+            llm_config, "get_settings", return_value=settings(required=False, secret=""),
         ):
             with self.assertRaises(RuntimeError):
                 build_provider(config())
 
-    def test_other_compatible_endpoints_retain_opt_in_legacy_mode(self):
+    def test_other_compatible_endpoints_retain_opt_in_legacy_mode_before_cutover(self):
         with patch.object(
-            llm_config,
-            "get_settings",
+            llm_config, "get_settings",
             return_value=settings(required=False, host="", client_id="", secret=""),
         ):
             provider = build_provider(config("http://localhost:1234/v1"))
