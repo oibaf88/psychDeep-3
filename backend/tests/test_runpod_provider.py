@@ -59,10 +59,28 @@ def test_cloud_key_not_sent_to_cloudflare(monkeypatch):
     assert got["access_client_secret"] == "access-secret"
 
 
-def test_runpod_different_endpoint_cannot_receive_local_key(monkeypatch):
-    monkeypatch.setattr(llm_config, "get_settings", fake_settings)
-    with pytest.raises(RuntimeError, match="LOCAL_ENDPOINT_HOST_NOT_APPROVED"):
+@pytest.mark.parametrize("access_enabled", [True, False])
+def test_runpod_different_endpoint_never_receives_local_key(monkeypatch, access_enabled):
+    overrides = {} if access_enabled else dict(
+        model_local_cf_access_required=False,
+        model_local_cf_access_client_id="",
+        model_local_cf_access_client_secret="",
+        model_local_cf_access_host="",
+    )
+    monkeypatch.setattr(llm_config, "get_settings", lambda: fake_settings(**overrides))
+    monkeypatch.setattr("app.services.llm.OpenAICompatibleProvider", lambda **kw: pytest.fail("Request sent to unapproved Runpod"))
+    with pytest.raises(RuntimeError, match="RUNPOD_ENDPOINT_NOT_APPROVED"):
         build_provider(config(base_url="https://api.runpod.ai/v2/unapproved/openai/v1"))
+
+
+def test_runpod_without_pinned_profile_never_receives_legacy_key(monkeypatch):
+    monkeypatch.setattr(llm_config, "get_settings", lambda: fake_settings(
+        model_cloud_base_url="", model_local_cf_access_required=False,
+        model_local_cf_access_client_id="", model_local_cf_access_client_secret="", model_local_cf_access_host="",
+    ))
+    monkeypatch.setattr("app.services.llm.OpenAICompatibleProvider", lambda **kw: pytest.fail("Request sent without pinned profile"))
+    with pytest.raises(RuntimeError, match="RUNPOD_ENDPOINT_NOT_APPROVED"):
+        build_provider(config())
 
 
 def test_cloud_without_secret_fails_closed(monkeypatch):
