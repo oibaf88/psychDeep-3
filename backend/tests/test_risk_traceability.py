@@ -613,7 +613,7 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
             )
         return rows
 
-    def test_the_whole_constellation_reaches_level_four(self):
+    def test_the_whole_constellation_reaches_level_three(self):
         decision = self._calculate(
             structural=_structural(score=0.9, band="stable"),
             linguistic=_linguistic(ideation_indirect=True, rumination=0.2),

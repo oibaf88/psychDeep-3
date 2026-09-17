@@ -875,7 +875,7 @@ export const LEVEL_SHORT_LABELS: Record<number, string> = {
   1: "Autogestión / sin datos",
   2: "Prevención",
   3: "Alarma profesional",
-  4: "Emergencia",
+  4: "Revisión clínica urgente",
 };
 
 export function formatDateTime(value?: string | null): string {

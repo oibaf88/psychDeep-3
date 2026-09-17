@@ -745,7 +745,7 @@ score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
                     </tr>
                     <tr>
                       <td>4</td>
-                      <td>Emergencia</td>
+                      <td>Revisión clínica urgente</td>
                       <td>Crea alerta + notificación. El paciente ve el bloque fijo con 024 y 112.</td>
                     </tr>
                   </tbody>
