@@ -49,7 +49,8 @@ def test_rejects_unapproved_url(url):
 def test_cloud_key_only_for_exact_pinned_endpoint_and_model():
     assert cloud_credentials_for(deployment(), settings()) == "runpod-secret"
     assert cloud_credentials_for(deployment(base_url="https://ai.bfab.io/v1"), settings()) is None
-    assert cloud_credentials_for(deployment(base_url=BASE + "/chat/completions"), settings()) is None
+    with pytest.raises(RuntimeError, match="RUNPOD_ENDPOINT_NOT_APPROVED"):
+        cloud_credentials_for(deployment(base_url=BASE + "/chat/completions"), settings())
 
 
 def test_missing_key_fails_closed():
