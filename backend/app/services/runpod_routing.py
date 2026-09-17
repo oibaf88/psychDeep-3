@@ -39,8 +39,9 @@ def cloud_credentials_for(config, settings) -> str | None:
 
     None means this is not the operator-pinned cloud profile. Raises on bad
     cloud configuration so a local/Cloudflare credential is never substituted.
+    Optional cloud profile may not exist in older settings/test fixtures.
     """
-    raw = settings.model_cloud_base_url.strip()
+    raw = (getattr(settings, "model_cloud_base_url", "") or "").strip()
     if not raw:
         return None
     pinned = raw.rstrip("/")
