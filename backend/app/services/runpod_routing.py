@@ -35,19 +35,23 @@ def validated_runpod_url(raw: str) -> str:
 
 
 def cloud_credentials_for(config, settings) -> str | None:
-    """Return the Runpod key only for the exact approved endpoint and model IDs.
+    """Return a cloud key only for the approved destination and model IDs.
 
-    None means this is not the operator-pinned cloud profile. Raises on bad
-    cloud configuration so a local/Cloudflare credential is never substituted.
-    Optional cloud profile may not exist in older settings/test fixtures.
+    An unapproved api.runpod.ai destination must never fall through to the
+    legacy local provider, even if Cloudflare Access is disabled. Missing
+    cloud settings remain compatible with older local-only deployments.
     """
     raw = (getattr(settings, "model_cloud_base_url", "") or "").strip()
-    if not raw:
-        return None
     pinned = raw.rstrip("/")
     actual = (config.base_url or "").strip().rstrip("/")
-    if actual != pinned:
+
+    # This check precedes the optional cloud-profile check: otherwise a
+    # runtime override could send an LM Studio bearer to another Runpod ID.
+    if urlsplit(actual).hostname == "api.runpod.ai" and (not pinned or actual != pinned):
+        raise RuntimeError("RUNPOD_ENDPOINT_NOT_APPROVED")
+    if not pinned or actual != pinned:
         return None
+
     validated_runpod_url(pinned)
     key = settings.model_cloud_api_key.strip()
     if not key:
