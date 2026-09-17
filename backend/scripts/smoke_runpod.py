@@ -1,9 +1,8 @@
-"""Read-only smoke check for a Runpod vLLM OpenAI-compatible endpoint.
+"""Synthetic smoke test for a Runpod vLLM OpenAI-compatible endpoint.
 
-No clinical data is sent. No credentials, request payloads or model output are logged.
-Usage: MODEL_CLOUD_BASE_URL=https://api.runpod.ai/v2/ENDPOINT_ID/openai/v1 \
-       MODEL_CLOUD_API_KEY=... MODEL_CLOUD_CHAT_MODEL=... \
-       python backend/scripts/smoke_runpod.py
+Never send clinical data. Never print credentials, response bodies or prompts.
+Required environment variables: MODEL_CLOUD_BASE_URL, MODEL_CLOUD_API_KEY,
+MODEL_CLOUD_CHAT_MODEL. Invoke: python backend/scripts/smoke_runpod.py
 """
 from __future__ import annotations
 
@@ -27,7 +26,7 @@ def validate_base_url(raw: str) -> str:
         or parsed.password is not None
         or parsed.query
         or parsed.fragment
-        or len(parts) != 5
+        or len(parts) != 4
         or parts[0] != "v2"
         or not parts[1]
         or parts[2:] != ["openai", "v1"]
@@ -67,11 +66,11 @@ def main() -> int:
         text = choices[0].get("message", {}).get("content", "") if choices else ""
         if not isinstance(text, str) or not text.strip():
             raise ValueError("Chat completion has no text")
-        print("PASS: authenticated /models and synthetic chat request returned a non-empty response")
-        print("NOTE: clinical quality, structured JSON, streaming and privacy compliance NOT validated")
+        print("PASS: authenticated /models and synthetic chat returned a non-empty response")
+        print("NOTE: structured JSON, streaming, clinical accuracy and privacy compliance NOT validated")
         return 0
     except (ValueError, HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        # Never echo URLs, headers or server response bodies: they may contain secrets.
+        # Never echo URLs, headers, prompts or server bodies: they may contain secrets.
         print(f"FAIL: Runpod smoke test ({type(exc).__name__})", file=sys.stderr)
         return 1
 
