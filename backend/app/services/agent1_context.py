@@ -67,7 +67,7 @@ STATE_SUMMARY = {
     1: "Hay algún cambio leve reciente, nada llamativo.",
     2: "Se han acumulado varias señales de desgaste. Conviene un tono algo más atento.",
     3: "El sistema ha activado revisión profesional. Acompaña con cuidado.",
-    4: "El sistema ha activado el protocolo de emergencia.",
+    4: "El sistema ha activado el protocolo de revisión clínica urgente.",
 }
 
 

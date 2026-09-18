@@ -31,7 +31,7 @@ CLINICAL_BASIS = {
     "safety": "Textual ideation requires human inquiry; protective scores do not cancel it.",
 }
 
-# N4 (emergencia): only explicit self-harm crisis declarations / ideation.
+# N4 (revisión clínica urgente): only explicit self-harm crisis declarations / ideation.
 N4_FACT_CATEGORIES = {"ideation_active", "planning"}
 # N3 (alarma profesional): consumption crisis and a confirmed recent relapse
 # are professional review, not 112. They are separate rules so a relapse is
@@ -338,7 +338,7 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
 
     triggering_rules: list[str] = []
 
-    # ---------------- Nivel 4 (Emergencia) ----------------
+    # ---------------- Nivel 4 (Revisión clínica urgente) ----------------
     # Only true emergency declarations / direct ideation / extreme multi-signal convergence.
     if n4_facts:
         triggering_rules.append("N4_declaracion_ideacion_o_plan")
@@ -1466,7 +1466,7 @@ def run_and_persist(
 
 def _alert_title(decision: RiskDecision) -> str:
     if decision.level == 4:
-        return "ALERTA NIVEL 4 – EMERGENCIA"
+        return "ALERTA NIVEL 4 – REVISIÓN CLÍNICA URGENTE"
     if decision.level == 3:
         if "N3_convergencia_interpersonal_despedida" in decision.triggering_rules:
             return "Alerta Nivel 3 – Convergencia interpersonal y despedida: valoración pendiente"
