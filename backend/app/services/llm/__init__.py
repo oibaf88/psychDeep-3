@@ -63,13 +63,18 @@ def build_provider(config) -> LLMProvider:
 
 def get_llm_provider(db=None) -> LLMProvider:
     """Use account-scoped resolution only after an explicitly staged cutover."""
-    from app.services import llm_config, personal_llm
+    from app.services import llm_config, local_llm_access, personal_llm
     from app.services.personal_resolution import personal_mode_enabled
 
-    info = getattr(db, "info", None) if db is not None else None
-    user_id = info.get("authenticated_user_id") if isinstance(info, dict) else None
+    user = local_llm_access.request_user(db)
     if personal_mode_enabled():
-        if db is None or user_id is None:
+        if db is None or user is None:
             raise RuntimeError("Inferencia bloqueada: falta la identidad de cuenta verificada.")
-        return build_provider(personal_llm.resolve(db, user_id))
-    return build_provider(llm_config.resolve(db))
+        config = personal_llm.resolve(db, user.id)
+        if config.provider == llm_config.PROVIDER_LOCAL:
+            local_llm_access.assert_can_use_local_llm(user)
+        return build_provider(config)
+    config = llm_config.resolve(db)
+    if config.provider == llm_config.PROVIDER_LOCAL:
+        local_llm_access.assert_can_use_local_llm(user)
+    return build_provider(config)

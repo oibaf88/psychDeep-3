@@ -71,6 +71,13 @@ class User(Base):
     # Bumping this version invalidates every pre-existing JWT for the account.
     # It is changed on password rotation, role changes and revocation.
     auth_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Explicit clinical-manager grant to use LM Studio through the app.
+    # admin_clinical may use the local model by role even when this is false.
+    local_llm_approved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    local_llm_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    local_llm_approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -48,8 +48,7 @@ from app.models import (
     TherapistCopilotMessage,
     User,
 )
-from app.services import clinical_view, psychosocial
-from app.services import llm_config
+from app.services import clinical_view, llm_config, local_llm_access, psychosocial
 from app.services.llm import build_provider
 
 logger = logging.getLogger("psychapp.copilot")
@@ -391,15 +390,17 @@ def ask(
     # Resolved once, so the row records the model that actually answered
     # rather than whatever the environment happens to say today.
     active = llm_config.resolve(db)
-
     error_kind: str | None = None
     response_model: str | None = None
-    provider_instance = build_provider(active)
-    # Agent 3 reads a ~90k-character dossier for a clinician who is not
-    # watching a chat bubble fill in, so it gets its own model and effort
-    # rather than inheriting Agent 1's latency-shaped ones.
-    requested_model = provider_instance.copilot_model
+    requested_model: str | None = None
     try:
+        if active.provider == llm_config.PROVIDER_LOCAL:
+            local_llm_access.assert_can_use_local_llm(professional)
+        provider_instance = build_provider(active)
+        # Agent 3 reads a ~90k-character dossier for a clinician who is not
+        # watching a chat bubble fill in, so it gets its own model and effort
+        # rather than inheriting Agent 1's latency-shaped ones.
+        requested_model = provider_instance.copilot_model
         result = provider_instance.chat(
             system_prompt,
             _recent_turns(db, professional.id, patient.id),
@@ -412,9 +413,14 @@ def ask(
         response_model = result.metadata.response_model or requested_model
         if not content:
             raise RuntimeError("empty_reply")
+    except local_llm_access.LocalLlmAccessDenied as exc:
+        error_kind = type(exc).__name__[:64]
+        logger.warning("Agent 3 copilot call blocked: %s", error_kind)
+        content = str(exc)
     except Exception as exc:  # noqa: BLE001
         error_kind = type(exc).__name__[:64]
         logger.warning("Agent 3 copilot call failed: %s", error_kind)
+        is_local = bool(getattr(active, "is_local", active.provider == llm_config.PROVIDER_LOCAL))
         content = (
             "No he podido generar la respuesta ahora mismo "
             f"(error del proveedor: {error_kind}). "
@@ -422,7 +428,7 @@ def ask(
             "check-ins, diario, chat, hechos, evidencia y motor de riesgo. "
             + (
                 "Si esto se repite, revisa que el servidor del modelo esté accesible desde el backend."
-                if active.is_local
+                if is_local
                 else "Si esto se repite, revisa Gemma 2, LM Studio y el token configurado en el servidor."
             )
         )

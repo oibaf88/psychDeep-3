@@ -108,7 +108,13 @@ def _patient():
 
 
 def _professional():
-    return SimpleNamespace(id=uuid.uuid4(), display_name="Terapeuta", role="therapist")
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        display_name="Terapeuta",
+        role="therapist",
+        is_active=True,
+        local_llm_approved=True,
+    )
 
 
 def _populated_db():
@@ -185,6 +191,18 @@ class DossierTests(unittest.TestCase):
 
 
 class AskTests(unittest.TestCase):
+    def test_unapproved_therapist_cannot_call_local_model(self):
+        db = _populated_db()
+        professional = _professional()
+        professional.local_llm_approved = False
+        local_config = SimpleNamespace(provider="openai_compatible")
+        with patch.object(clinical_copilot.llm_config, "resolve", return_value=local_config):
+            answer = clinical_copilot.ask(
+                db, professional=professional, patient=_patient(), question="¿Cómo está?"
+            )
+        self.assertEqual(answer.error_kind, "LocalLlmAccessDenied")
+        self.assertIn("administrador clínico", answer.content)
+
     def test_successful_answer_is_persisted_with_context_counts(self):
         db = _populated_db()
         provider = _fake_provider("Resumen del paciente.")
