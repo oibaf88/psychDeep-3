@@ -73,6 +73,7 @@ required_columns(table_name, column_name) as (values
     ('inferences', 'id'),
     ('intervention_events', 'id'),
     ('knowledge_items', 'id'),
+    ('knowledge_items', 'population_target'),
     ('fine_tune_runs', 'id'),
     ('model_deployments', 'alias')
 ),

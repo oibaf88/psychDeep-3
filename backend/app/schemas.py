@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
-from pydantic import AfterValidator, BaseModel, EmailStr, Field, StringConstraints, field_serializer
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_serializer
 
 
 def _utc_iso(value: datetime | None) -> str | None:
@@ -822,3 +822,29 @@ class LLMEndpointStatusOut(BaseModel):
     backend_runtime_label: str = "este equipo"
     local_endpoint_supported: bool = True
     ignored_override: Optional[dict[str, Any]] = None
+
+
+class KnowledgeItemIn(BaseModel):
+    population_target: str = Field(..., max_length=64)
+    clinical_objective: str = Field(..., max_length=128)
+    content: str
+    evidence_level: Optional[str] = Field(None, max_length=64)
+    contraindications: Optional[str] = None
+    version: str = Field("v1", max_length=32)
+    is_active: bool = True
+
+class KnowledgeItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    population_target: str
+    clinical_objective: str
+    content: str
+    evidence_level: Optional[str]
+    contraindications: Optional[str]
+    version: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    reviewed_at: Optional[datetime]
+    reviewed_by: Optional[uuid.UUID]

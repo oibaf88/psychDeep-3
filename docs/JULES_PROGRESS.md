@@ -12,7 +12,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Explicaciones (E6):** DONE
 - **Plan preventivo (E7):** DONE
 - **Seguridad (E8):** DONE
-- **RAG de contenidos (E9):** NOT STARTED
+- **RAG de contenidos (E9):** PARTIAL
 - **Panel profesional (E10):** PARTIAL
 - **Evaluación (E11):** PARTIAL
 - **Operaciones (E12):** PARTIAL
@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
+- **Knowledge Base (E9):** Implemented `KnowledgeItem` model, schemas, and `/api/v1/knowledge` router for the curated versioned content library mechanism to support Epic E9 (RAG de contenidos), ensuring secure read/write boundaries for patients and clinical admins.
 - **Clinical Safety:** Convergencia interpersonal recategorizada de N4 a N3 (`N3_convergencia_interpersonal_despedida`) y eliminada entrada obsoleta de N4 en panel clínico, siguiendo CLINICAL_RISK_BASIS.md y lineamientos de NICE NG225.
 - **Clinical Safety:** Fixed the statistical convergence rule (`N3_convergencia_critica_extrema`) in the clinical risk engine (`backend/app/services/risk_engine.py`) to properly trigger a Level 3 review when severe structural deterioration is combined with rumination *or* sleep worsening, adhering to clinical safety guidelines.
 - **Performance:** Fixed N+1 query issue in the professional patient listing endpoint (`backend/app/routers/professional.py`) by utilizing batched DB queries for assessments, alerts and checkins.

@@ -59,7 +59,7 @@ The migration backfills canonical compatibility rows with references to legacy s
 
 - **Hoy** — low-burden check-in and current context.
 - **Tendencias** — longitudinal view, personal baseline, missingness and change signals.
-- **Regular** — urge-surfing wave, guided breathing, STOP and non-harmful grounding.
+- **Regular** — urge-surfing wave, guided breathing, STOP and non-harmful grounding. (Now backed by the curated RAG knowledge base).
 - **Diario** — free/structured entries; linguistic analysis requires separate consent.
 - **Plan** — editable safety/prevention plan.
 - **Compartir** — professional links, consent and consultation preparation.

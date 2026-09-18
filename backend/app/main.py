@@ -20,6 +20,7 @@ from app.routers import (
     consents,
     diary,
     facts,
+    knowledge,
     llm_settings,
     notifications,
     professional,
@@ -239,6 +240,7 @@ app.include_router(timeline.router)
 app.include_router(chat.router)
 app.include_router(safety.router)
 app.include_router(facts.router)
+app.include_router(knowledge.router)
 app.include_router(assignments.router)
 app.include_router(professional.router)
 app.include_router(notifications.router)

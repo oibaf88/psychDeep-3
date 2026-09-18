@@ -671,3 +671,19 @@ class PatientProfile(Base):
         CheckConstraint("portrait_version >= 0", name="ck_patient_profile_portrait_version"),
         CheckConstraint("linguistic_baseline_n >= 0", name="ck_patient_profile_baseline_n"),
     )
+
+class KnowledgeItem(Base):
+    __tablename__ = "knowledge_items"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    population_target: Mapped[str] = mapped_column(String(64), nullable=False)
+    clinical_objective: Mapped[str] = mapped_column(String(128), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_level: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    contraindications: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[str] = mapped_column(String(32), default="v1", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
