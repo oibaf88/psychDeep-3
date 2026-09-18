@@ -1,0 +1,28 @@
+name: psychdeep-model-tunnel
+
+services:
+  cloudflared:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: psychdeep-cloudflared:local
+    container_name: psychdeep-lmstudio-tunnel
+    # Official cloudflared image supplies the cloudflared ENTRYPOINT.
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN_FILE: /run/secrets/tunnel-token
+      TUNNEL_LOGLEVEL: info
+    secrets:
+      - tunnel-token
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No ports: Cloudflare Tunnel only needs outbound connections.
+    # Docker Desktop resolves host.docker.internal to the Windows host.
+
+secrets:
+  tunnel-token:
+    file: ./secrets/tunnel-token.txt
