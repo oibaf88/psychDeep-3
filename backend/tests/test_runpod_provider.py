@@ -7,7 +7,8 @@ from app.services import llm_config
 from app.services.llm import build_provider
 
 RUNPOD = "https://api.runpod.ai/v2/test-endpoint/openai/v1"
-MODEL = "empirischtech/Llama-3.1-8B-Instruct-MedQA"
+# Fictional ID used for routing tests only; not a deployment recommendation.
+MODEL = "test-fixture/biomedical-llama-3.1-reviewed-model"
 LOCAL = "https://ai.bfab.io/v1"
 
 
