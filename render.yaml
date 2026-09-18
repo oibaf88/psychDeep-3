@@ -57,6 +57,23 @@ services:
         value: "120"
       - key: MODEL_LOCAL_MAX_TOKENS
         value: "8192"
+      # Runpod cloud profile is STAGED ONLY. Do not switch
+      # MODEL_DEPLOYMENT_ALIAS before endpoint, privacy, clinical and QA gates.
+      # The endpoint and model IDs must come from an actual verified deployment.
+      - key: MODEL_CLOUD_BASE_URL
+        sync: false
+      - key: MODEL_CLOUD_API_KEY
+        sync: false
+      - key: MODEL_CLOUD_CHAT_MODEL
+        sync: false
+      - key: MODEL_CLOUD_ANALYSIS_MODEL
+        sync: false
+      - key: MODEL_CLOUD_COPILOT_MODEL
+        sync: false
+      - key: MODEL_CLOUD_TIMEOUT_SECONDS
+        value: "120"
+      - key: MODEL_CLOUD_MAX_TOKENS
+        value: "2048"
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: LLM_DEFAULT_PROVIDER
