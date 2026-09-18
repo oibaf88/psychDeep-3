@@ -35,9 +35,13 @@ export default function TrendsPage() {
       api.get<ChangeSignal[]>("/api/v1/changes?limit=10"),
     ])
       .then(([timelineData, baselineData, changeData]) => {
+        if (timelineData && timelineData.points) {
+          timelineData.points.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        }
         setTimeline(timelineData);
         setBaseline(baselineData);
-        setChanges(changeData);
+        const uniqueChanges = Array.from(new Map(changeData.map(c => [c.signal_id, c])).values());
+        setChanges(uniqueChanges);
       })
       .catch((err: Error) => setError(err.message));
   }, []);

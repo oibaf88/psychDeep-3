@@ -181,6 +181,18 @@ export default function AccountPage() {
           </button>
         </section>
       )}
+      {user.role === "admin_clinical" && (
+        <div className="permissions-print print-only">
+          <h1>Informe de Permisos y Acceso</h1>
+          <p><strong>Usuario:</strong> {user.display_name}</p>
+          <p><strong>Rol:</strong> {user.role}</p>
+          <p><strong>Email:</strong> {user.email}</p>
+          <p><strong>ID de Sistema:</strong> {user.id}</p>
+          <p className="meta">Generado el {new Date().toLocaleDateString()} a las {new Date().toLocaleTimeString()}</p>
+          <hr />
+          <p>Este documento certifica que el usuario tiene nivel de acceso administrativo clínico en el sistema PsychDeep.</p>
+        </div>
+      )}
     </div>
   );
 }

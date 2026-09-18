@@ -41,6 +41,7 @@ export default function NavBar() {
             <Link to="/diary">Diario</Link>
             <Link to="/safety-plan">Plan</Link>
             <Link to="/sharing">Compartir</Link>
+            <Link to="/chat">Chat</Link>
             <Link to="/notifications">Avisos</Link>
           </>
         )}
