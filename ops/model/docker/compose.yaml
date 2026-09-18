@@ -20,8 +20,10 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # No ports: Cloudflare Tunnel only needs outbound connections.
-    # Docker Desktop resolves host.docker.internal to the Windows host.
+    # host.docker.internal is the Windows LM Studio origin.
 
 secrets:
   tunnel-token:

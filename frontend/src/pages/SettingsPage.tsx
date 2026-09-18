@@ -15,6 +15,9 @@ interface PersonalStatus {
   local_available: boolean;
   lm_api_key_configured: boolean;
   anthropic_allowed: boolean;
+  local_llm_approved?: boolean;
+  local_llm_usable?: boolean;
+  local_llm_access?: "manager" | "approved" | "pending";
 }
 interface FormState {
   provider: Provider;
@@ -103,18 +106,20 @@ export default function SettingsPage() {
   }
 
   const local = form?.provider === "openai_compatible";
+  const managerApproved = status?.local_llm_usable !== false;
   const keyAvailable = Boolean((status?.lm_api_key_configured && !revokeLmKey) || lmApiKey.trim());
-  const maySave = Boolean(form && (!local || (status?.local_available && keyAvailable)));
-  const mayTest = Boolean(status?.configured && (!local || (status?.local_available && status?.lm_api_key_configured)));
+  const maySave = Boolean(form && (!local || (status?.local_available && managerApproved && keyAvailable)));
+  const mayTest = Boolean(status?.configured && (!local || (status?.local_available && managerApproved && status?.lm_api_key_configured)));
 
   return (
     <div className="page">
       <h1>Mis modelos</h1>
-      <p className="subtitle">Cada cuenta elige su proveedor y guarda exclusivamente su propia API key de LM Studio. El acceso al túnel lo gestiona la administración.</p>
+      <p className="subtitle">Cada cuenta elige su proveedor y guarda exclusivamente su propia API key de LM Studio. El modelo local exige sesión en PsychDeep y autorización del administrador clínico.</p>
       <section className="card">
         <h2>Proveedor de inferencia personal</h2>
         {status && <p className="info">{status.configured ? `Selección actual: ${status.provider === "anthropic" ? "Anthropic" : "LM Studio"}` : "Todavía no has completado tu configuración personal."}</p>}
         {status && !status.local_available && <p className="warning" role="status">El acceso al modelo local todavía no está preparado en el servidor. Contacta con la administración.</p>}
+        {status && status.local_llm_usable === false && <p className="warning" role="status">Tu cuenta está conectada, pero el administrador clínico aún no ha autorizado el uso del modelo local (LM Studio).</p>}
         {form && <>
           <label className="field"><span>Proveedor</span>
             <select value={form.provider} onChange={(event) => chooseProvider(event.target.value as Provider)}>

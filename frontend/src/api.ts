@@ -110,6 +110,7 @@ export interface UserOut {
   role: UserRole;
   locale: string;
   is_active?: boolean;
+  local_llm_approved?: boolean;
 }
 
 export interface CheckInIn {

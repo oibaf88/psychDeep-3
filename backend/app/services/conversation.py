@@ -448,11 +448,18 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
                     "Tus datos y check-ins se han guardado con normalidad."
                 )
             elif isinstance(exc, RuntimeError):
-                reply_text = (
-                    "Ahora mismo no puedo generar una respuesta conversacional "
-                    "(revisa LM Studio, Gemma 2 y el token configurado en .env.local). "
-                    "Tus datos y check-ins se han guardado con normalidad."
-                )
+                from app.services.local_llm_access import LocalLlmAccessDenied
+                if isinstance(exc, LocalLlmAccessDenied):
+                    reply_text = (
+                        f"{exc} "
+                        "Tus datos y check-ins se han guardado con normalidad."
+                    )
+                else:
+                    reply_text = (
+                        "Ahora mismo no puedo generar una respuesta conversacional "
+                        "(revisa LM Studio, Gemma 2 y el token configurado en .env.local). "
+                        "Tus datos y check-ins se han guardado con normalidad."
+                    )
             else:
                 reply_text = (
                     "Ahora mismo no puedo generar una respuesta conversacional "

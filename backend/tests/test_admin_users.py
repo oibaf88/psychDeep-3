@@ -73,6 +73,8 @@ class _FakeSession:
                 obj.locale = "es-ES"
             if obj.is_active is None:
                 obj.is_active = True
+            if getattr(obj, "local_llm_approved", None) is None:
+                obj.local_llm_approved = False
             if obj.created_at is None:
                 obj.created_at = datetime.utcnow()
 
@@ -86,6 +88,7 @@ def _user(role: str, *, email: str) -> User:
         role=role,
         locale="es-ES",
         is_active=True,
+        local_llm_approved=False,
         created_at=datetime.utcnow(),
     )
 
@@ -100,6 +103,7 @@ class AdminUserProvisioningTest(unittest.TestCase):
             admin_users.print_user_permissions,
             admin_users.revoke_user_access,
             admin_users.restore_user_access,
+            admin_users.set_local_llm_access,
         ):
             dependency = inspect.signature(endpoint).parameters["admin"].default
             self.assertIsInstance(dependency, Depends)

@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,7 @@ from app.database import get_db
 from app.models import Consent, SafetyPlan, User
 from app.schemas import AccountDisplayName, AccountEmail
 from app.security import hash_password, require_admin, validate_new_password
-from app.services import audit
+from app.services import audit, local_llm_access
 
 router = APIRouter(prefix="/api/v1/admin/users", tags=["admin-users"])
 
@@ -38,6 +38,12 @@ class AdminUserOut(BaseModel):
     locale: str
     is_active: bool
     created_at: datetime
+    local_llm_approved: bool = False
+
+    @field_validator("local_llm_approved", mode="before")
+    @classmethod
+    def _local_llm_approved_default(cls, value):
+        return bool(value)
 
 
 class AdminUserCreate(BaseModel):
@@ -51,6 +57,10 @@ class AdminRoleUpdate(BaseModel):
     role: UserRoleValue
 
 
+class AdminLocalLlmAccessUpdate(BaseModel):
+    approved: bool
+
+
 class AdminUserPermissionsOut(BaseModel):
     """The deliberately small document shown/printed for one selected user."""
 
@@ -58,6 +68,9 @@ class AdminUserPermissionsOut(BaseModel):
     permissions: list[str]
     can_revoke: bool
     can_restore: bool
+    local_llm_access: str
+    local_llm_usable: bool
+    can_set_local_llm: bool
 
 
 # These are application capabilities, not JWT claims. They stay server-side,
@@ -82,9 +95,16 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     "admin_clinical": [
         "Gestionar cuentas profesionales, roles, activación y revocación de acceso.",
         "Consultar la auditoría y las asignaciones clínicas.",
+        "Autorizar o retirar el uso del modelo local (LM Studio) por cuenta.",
         "Configurar el endpoint del LLM sólo cuando el despliegue lo permite; los cambios quedan auditados.",
         "No adquiere acceso clínico universal: los expedientes individuales siguen sujetos a las rutas y asignaciones del rol.",
     ],
+}
+
+_LOCAL_LLM_PERMISSION = {
+    "manager": "Puede usar el modelo local (LM Studio) por su rol de administrador clínico.",
+    "approved": "El administrador clínico ha autorizado el uso del modelo local (LM Studio) para esta cuenta.",
+    "pending": "No puede usar el modelo local (LM Studio) hasta que el administrador clínico lo autorice.",
 }
 
 
@@ -101,11 +121,17 @@ def _permission_document(db: Session, target: User, acting_admin: User) -> Admin
     is_last_active_admin = (
         target.role == "admin_clinical" and target.is_active and _active_admin_count(db) <= 1
     )
+    llm_status = local_llm_access.public_status(target)
+    permissions = list(ROLE_PERMISSIONS[target.role])
+    permissions.append(_LOCAL_LLM_PERMISSION[llm_status["local_llm_access"]])
     return AdminUserPermissionsOut(
         user=AdminUserOut.model_validate(target),
-        permissions=ROLE_PERMISSIONS[target.role],
+        permissions=permissions,
         can_revoke=can_change_other and target.is_active and not is_last_active_admin,
         can_restore=can_change_other and not target.is_active,
+        local_llm_access=llm_status["local_llm_access"],
+        local_llm_usable=llm_status["local_llm_usable"],
+        can_set_local_llm=can_change_other and target.is_active and target.role != "admin_clinical",
     )
 
 
@@ -276,6 +302,7 @@ def revoke_user_access(
 
     target.is_active = False
     target.auth_version = (target.auth_version or 1) + 1
+    local_llm_access.clear_approval(target)
     db.commit()
     db.refresh(target)
     audit.log(
@@ -317,5 +344,37 @@ def restore_user_access(
         entity_type="user",
         entity_id=target.id,
         extra={"role": target.role},
+    )
+    return _permission_document(db, target, admin)
+
+
+@router.put("/{user_id}/local-llm", response_model=AdminUserPermissionsOut)
+def set_local_llm_access(
+    user_id: uuid.UUID,
+    payload: AdminLocalLlmAccessUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Grant or withdraw the selected account's use of the local LM Studio model."""
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.role == "admin_clinical":
+        raise HTTPException(
+            status_code=400,
+            detail="El administrador clínico ya tiene acceso al modelo local por su rol.",
+        )
+    if payload.approved and not target.is_active:
+        raise HTTPException(status_code=400, detail="No se puede autorizar el modelo local en una cuenta revocada.")
+
+    local_llm_access.set_approval(db, target=target, acting_admin=admin, approved=payload.approved)
+    audit.log(
+        db,
+        actor_id=admin.id,
+        actor_role=admin.role,
+        action="local_llm_access_granted" if payload.approved else "local_llm_access_revoked",
+        entity_type="user",
+        entity_id=target.id,
+        extra={"approved": payload.approved, "role": target.role},
     )
     return _permission_document(db, target, admin)

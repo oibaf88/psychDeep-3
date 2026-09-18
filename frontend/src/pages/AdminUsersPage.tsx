@@ -15,6 +15,7 @@ interface AdminUserOut {
   locale: string;
   is_active: boolean;
   created_at: string;
+  local_llm_approved?: boolean;
 }
 
 interface AdminUserPermissionsOut {
@@ -22,7 +23,16 @@ interface AdminUserPermissionsOut {
   permissions: string[];
   can_revoke: boolean;
   can_restore: boolean;
+  local_llm_access: "manager" | "approved" | "pending";
+  local_llm_usable: boolean;
+  can_set_local_llm: boolean;
 }
+
+const LOCAL_LLM_LABEL: Record<AdminUserPermissionsOut["local_llm_access"], string> = {
+  manager: "Autorizado por rol de administrador clínico",
+  approved: "Autorizado por el administrador clínico",
+  pending: "Pendiente de autorización",
+};
 
 const ALL_ROLES: UserRole[] = ["patient", "therapist", "supervisor", "admin_clinical"];
 const PROVISIONABLE_ROLES: ProvisionableRole[] = ["therapist", "supervisor", "admin_clinical"];
@@ -141,6 +151,25 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function setLocalLlmAccess(approved: boolean) {
+    if (!selected) return;
+    const verb = approved ? "autorizar el modelo local para" : "retirar la autorización del modelo local de";
+    if (!window.confirm(`¿${verb[0].toUpperCase()}${verb.slice(1)} ${selected.user.email}?`)) return;
+    setBusy("local-llm");
+    setError(null);
+    setNotice(null);
+    try {
+      const document = await api.put<AdminUserPermissionsOut>(`/api/v1/admin/users/${selected.user.id}/local-llm`, { approved });
+      setSelected(document);
+      setUsers((current) => current.map((item) => (item.id === document.user.id ? document.user : item)));
+      setNotice(approved ? "Modelo local autorizado para esta cuenta." : "Autorización del modelo local retirada.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function printPermissions() {
     if (!selected) return;
     setBusy("print");
@@ -246,6 +275,25 @@ export default function AdminUsersPage() {
               <ul className="permission-list">
                 {selected.permissions.map((permission) => <li key={permission}>{permission}</li>)}
               </ul>
+
+              <h3>Modelo local (LM Studio)</h3>
+              <p className="meta">Estado: {LOCAL_LLM_LABEL[selected.local_llm_access]}</p>
+              {selected.can_set_local_llm && (
+                <div className="admin-user-actions no-print">
+                  {selected.local_llm_access === "pending" ? (
+                    <button type="button" disabled={busy !== null} onClick={() => void setLocalLlmAccess(true)}>
+                      {busy === "local-llm" ? "Guardando…" : "Autorizar modelo local"}
+                    </button>
+                  ) : (
+                    <button type="button" className="btn-secondary" disabled={busy !== null} onClick={() => void setLocalLlmAccess(false)}>
+                      {busy === "local-llm" ? "Guardando…" : "Retirar autorización"}
+                    </button>
+                  )}
+                </div>
+              )}
+              {selected.user.role === "admin_clinical" && (
+                <p className="meta no-print">Esta cuenta usa el modelo local por su rol. No requiere una autorización adicional.</p>
+              )}
 
               <div className="admin-user-actions no-print">
                 <label>

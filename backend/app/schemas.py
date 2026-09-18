@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
-from pydantic import AfterValidator, BaseModel, EmailStr, Field, StringConstraints, field_serializer
+from pydantic import AfterValidator, BaseModel, EmailStr, Field, StringConstraints, field_serializer, field_validator
 
 
 def _utc_iso(value: datetime | None) -> str | None:
@@ -39,6 +39,12 @@ class UserOut(BaseModel):
     role: str
     locale: str
     is_active: bool = True
+    local_llm_approved: bool = False
+
+    @field_validator("local_llm_approved", mode="before")
+    @classmethod
+    def _local_llm_approved_default(cls, value):
+        return bool(value)
 
     class Config:
         from_attributes = True
