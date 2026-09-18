@@ -29,17 +29,19 @@ services:
         value: "true"
       # Runpod: configure actual endpoint URL and API key in Render Environment
       # after deployment. On existing Blueprints sync:false does not re-prompt.
-      # The chosen model is a candidate pending clinical/licence validation.
+      # USER-REQUESTED MODEL: Biomedical Llama 3.1. Exact HF repo and revision
+      # are NOT confirmed. Never substitute MedQA or a Llama 3.0 checkpoint.
+      # Set model IDs to the exact served /models identifier after verification.
       - key: MODEL_CLOUD_BASE_URL
         sync: false
       - key: MODEL_CLOUD_API_KEY
         sync: false
       - key: MODEL_CLOUD_CHAT_MODEL
-        value: empirischtech/Llama-3.1-8B-Instruct-MedQA
+        sync: false
       - key: MODEL_CLOUD_ANALYSIS_MODEL
-        value: empirischtech/Llama-3.1-8B-Instruct-MedQA
+        sync: false
       - key: MODEL_CLOUD_COPILOT_MODEL
-        value: empirischtech/Llama-3.1-8B-Instruct-MedQA
+        sync: false
       - key: MODEL_CLOUD_TIMEOUT_SECONDS
         value: "180"
       - key: MODEL_CLOUD_MAX_TOKENS
