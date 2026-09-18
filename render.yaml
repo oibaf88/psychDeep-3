@@ -1,6 +1,8 @@
 # Render Blueprint for PsychDeep vNext.
-# Clinical data lives in the existing Supabase project. The model alone runs
-# locally and is reached over HTTPS through an authenticated tunnel.
+# Clinical data remains in the existing Supabase project; inference may use
+# the approved local tunnel OR a separately validated Runpod cloud endpoint.
+# Runpod settings below are STAGING ONLY. Keep live alias unchanged until
+# smoke tests, clinical review, and an explicit audited admin selection.
 services:
   - type: web
     name: psychdeep-api
@@ -25,6 +27,25 @@ services:
         value: support-policy-v1
       - key: MODEL_ALLOW_COMMERCIAL
         value: "true"
+      # Runpod: configure actual endpoint URL and API key in Render Environment
+      # after deployment. On existing Blueprints sync:false does not re-prompt.
+      # USER-REQUESTED MODEL: Biomedical Llama 3.1. Exact HF repo and revision
+      # are NOT confirmed. Never substitute MedQA or a Llama 3.0 checkpoint.
+      # Set model IDs to the exact served /models identifier after verification.
+      - key: MODEL_CLOUD_BASE_URL
+        sync: false
+      - key: MODEL_CLOUD_API_KEY
+        sync: false
+      - key: MODEL_CLOUD_CHAT_MODEL
+        sync: false
+      - key: MODEL_CLOUD_ANALYSIS_MODEL
+        sync: false
+      - key: MODEL_CLOUD_COPILOT_MODEL
+        sync: false
+      - key: MODEL_CLOUD_TIMEOUT_SECONDS
+        value: "180"
+      - key: MODEL_CLOUD_MAX_TOKENS
+        value: "2048"
       - key: MODEL_LOCAL_BASE_URL
         sync: false
       # cloudflared connector token stays on Windows, never in this Blueprint.
