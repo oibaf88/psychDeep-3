@@ -1466,7 +1466,7 @@ def run_and_persist(
 
 def _alert_title(decision: RiskDecision) -> str:
     if decision.level == 4:
-        return "ALERTA NIVEL 4 – EMERGENCIA"
+        return "Alerta Nivel 4 – Revisión clínica urgente"
     if decision.level == 3:
         if "N3_convergencia_interpersonal_despedida" in decision.triggering_rules:
             return "Alerta Nivel 3 – Convergencia interpersonal y despedida: valoración pendiente"

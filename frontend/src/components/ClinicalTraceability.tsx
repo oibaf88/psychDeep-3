@@ -45,7 +45,7 @@ const LEVEL_LABELS: Record<number, string> = {
   1: "Autogestión",
   2: "Prevención",
   3: "Revisión profesional",
-  4: "Emergencia",
+  4: "Revisión clínica urgente",
 };
 
 const STATUS_LABELS: Record<string, string> = {

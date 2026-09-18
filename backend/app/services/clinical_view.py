@@ -317,7 +317,7 @@ LEVEL_LABELS = {
     1: "Nivel 1 · Autogestión / datos insuficientes",
     2: "Nivel 2 · Prevención",
     3: "Nivel 3 · Alarma profesional",
-    4: "Nivel 4 · Emergencia",
+    4: "Nivel 4 · Revisión clínica urgente",
 }
 
 LEVEL_MEANING = {
@@ -325,7 +325,7 @@ LEVEL_MEANING = {
     1: "Sin criterios de nivel superior, o sin datos suficientes para evaluarlos. No es una garantía de seguridad.",
     2: "Prevención. La app refuerza autorregulación con el paciente. NO genera alerta profesional automática.",
     3: "Alarma profesional: requiere revisión humana en cuanto sea posible. Genera alerta y notificación.",
-    4: "Emergencia: requiere atención inmediata. El paciente ve en su pantalla el bloque fijo con 024 y 112.",
+    4: "Prioridad máxima: revisión clínica urgente requerida. El paciente ve en su pantalla el bloque fijo con 024 y 112.",
 }
 
 VARIABLE_LABELS = {

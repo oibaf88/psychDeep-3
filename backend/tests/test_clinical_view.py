@@ -85,7 +85,7 @@ class LevelExplanationTests(unittest.TestCase):
         )
         self.assertEqual(explanation["driver_family"], clinical_view.FAMILY_LINGUISTIC)
         self.assertIn("ESCRIBIÓ", explanation["headline"])
-        self.assertEqual(explanation["level_label"], "Nivel 4 · Emergencia")
+        self.assertEqual(explanation["level_label"], "Nivel 4 · Revisión clínica urgente")
 
     def test_high_score_with_level_four_gets_an_explicit_reconciliation(self):
         """0.91/stable + level 4 is the exact pair that read as a bug."""
