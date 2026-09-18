@@ -1,4 +1,6 @@
 """Provider adapters with separate account choices and shared server credentials."""
+from urllib.parse import urlsplit
+
 from app.services.llm.anthropic_provider import AnthropicProvider
 from app.services.llm.base import (
     ChatResult, LLMProvider, ProviderMetadata, StructuredAnalysisError,
@@ -15,9 +17,10 @@ __all__ = [
 
 
 def build_provider(config) -> LLMProvider:
-    """Combine an account's model choice with operator-owned credentials."""
+    """Attach credentials only to their operator-pinned destination."""
     from app.services import llm_config
     from app.services.personal_llm import PersonalResolvedConfig
+    from app.services.runpod_routing import cloud_credentials_for
 
     if config.provider == llm_config.PROVIDER_LOCAL:
         kwargs = dict(
@@ -26,6 +29,8 @@ def build_provider(config) -> LLMProvider:
             api_key=config.api_key, max_tokens=config.max_tokens,
             timeout_seconds=float(config.timeout_seconds),
         )
+        # Personal mode must remain bound to its own LM Studio token and
+        # Cloudflare Access; never silently promote a user's token to Runpod.
         if isinstance(config, PersonalResolvedConfig):
             if not config.api_key.strip():
                 raise RuntimeError("La autenticación de LM Studio no está configurada en Render.")
@@ -34,10 +39,15 @@ def build_provider(config) -> LLMProvider:
                 access_client_secret=config.access_client_secret,
                 access_hostname=config.access_hostname,
             )
-        # Transitional path: never silently remove the LM Studio bearer token
-        # when Cloudflare Access is enabled. Full personal routing is gated by
-        # LLM_PERSONAL_MODE until the operator completes deployment checks.
         settings = llm_config.get_settings()
+        cloud_key = cloud_credentials_for(config, settings)
+        if cloud_key is not None:
+            kwargs["api_key"] = cloud_key
+            return OpenAICompatibleProvider(**kwargs)
+
+        # Legacy tunnel: require Cloudflare Access credentials, an exact
+        # approved HTTPS hostname and the local bearer key before sending any
+        # secrets. The Runpod profile above is deliberately evaluated first.
         access = {
             "access_client_id": settings.model_local_cf_access_client_id,
             "access_client_secret": settings.model_local_cf_access_client_secret,
@@ -46,6 +56,10 @@ def build_provider(config) -> LLMProvider:
         if settings.model_local_cf_access_required or any(value.strip() for value in access.values()):
             if not all(value.strip() for value in access.values()) or not settings.model_local_cf_access_required:
                 raise RuntimeError("Cloudflare Access está configurado parcialmente en Render.")
+            endpoint = urlsplit(config.base_url or "")
+            if (endpoint.scheme != "https" or endpoint.hostname != settings.model_local_cf_access_host.strip().lower()
+                    or endpoint.port not in (None, 443) or endpoint.username or endpoint.password):
+                raise RuntimeError("LOCAL_ENDPOINT_HOST_NOT_APPROVED")
             if not settings.model_local_api_key.strip():
                 raise RuntimeError("Falta MODEL_LOCAL_API_KEY en Render.")
             kwargs["api_key"] = settings.model_local_api_key
