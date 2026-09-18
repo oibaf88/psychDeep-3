@@ -1,6 +1,5 @@
 import unittest
 import uuid
-from datetime import datetime
 
 from fastapi import HTTPException
 from app.models import KnowledgeItem, User
