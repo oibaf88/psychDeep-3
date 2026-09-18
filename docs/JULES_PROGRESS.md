@@ -30,6 +30,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Created this documentation (`docs/JULES_PROGRESS.md`) to adhere to the spec requirements.
 - Fixed an absolute path bug in `backend/tests/test_llm_endpoint.py` so tests can be run regardless of the directory they're executed from.
 - Refactored `aggregate_daily_statistics` function in `backend/app/services/daily_statistics.py` by extracting logic into smaller helpers for improved readability and maintainability.
+- **Testing:** Expanded frontend component testing by adding test suites for the ConsentsPage and SharingPage components.
 
 ## Recommended next work
 1. **Implement RAG de Contenidos (Epic E9)**: Build the versioned, curated content library mechanism for the conversational assistant.
