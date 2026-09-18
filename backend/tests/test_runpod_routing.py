@@ -6,7 +6,8 @@ import pytest
 from app.services.runpod_routing import cloud_credentials_for, validated_runpod_url
 
 BASE = "https://api.runpod.ai/v2/test-endpoint/openai/v1"
-MODEL = "empirischtech/Llama-3.1-8B-Instruct-MedQA"
+# A deliberately fictional test-only ID, NOT a Hugging Face model to deploy.
+MODEL = "test-fixture/biomedical-llama-3.1-reviewed-model"
 
 
 def settings(**overrides):
@@ -56,6 +57,13 @@ def test_cloud_key_only_for_exact_pinned_endpoint_and_model():
 def test_missing_key_fails_closed():
     with pytest.raises(RuntimeError, match="RUNPOD_CREDENTIAL_NOT_CONFIGURED"):
         cloud_credentials_for(deployment(), settings(model_cloud_api_key=""))
+
+
+def test_missing_model_selection_fails_closed():
+    with pytest.raises(RuntimeError, match="RUNPOD_MODEL_NOT_APPROVED"):
+        cloud_credentials_for(deployment(), settings(
+            model_cloud_chat_model="", model_cloud_analysis_model="", model_cloud_copilot_model=""
+        ))
 
 
 def test_unknown_model_fails_closed():
