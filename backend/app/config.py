@@ -61,8 +61,8 @@ class Settings(BaseSettings):
     # approved by MODEL_ALLOW_COMMERCIAL; vNext never silently fails over to it.
     model_allow_commercial: bool = False
     anthropic_api_key: str = ""
-    anthropic_chat_model: str = "claude-opus-5"
-    anthropic_analysis_model: str = "claude-opus-5"
+    anthropic_chat_model: str = "claude-3-5-sonnet-20240620"
+    anthropic_analysis_model: str = "claude-3-5-sonnet-20240620"
     anthropic_copilot_model: str = ""
     anthropic_max_tokens: int = 8192
     anthropic_max_tokens_chat: int = 0
