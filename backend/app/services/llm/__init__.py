@@ -16,6 +16,8 @@ __all__ = [
 
 def build_provider(config) -> LLMProvider:
     """Combine an account's model choice with operator-owned credentials."""
+    from urllib.parse import urlparse
+
     from app.services import llm_config
     from app.services.personal_llm import PersonalResolvedConfig
 
@@ -34,10 +36,24 @@ def build_provider(config) -> LLMProvider:
                 access_client_secret=config.access_client_secret,
                 access_hostname=config.access_hostname,
             )
+        settings = llm_config.get_settings()
+        # cloud-tuned reuses the OpenAI-compatible transport, NOT the local
+        # Cloudflare Access transport. Never attach the local Access service
+        # credentials or the local LM Studio bearer to a cloud provider.
+        # A runtime override has source='runtime' and cannot impersonate this
+        # explicitly selected environment deployment.
+        if config.source == "environment" and settings.model_deployment_alias.strip() == "cloud-tuned":
+            endpoint = urlparse(config.base_url or "")
+            if not settings.model_cloud_api_key.strip():
+                raise RuntimeError("MODEL_CLOUD_API_KEY is required for cloud-tuned inference.")
+            if not endpoint.hostname or (settings.is_production and endpoint.scheme != "https"):
+                raise RuntimeError("cloud-tuned requires a configured HTTPS endpoint in production.")
+            if llm_config._hostname_is_private(endpoint.hostname) and settings.is_production:
+                raise RuntimeError("cloud-tuned cannot target a private or loopback endpoint in production.")
+            return OpenAICompatibleProvider(**kwargs)
         # Transitional path: never silently remove the LM Studio bearer token
         # when Cloudflare Access is enabled. Full personal routing is gated by
         # LLM_PERSONAL_MODE until the operator completes deployment checks.
-        settings = llm_config.get_settings()
         access = {
             "access_client_id": settings.model_local_cf_access_client_id,
             "access_client_secret": settings.model_local_cf_access_client_secret,
