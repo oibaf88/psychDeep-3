@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS psychdeep_v12.knowledge_items (
     reviewed_by UUID REFERENCES psychdeep_v12.users(id) ON DELETE SET NULL
 );
 
+ALTER TABLE psychdeep_v12.knowledge_items OWNER TO psychdeep_backend;
 ALTER TABLE psychdeep_v12.knowledge_items ENABLE ROW LEVEL SECURITY;
 
 -- Admins can do anything
@@ -49,3 +50,5 @@ CREATE POLICY sync_replication_access
     FOR ALL
     TO psychdeep_sync
     USING (true);
+
+-- Change ownership to backend
