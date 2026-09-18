@@ -11,6 +11,9 @@ ops/local/secrets/
 ops/sync/engines/*.properties
 !ops/sync/engines/*.properties.example
 
+# Docker-only Cloudflare tunnel token is never part of the image or repository.
+ops/model/docker/secrets/
+
 # Dependencies and build output — rebuilt by CI/Render, never committed.
 node_modules/
 frontend/dist/

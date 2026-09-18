@@ -1,0 +1,4 @@
+# The image is FROM-only: send no source files, models, credentials or databases.
+**
+!Dockerfile
+!.dockerignore
