@@ -90,7 +90,7 @@ LEVEL3_PROFESSIONAL_NOTIFICATION_TEMPLATE = (
 )
 
 LEVEL4_PROFESSIONAL_NOTIFICATION_TEMPLATE = (
-    "ALERTA NIVEL 4 – EMERGENCIA\n"
+    "ALERTA NIVEL 4 – REVISIÓN CLÍNICA URGENTE\n"
     "Paciente: {patient_label}\n"
     "Posible ideación activa o crisis grave.\n"
     "Se ha mostrado al paciente redirección a 024 y 112.\n"

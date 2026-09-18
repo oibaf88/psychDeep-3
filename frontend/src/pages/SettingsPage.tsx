@@ -60,7 +60,7 @@ export default function SettingsPage() {
   function chooseProvider(provider: Provider) {
     if (!form || !status) return;
     if (provider === "anthropic") {
-      patch({ provider, chat_model: "claude-opus-5", analysis_model: "claude-opus-5", copilot_model: "" });
+      patch({ provider, chat_model: "claude-3-5-sonnet-20240620", analysis_model: "claude-3-5-sonnet-20240620", copilot_model: "" });
     } else {
       patch({ provider, chat_model: status.default_local_chat_model, analysis_model: status.default_local_analysis_model, copilot_model: "" });
     }
