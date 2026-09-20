@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
+- **Code Quality / CI:** Fixed CI GitHub Actions check suite failure. Replaced instances of the invalid model name `claude-opus-5` with the standard Anthropic model `claude-3-5-sonnet-20240620` across configuration files and test files, resolving '400 The requested model is not supported' errors from GHAS Copilot Autofind.
 - **Clinical Safety:** Updated test names and docstrings in `backend/tests/test_false_positive.py` that incorrectly referred to the interpersonal convergence rule as an "N4" rule. The rule correctly triggers a Level 3 (N3) professional review, adhering to clinical safety guidelines that reserve N4 for explicit self-harm declarations or active direct ideation.
 - **Clinical Safety:** Actualizada la terminología de las alertas Nivel 4 en toda la aplicación de "Emergencia" a "Revisión clínica urgente" para cumplir con las directrices de seguridad clínica de que las señales de IA determinan prioridades de revisión, no diagnósticos de emergencia automatizados.
 - **Clinical Safety:** Convergencia interpersonal recategorizada de N4 a N3 (`N3_convergencia_interpersonal_despedida`) y eliminada entrada obsoleta de N4 en panel clínico, siguiendo CLINICAL_RISK_BASIS.md y lineamientos de NICE NG225.
