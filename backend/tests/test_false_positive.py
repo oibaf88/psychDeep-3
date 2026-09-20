@@ -130,7 +130,7 @@ class LeaveTakingWeightTests(unittest.TestCase):
         self.assertEqual(psychosocial_catalog.DOMAIN_WEIGHTS["leave_taking"], 0.0)
 
     def test_the_convergence_rule_does_not_read_the_weight(self):
-        """Zeroing the weight must not disarm the N4 leg it exists for."""
+        """Zeroing the weight must not disarm the N3 convergence leg it exists for."""
         import inspect
 
         source = inspect.getsource(psychosocial.PsychosocialAssessment.has_leave_taking_signal.fget)
@@ -334,7 +334,7 @@ class StillEscalatesTests(unittest.TestCase):
     """The fixes must not have been bought by going quiet.
 
     Change talk stops being read as closure. Closure must still be read as
-    closure, and the N4 convergence rule must be exactly as reachable as it
+    closure, and the N3 interpersonal convergence rule must be exactly as reachable as it
     was.
     """
 
@@ -349,8 +349,8 @@ class StillEscalatesTests(unittest.TestCase):
         for category in psychosocial_catalog.DOMAIN_CATEGORIES["leave_taking"]:
             self.assertNotIn(category, psychosocial_catalog.PROTECTIVE_CATEGORIES)
 
-    def test_the_n4_convergence_rule_is_unchanged(self):
-        """Its three legs still have to converge; nothing here relaxed it."""
+    def test_the_n3_interpersonal_convergence_rule_is_unchanged(self):
+        """Its three legs still have to converge to trigger the N3 rule; nothing here relaxed it."""
         import inspect
 
         from app.services import risk_engine
