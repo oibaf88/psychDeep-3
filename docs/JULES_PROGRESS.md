@@ -22,6 +22,8 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
+- **Backend Refactor**: Resolved the Pydantic V2 config deprecation warnings (`Support for class-based config is deprecated...`) across `backend/app/schemas.py`, `backend/app/routers/audit.py`, and `backend/app/routers/notifications.py` by switching from `class Config:` to `model_config = ConfigDict(from_attributes=True)`.
+- **Clinical Review:** Delivered `docs/clinical_review.md`, performing a comprehensive scientific and clinical review of the changes regarding `adverse_composite_z` boundaries, automated emergency terminology removal, and N3 vs. N4 rules handling.
 - **Clinical Safety:** Removed obsolete `N4_convergencia_critica_extrema` references from the therapist manual and frontend component (`ClinicalTraceability.tsx`), completing the alignment of statistical convergence handling with N3 professional review requirements.
 - **Clinical Safety:** Actualizada la terminología de las alertas Nivel 4 en toda la aplicación de "Emergencia" a "Revisión clínica urgente" para cumplir con las directrices de seguridad clínica de que las señales de IA determinan prioridades de revisión, no diagnósticos de emergencia automatizados.
 - **Clinical Safety:** Convergencia interpersonal recategorizada de N4 a N3 (`N3_convergencia_interpersonal_despedida`) y eliminada entrada obsoleta de N4 en panel clínico, siguiendo CLINICAL_RISK_BASIS.md y lineamientos de NICE NG225.
