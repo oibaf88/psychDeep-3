@@ -7,7 +7,7 @@
 - **Material Inspeccionado:** `backend/app/services/risk_engine.py`, `backend/app/content/safety_resources.py`, `docs/CLINICAL_RISK_BASIS.md`, `docs/Especificaciones psychDeep 3.pdf` y la configuración de modelos en backend y frontend.
 
 ## B. Conclusión
-Las modificaciones recientes logran una alineación adecuada con las directrices de seguridad clínica. La degradación de `N4_convergencia_critica_extrema` a nivel N3 es un paso crítico para evitar diagnósticos automáticos y falsas alarmas, dejando las decisiones de emergencia en manos de declaraciones explícitas o profesionales humanos. Asimismo, el cambio del uso de `structural_score < 0.20` a `adverse_composite_z > 2.4` refina la detección de inestabilidad estructural basándose en desviaciones significativas antes que en la similitud cruda. En cuanto a modelos de lenguaje, el uso exclusivo del modelo aprobado `claude-3-5-sonnet-20240620` asegura compatibilidad y prevención de fallos de enrutamiento, manteniendo el motor clínico independiente.
+Las modificaciones recientes logran una alineación adecuada con las directrices de seguridad clínica. La degradación de `N4_convergencia_critica_extrema` a nivel N3 es un paso crítico para evitar diagnósticos automáticos y falsas alarmas, dejando las decisiones de emergencia en manos de declaraciones explícitas o profesionales humanos. Asimismo, el cambio del uso de `structural_score < 0.20` a `adverse_composite_z > 2.4` refina la detección de inestabilidad estructural basándose en desviaciones significativas antes que en la similitud cruda. En cuanto a modelos de lenguaje, el uso exclusivo de modelos válidos asegura compatibilidad y prevención de fallos de enrutamiento, manteniendo el motor clínico independiente.
 
 ## C. Evidencia
 - **Fuentes:**
@@ -18,7 +18,7 @@ Las modificaciones recientes logran una alineación adecuada con las directrices
 ## D. Hallazgos
 - **Identificador:** CLINICAL_REVIEW_N3_CONVERGENCE
 - **Ubicación:** `backend/app/services/risk_engine.py`, `backend/app/content/safety_resources.py`
-- **Observación Reproducible:** La convergencia extrema utiliza ahora `adverse_composite_z > 2.4` en lugar de `structural_score < 0.20`. Las alertas de Nivel 4 en la interfaz y recursos de seguridad ya no se etiquetan genéricamente como "Emergencia", sino que aclaran que el modelo no llama autónomamente al 112 y que los niveles determinan prioridad de "Revisión clínica urgente" humana.
+- **Observación Reproducible:** La convergencia extrema utiliza ahora `adverse_composite_z > 2.4` en lugar de `structural_score < 0.20`. Las alertas de Nivel 4 en la interfaz y recursos de seguridad ya no se etiquetan genéricamente como "Emergencia", sino que aclaran que el modelo no llama autónomamente a urgencias y que los niveles determinan prioridad de "Revisión clínica urgente" humana.
 - **Mecanismo/Impacto:** Se minimiza el riesgo de sobrediagnóstico por parte de un sistema que carece de criterio clínico humano, previniendo intervenciones invasivas inapropiadas o alarmas innecesarias para los terapeutas.
 - **Certeza:** Alta (en cumplimiento con protocolos clínicos estandarizados).
 - **Prioridad:** Crítico.
