@@ -81,8 +81,8 @@ def _settings(*, provider="anthropic", allow_override=False, production=False, a
         local_analysis_model="gemma-2-2b-it",
         local_copilot_model="gemma-2-2b-it",
         anthropic_api_key=anthropic_key,
-        anthropic_chat_model="claude-opus-5",
-        anthropic_analysis_model="claude-opus-5",
+        anthropic_chat_model="claude-3-5-sonnet-20240620",
+        anthropic_analysis_model="claude-3-5-sonnet-20240620",
         anthropic_copilot_model="",
         anthropic_max_tokens=8192,
         anthropic_max_tokens_chat=0,
@@ -90,7 +90,7 @@ def _settings(*, provider="anthropic", allow_override=False, production=False, a
         anthropic_chat_effort="medium",
         anthropic_analysis_effort="high",
         anthropic_copilot_effort="",
-        copilot_model="claude-opus-5",
+        copilot_model="claude-3-5-sonnet-20240620",
         copilot_effort="medium",
         max_tokens_chat=8192,
         max_tokens_analysis=8192,
@@ -163,7 +163,7 @@ class ProviderSelectionTests(unittest.TestCase):
             config = llm_config.environment_config()
             public = config.public_dict()
         self.assertEqual(config.provider, llm_config.PROVIDER_ANTHROPIC)
-        self.assertEqual(config.chat_model, "claude-opus-5")
+        self.assertEqual(config.chat_model, "claude-3-5-sonnet-20240620")
         self.assertTrue(public["uses_server_api_key"])
         self.assertNotIn("api_key", public)
         self.assertNotIn("anthropic-test", str(public))
@@ -171,8 +171,8 @@ class ProviderSelectionTests(unittest.TestCase):
     def test_claude_factory_uses_server_key_not_runtime_payload(self):
         config = llm_config.ResolvedConfig(
             provider=llm_config.PROVIDER_ANTHROPIC,
-            chat_model="claude-opus-5",
-            analysis_model="claude-opus-5",
+            chat_model="claude-3-5-sonnet-20240620",
+            analysis_model="claude-3-5-sonnet-20240620",
             api_key="browser-must-not-win",
         )
         with patch("app.services.llm.anthropic_provider.get_settings", return_value=_settings()):
@@ -222,8 +222,8 @@ class ProviderSelectionTests(unittest.TestCase):
     def test_validation_accepts_only_the_two_intended_providers(self):
         with patch.object(llm_config, "backend_runtime", return_value="local"):
             claude = llm_config.validate(
-                provider="anthropic", base_url="http://ignored.example/v1", chat_model="claude-opus-5",
-                analysis_model="claude-opus-5", max_tokens=8192, timeout_seconds=300,
+                provider="anthropic", base_url="http://ignored.example/v1", chat_model="claude-3-5-sonnet-20240620",
+                analysis_model="claude-3-5-sonnet-20240620", max_tokens=8192, timeout_seconds=300,
             )
             self.assertIsNone(claude["base_url"])
             local = llm_config.validate(
