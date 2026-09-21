@@ -47,6 +47,20 @@ class SafetyPriorityTests(_CalculationHarness, unittest.TestCase):
         self.assertEqual(result.level, 3)
         self.assertEqual(result.triggering_rules, ["N3_convergencia_critica_extrema"])
 
+    def test_sleep_only_convergence_does_not_require_linguistic_rumination(self):
+        result = self._calculate(
+            structural=_structural(score=.1, band="unstable"),
+            linguistic=_linguistic(rumination=None),
+            persistence=(1, 3, 5),
+        )
+        self.assertEqual(result.level, 3)
+        self.assertEqual(result.triggering_rules, ["N3_convergencia_critica_extrema"])
+        rule = next(
+            row for row in result.calculation_trace["rules"]
+            if row["code"] == "N3_convergencia_critica_extrema"
+        )
+        self.assertTrue(rule["matched"])
+
     def test_explicit_safety_signal_retains_priority_over_statistics(self):
         result = self._calculate(
             structural=_structural(score=.1, band="unstable"),

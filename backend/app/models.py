@@ -315,6 +315,10 @@ class ChatMessage(Base):
     provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
     model: Mapped[str | None] = mapped_column(String(160), nullable=True)
     provider_base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    prompt_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    context_version: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    context_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

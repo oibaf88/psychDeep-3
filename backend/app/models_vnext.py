@@ -1,8 +1,8 @@
 """SQLAlchemy mappings for PsychDeep vNext canonical expand-only tables."""
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, func
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -136,6 +136,28 @@ class InterventionEvent(Base):
     proposed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     acted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class KnowledgeItem(Base):
+    """Versioned, curated content registry; not yet wired into model prompts."""
+
+    __tablename__ = "knowledge_items"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    topic: Mapped[str] = mapped_column(String(96), nullable=False)
+    population: Mapped[str] = mapped_column(String(96), nullable=False)
+    objective: Mapped[str] = mapped_column(String(128), nullable=False)
+    locale: Mapped[str] = mapped_column(String(16), nullable=False, default="es-ES")
+    evidence_level: Mapped[str] = mapped_column(String(48), nullable=False)
+    contraindications: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    review_due: Mapped[date | None] = mapped_column(Date)
+    source_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    approved_by: Mapped[str | None] = mapped_column(String(128))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

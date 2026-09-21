@@ -20,6 +20,7 @@ not mutually exclusive -- the alert and the professional notification are
 decided beforehand by the deterministic risk engine and are unaffected by
 anything the model says.
 """
+import hashlib
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -31,6 +32,8 @@ from sqlalchemy.orm import Session
 
 from app.content.prompts import (
     AGENT1_CRISIS_INSTRUCTION,
+    AGENT1_CONTEXT_VERSION,
+    AGENT1_PROMPT_VERSION,
     AGENT1_SYSTEM_PROMPT,
     ANALYZER_SYSTEM_PROMPT,
     ANALYZER_TOOL_SCHEMA,
@@ -296,6 +299,8 @@ def _reply_provenance(
     *,
     from_model: bool,
     metadata: ProviderMetadata | None = None,
+    system_instruction: str | None = None,
+    context_block: str | None = None,
 ) -> dict:
     """Which model produced an assistant turn, for the stored message.
 
@@ -310,21 +315,31 @@ def _reply_provenance(
     """
     if not from_model:
         return {}
+    contract = {}
+    if system_instruction is not None and context_block is not None:
+        contract = {
+            "prompt_version": AGENT1_PROMPT_VERSION,
+            "prompt_sha256": hashlib.sha256(system_instruction.encode("utf-8")).hexdigest(),
+            "context_version": AGENT1_CONTEXT_VERSION,
+            "context_sha256": hashlib.sha256(context_block.encode("utf-8")).hexdigest(),
+        }
     if metadata is not None:
         return {
             "provider": metadata.provider,
             "model": metadata.response_model or metadata.requested_model,
             "provider_base_url": metadata.base_url,
+            **contract,
         }
     active = llm_config.resolve(db)
     return {
         "provider": active.provider,
         "model": active.chat_model,
         "provider_base_url": active.base_url,
+        **contract,
     }
 
 
-def _agent1_crisis_accompaniment(db: Session, user_id, context_block: str) -> ChatResult | None:
+def _agent1_crisis_accompaniment(db: Session, user_id, system_prompt: str) -> ChatResult | None:
     """Agent 1's turn during an alert-level 3/4 conversation.
 
     The model keeps accompanying the person with the real conversation
@@ -337,7 +352,7 @@ def _agent1_crisis_accompaniment(db: Session, user_id, context_block: str) -> Ch
     try:
         provider = get_llm_provider(db)
         result = provider.chat(
-            AGENT1_SYSTEM_PROMPT + "\n\n" + context_block + AGENT1_CRISIS_INSTRUCTION,
+            system_prompt,
             _recent_messages(db, user_id),
             max_tokens=400,
         )
@@ -398,13 +413,17 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
     context_block = agent1_context.build(
         db, user.id, assessment, in_crisis=assessment.alert_level >= 3
     )
+    agent1_instruction = AGENT1_SYSTEM_PROMPT + (
+        AGENT1_CRISIS_INSTRUCTION if level >= 3 else ""
+    )
+    agent1_system_prompt = agent1_instruction + "\n\n" + context_block
 
     # Set by whichever branch actually reached a model, so the stored turn
     # records what answered rather than what the resolver would say now.
     reply_metadata: ProviderMetadata | None = None
 
     if level == 4:
-        accompaniment = _agent1_crisis_accompaniment(db, user.id, context_block)
+        accompaniment = _agent1_crisis_accompaniment(db, user.id, agent1_system_prompt)
         prose = accompaniment.text.strip() if accompaniment else ""
         reply_text = (prose + "\n\n" if prose else "") + LEVEL4_PATIENT_MESSAGE
         ui_mode = "crisis"
@@ -414,7 +433,7 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
     elif level == 3:
         has_prof = _has_active_professional(db, user.id)
         fixed = LEVEL3_PATIENT_MESSAGE_WITH_PROFESSIONAL if has_prof else LEVEL3_PATIENT_MESSAGE
-        accompaniment = _agent1_crisis_accompaniment(db, user.id, context_block)
+        accompaniment = _agent1_crisis_accompaniment(db, user.id, agent1_system_prompt)
         prose = accompaniment.text.strip() if accompaniment else ""
         reply_text = (prose + "\n\n" if prose else "") + fixed
         ui_mode = "support"
@@ -430,7 +449,7 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
         failed = False
         try:
             provider = get_llm_provider(db)
-            result = provider.chat(AGENT1_SYSTEM_PROMPT + "\n\n" + context_block, messages)
+            result = provider.chat(agent1_system_prompt, messages)
             reply_metadata = result.metadata
             reply_text = result.text
         except Exception as exc:  # noqa: BLE001
@@ -476,7 +495,13 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
             role="assistant",
             content=reply_text,
             ui_mode=ui_mode,
-            **_reply_provenance(db, from_model=reply_from_model, metadata=reply_metadata),
+            **_reply_provenance(
+                db,
+                from_model=reply_from_model,
+                metadata=reply_metadata,
+                system_instruction=agent1_instruction,
+                context_block=context_block,
+            ),
         )
     )
     db.commit()

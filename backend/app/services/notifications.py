@@ -28,6 +28,8 @@ from app.models import Notification, PatientProfessionalAssignment, Professional
 
 settings = get_settings()
 
+NOTIFICATION_TEMPLATE_VERSION = "v2"
+
 
 def _send_email(to_address: str, subject: str, body: str) -> bool:
     if not settings.smtp_host:
@@ -77,7 +79,7 @@ def dispatch_for_alert(db: Session, alert: ProfessionalAlert) -> None:
             recipient_type="professional",
             channel="in_app",
             alert_level=alert.alert_level,
-            template_code=f"level{alert.alert_level}_professional",
+            template_code=f"level{alert.alert_level}_professional_{NOTIFICATION_TEMPLATE_VERSION}",
             title=alert.title,
             body=body,
             related_alert_id=alert.id,
@@ -91,7 +93,7 @@ def dispatch_for_alert(db: Session, alert: ProfessionalAlert) -> None:
             recipient_type="professional",
             channel="email",
             alert_level=alert.alert_level,
-            template_code=f"level{alert.alert_level}_professional_email",
+            template_code=f"level{alert.alert_level}_professional_email_{NOTIFICATION_TEMPLATE_VERSION}",
             title=alert.title,
             body=body,
             related_alert_id=alert.id,
@@ -107,7 +109,7 @@ def dispatch_for_alert(db: Session, alert: ProfessionalAlert) -> None:
         recipient_type="patient",
         channel="in_app",
         alert_level=alert.alert_level,
-        template_code=f"level{alert.alert_level}_patient",
+        template_code=f"level{alert.alert_level}_patient_{NOTIFICATION_TEMPLATE_VERSION}",
         title="Actualización de tu acompañamiento",
         body=(
             "Tu profesional de referencia ha sido informado para que pueda acompañarte mejor."

@@ -12,6 +12,7 @@ MODEL = "test-fixture/biomedical-llama-3.1-reviewed-model"
 
 def settings(**overrides):
     config = dict(
+        runpod_enabled=True,
         model_cloud_base_url=BASE,
         model_cloud_api_key="runpod-secret",
         model_cloud_chat_model=MODEL,
@@ -52,6 +53,11 @@ def test_cloud_key_only_for_exact_pinned_endpoint_and_model():
     assert cloud_credentials_for(deployment(base_url="https://ai.bfab.io/v1"), settings()) is None
     with pytest.raises(RuntimeError, match="RUNPOD_ENDPOINT_NOT_APPROVED"):
         cloud_credentials_for(deployment(base_url=BASE + "/chat/completions"), settings())
+
+
+def test_runpod_stays_disabled_even_when_credentials_are_staged():
+    with pytest.raises(RuntimeError, match="RUNPOD_DISABLED"):
+        cloud_credentials_for(deployment(), settings(runpod_enabled=False))
 
 
 def test_missing_key_fails_closed():
