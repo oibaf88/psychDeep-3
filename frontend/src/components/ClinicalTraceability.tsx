@@ -26,6 +26,7 @@ interface NormalizedRule {
 const RULE_LABELS: Record<string, string> = {
   N3_senal_linguistica_ideacion_indirecta: "Posible ideación no explicitada: valoración pendiente",
   N3_convergencia_critica_extrema: "Deterioro concurrente: revisión profesional",
+  N3_convergencia_interpersonal_despedida: "Ideación indirecta + señal interpersonal vigente + despedida; valoración pendiente",
   N4_declaracion_ideacion_o_plan: "Declaración confirmada de ideación activa o planificación",
   N4_senal_linguistica_ideacion_directa: "Agent 2 detecta ideación directa reciente",
   N3_declaracion_crisis_consumo: "Crisis de consumo confirmada",
