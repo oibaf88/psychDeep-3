@@ -37,7 +37,7 @@ The final product is aligned with vNext only when all of the following are true 
 - [ ] Clinical safety remains independent of the LLM and remains functional when the selected model is unavailable.
 - [ ] Human collaboration is integrated: assigned professionals can see an authorised longitudinal view, prepare sessions, understand evidence/limits and feed outcomes back into the record.
 - [ ] The patient experience is organised around **Hoy / Tendencias / Regular / Diario / Plan / Compartir**, with low cognitive burden and a persistent route to help.
-- [ ] Cloud is the single authoritative clinical data plane, while the LLM remains replaceable between approved local-tunnel and cloud/commercial deployments without changing risk, consent, data or audit semantics.
+- [ ] Clinical data storage remains available in the cloud, while inference may run on approved mobile-local, local-tunnel, cloud-tuned or commercial deployments without changing risk, consent, data or audit semantics. Mobile-local inference may persist an offline encrypted client queue before outbound synchronization.
 - [ ] Release, rollback, observability, security, privacy and model governance are demonstrably operational rather than only documented.
 
 **Current overall state:** PsychDeep is in a **vNext foundation / transition release**, not a completed vNext product. The largest completed changes are architectural and therefore mostly invisible to end users. The patient and professional value loops remain substantially incomplete.

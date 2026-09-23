@@ -21,6 +21,7 @@ from app.routers import (
     diary,
     facts,
     llm_settings,
+    mobile,
     notifications,
     professional,
     safety,
@@ -96,6 +97,7 @@ def _verify_production_schema() -> None:
         ("model_runs", "id"),
         ("intervention_events", "id"),
         ("model_deployments", "alias"),
+        ("mobile_inference_events", "id"),
     }
     canonical_tables = {
         "observations",
@@ -109,6 +111,7 @@ def _verify_production_schema() -> None:
         "knowledge_items",
         "fine_tune_runs",
         "model_deployments",
+        "mobile_inference_events",
     }
     with engine.connect() as conn:
         rows = conn.execute(
@@ -221,8 +224,9 @@ def health():
         model = {"deployment_alias": None, "configured": False, "policy_version": settings.model_policy_version}
     return {
         "status": "ok",
-        "architecture": "cloud-first-vnext",
-        "clinical_source_of_truth": "cloud",
+        "architecture": "hybrid-inference-vnext",
+        "clinical_storage": "cloud",
+        "inference_modes": ["mobile-local", "local-tunnel", "cloud-tuned", "commercial-approved"],
         "model": model,
         "risk_engine_version": RISK_ENGINE_VERSION,
         "risk_explanation_schema": "risk-explanation-v1",
@@ -244,4 +248,5 @@ app.include_router(professional.router)
 app.include_router(notifications.router)
 app.include_router(audit.router)
 app.include_router(llm_settings.router)
+app.include_router(mobile.router)
 app.include_router(vnext.router)
