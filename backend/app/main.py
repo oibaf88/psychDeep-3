@@ -222,8 +222,9 @@ def health():
         model = {"deployment_alias": None, "configured": False, "policy_version": settings.model_policy_version}
     return {
         "status": "ok",
-        "architecture": "cloud-first-vnext",
-        "clinical_source_of_truth": "cloud",
+        "architecture": "hybrid-inference-vnext",
+        "clinical_storage": "cloud",
+        "inference_modes": ["mobile-local", "local-tunnel", "cloud-tuned", "commercial-approved"],
         "model": model,
         "risk_engine_version": RISK_ENGINE_VERSION,
         "risk_explanation_schema": "risk-explanation-v1",
