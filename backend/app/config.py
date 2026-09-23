@@ -1,9 +1,9 @@
 """PsychDeep vNext runtime configuration.
 
-Clinical state is cloud-only. The only optional local process is an
-OpenAI-compatible LLM reached through an authenticated HTTPS tunnel. Secrets
-are deployment environment variables and are never persisted in clinical DB
-configuration rows.
+Clinical data can be processed either by the cloud API or by an approved
+on-device inference runtime. Desktop local models remain available through
+an authenticated HTTPS tunnel. Secrets are deployment environment variables
+and are never persisted in clinical DB configuration rows.
 """
 from functools import lru_cache
 
