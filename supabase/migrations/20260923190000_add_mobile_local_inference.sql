@@ -1,3 +1,7 @@
+begin;
+grant psychdeep_backend to postgres with set true;
+set local role psychdeep_backend;
+
 alter table psychdeep_v12.model_deployments drop constraint if exists ck_model_deployment_adapter;
 alter table psychdeep_v12.model_deployments add constraint ck_model_deployment_adapter check (adapter in ('openai_compatible','managed_cloud','mobile_local'));
 
@@ -43,3 +47,7 @@ alter table psychdeep_v12.mobile_inference_events force row level security;
 drop policy if exists backend_full_access on psychdeep_v12.mobile_inference_events;
 create policy backend_full_access on psychdeep_v12.mobile_inference_events for all to psychdeep_backend using (true) with check (true);
 revoke all on table psychdeep_v12.mobile_inference_events from public, anon, authenticated, service_role;
+
+reset role;
+revoke psychdeep_backend from postgres granted by postgres;
+commit;
