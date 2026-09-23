@@ -9,6 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.work.*
 import dev.ffmpegkit.llama.Llama
 import dev.ffmpegkit.llama.LlamaConfig
+import dev.ffmpegkit.llama.LlamaModel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileInputStream
@@ -19,7 +20,7 @@ import java.util.concurrent.TimeUnit
 class MainActivity : Activity() {
     private lateinit var store: SecureStore
     private lateinit var queue: InferenceQueue
-    private var model: Any? = null
+    private var model: LlamaModel? = null
     private var modelFile: File? = null
     private lateinit var api: EditText
     private lateinit var token: EditText
