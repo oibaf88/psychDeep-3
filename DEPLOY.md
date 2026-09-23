@@ -1,6 +1,6 @@
 # PsychDeep vNext deployment runbook
 
-This runbook deploys the cloud-first vNext architecture without adding paid infrastructure during the prototype stage.
+This runbook deploys the hybrid-inference vNext architecture without adding paid infrastructure during the prototype stage.
 
 ## Target
 
@@ -8,8 +8,8 @@ This runbook deploys the cloud-first vNext architecture without adding paid infr
 |---|---|---|
 | Web | Render static `psychdeep-web` | Public HTTPS; no persistent clinical offline store |
 | API/domain | Render `psychdeep-api` | FastAPI; deterministic safety independent of LLM |
-| Clinical data | existing Supabase `psychdeep`, schema `psychdeep_v12` | only authoritative clinical database |
-| Model profile A | existing local OpenAI-compatible server via authenticated HTTPS tunnel | inference only; no local clinical DB/API/frontend |
+| Clinical data | existing Supabase `psychdeep`, schema `psychdeep_v12` | canonical cloud clinical database and synchronization target |
+| Model profile A | existing local OpenAI-compatible server via authenticated HTTPS tunnel | desktop inference endpoint; mobile-local uses on-device inference and outbound synchronization |
 | Model profile B | Anthropic / optional approved managed compatible endpoint | explicit admin selection only; no automatic fallback |
 | CI/CD | GitHub Actions + Render auto-deploy | migrations/tests before merge |
 
