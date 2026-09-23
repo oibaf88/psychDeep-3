@@ -29,7 +29,7 @@ logger = logging.getLogger("psychapp.model_gateway")
 LOCAL_TUNNEL = "local-tunnel"
 CLOUD_TUNED = "cloud-tuned"
 COMMERCIAL_APPROVED = "commercial-approved"
-APPROVED_ALIASES = {LOCAL_TUNNEL, CLOUD_TUNED, COMMERCIAL_APPROVED}
+APPROVED_ALIASES = {LOCAL_TUNNEL, CLOUD_TUNED, COMMERCIAL_APPROVED, "mobile-local"}
 
 
 class ModelGatewayError(RuntimeError):
@@ -43,7 +43,7 @@ class ModelUnavailable(ModelGatewayError):
 @dataclass(frozen=True)
 class Deployment:
     alias: str
-    adapter: Literal["openai_compatible", "managed_cloud"]
+    adapter: Literal["openai_compatible", "managed_cloud", "mobile_local"]
     base_url: str | None
     api_key: str
     chat_model: str
@@ -203,6 +203,8 @@ class ModelGateway:
 
     def provider(self) -> LLMProvider:
         d = self.deployment()
+        if d.alias == "mobile-local":
+            raise ModelUnavailable("MOBILE_LOCAL_REQUIRES_DEVICE_INGEST")
         if not d.configured:
             raise ModelUnavailable("MODEL_UNAVAILABLE")
         if d.alias == COMMERCIAL_APPROVED:
