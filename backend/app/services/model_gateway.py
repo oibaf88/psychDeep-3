@@ -170,6 +170,20 @@ class ModelGateway:
                 policy_version=s.model_policy_version,
                 data_handling_classification="clinical_data_private_tunnel",
             )
+        if self.alias == "mobile-local":
+            return Deployment(
+                alias="mobile-local",
+                adapter="mobile_local",
+                base_url=None,
+                api_key="",
+                chat_model="device-reported",
+                analysis_model="device-reported",
+                copilot_model="device-reported",
+                timeout_seconds=30,
+                max_tokens=8192,
+                policy_version=s.model_policy_version,
+                data_handling_classification="clinical_data_device_local",
+            )
         if self.alias == CLOUD_TUNED:
             chat = s.model_cloud_chat_model.strip()
             analysis = s.model_cloud_analysis_model.strip() or chat
