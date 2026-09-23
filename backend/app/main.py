@@ -97,6 +97,7 @@ def _verify_production_schema() -> None:
         ("model_runs", "id"),
         ("intervention_events", "id"),
         ("model_deployments", "alias"),
+        ("mobile_inference_events", "id"),
     }
     canonical_tables = {
         "observations",
@@ -110,6 +111,7 @@ def _verify_production_schema() -> None:
         "knowledge_items",
         "fine_tune_runs",
         "model_deployments",
+        "mobile_inference_events",
     }
     with engine.connect() as conn:
         rows = conn.execute(
