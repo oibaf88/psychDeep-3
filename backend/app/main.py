@@ -21,6 +21,7 @@ from app.routers import (
     diary,
     facts,
     llm_settings,
+    mobile,
     notifications,
     professional,
     safety,
@@ -244,4 +245,5 @@ app.include_router(professional.router)
 app.include_router(notifications.router)
 app.include_router(audit.router)
 app.include_router(llm_settings.router)
+app.include_router(mobile.router)
 app.include_router(vnext.router)
