@@ -1,4 +1,4 @@
--- PsychDeep vNext: canonical cloud-first longitudinal data foundation.
+-- PsychDeep vNext: canonical longitudinal data foundation for hybrid cloud/mobile inference.
 -- Expand-only: legacy clinical tables remain authoritative/legible while vNext
 -- endpoints migrate. New tables are backend-only, FORCE RLS, and are NOT
 -- granted to the retired SymmetricDS role.
