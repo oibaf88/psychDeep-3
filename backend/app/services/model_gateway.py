@@ -69,6 +69,8 @@ class Deployment:
 
     @property
     def configured(self) -> bool:
+        if self.alias == "mobile-local":
+            return True
         if self.alias == COMMERCIAL_APPROVED:
             return bool(self.api_key and self.chat_model and self.analysis_model)
         return bool(self.base_url and self.chat_model and self.analysis_model)
