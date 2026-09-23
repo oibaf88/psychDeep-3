@@ -160,3 +160,28 @@ class ModelRun(Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MobileInferenceEvent(Base):
+    __tablename__ = "mobile_inference_events"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), unique=True, nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    deployment_alias: Mapped[str] = mapped_column(String(96), nullable=False, default="mobile-local")
+    model_id: Mapped[str] = mapped_column(String(192), nullable=False)
+    model_version: Mapped[str | None] = mapped_column(String(192))
+    prompt_version: Mapped[str | None] = mapped_column(String(96))
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    output: Mapped[dict] = mapped_column(JSON_DOC, nullable=False)
+    output_schema: Mapped[str | None] = mapped_column(String(96))
+    client_platform: Mapped[str] = mapped_column(String(32), nullable=False, default="android")
+    client_app_version: Mapped[str | None] = mapped_column(String(64))
+    inference_engine: Mapped[str | None] = mapped_column(String(64))
+    client_model_checksum: Mapped[str | None] = mapped_column(String(128))
+    client_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
