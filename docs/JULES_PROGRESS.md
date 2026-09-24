@@ -33,6 +33,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Fixed an absolute path bug in `backend/tests/test_llm_endpoint.py` so tests can be run regardless of the directory they're executed from.
 - Refactored `aggregate_daily_statistics` function in `backend/app/services/daily_statistics.py` by extracting logic into smaller helpers for improved readability and maintainability.
 - **Testing:** Expanded frontend component testing by adding test suites for the ConsentsPage and SharingPage components.
+- **Tech Debt:** Updated `Config` classes in Pydantic models to Pydantic V2 configuration style (`model_config = ConfigDict(from_attributes=True)`) across backend schemas and routers.
 
 ## Recommended next work
 1. **Implement RAG de Contenidos (Epic E9)**: Build the versioned, curated content library mechanism for the conversational assistant.

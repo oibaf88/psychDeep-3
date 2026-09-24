@@ -370,7 +370,7 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
         return RiskDecision(
             level=3,
             triggering_rules=triggering_rules,
-            reason="Deterioro estadístico con rumiación y sueño empeorando: revisión profesional, no emergencia inferida de una suma",
+            reason="Deterioro concurrente estadístico: requiere revisión profesional prospectiva (sin evidencia causal validada)",
             input_signals=input_signals,
             input_facts=input_facts,
         )
@@ -614,7 +614,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
         _trace_rule(
             "N3_convergencia_critica_extrema",
             3,
-            "Deterioro estadístico, rumiación o sueño: revisión profesional, no predicción suicida",
+            "Deterioro concurrente estadístico: requiere revisión profesional prospectiva (sin evidencia causal validada)",
             [
                 _trace_condition(
                     "adverse_composite_z",
@@ -981,7 +981,7 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
     reasons = {
         "N4_declaracion_ideacion_o_plan": "Declaración confirmada de ideación activa o planificación (hecho, no inferencia)",
         "N4_senal_linguistica_ideacion_directa": "Señal lingüística reciente de ideación directa (inferencia Agent 2; revisión humana prioritaria)",
-        "N3_convergencia_critica_extrema": "Deterioro estadístico con rumiación o sueño empeorando: revisión profesional, no emergencia inferida de una suma",
+        "N3_convergencia_critica_extrema": "Deterioro concurrente estadístico: requiere revisión profesional prospectiva (sin evidencia causal validada)",
         "N3_senal_linguistica_ideacion_indirecta": "Posible ideación no explicitada en el análisis textual; valoración clínica prioritaria pendiente, no ideación confirmada",
         "N3_convergencia_interpersonal_despedida": (
             "Convergencia interpersonal: ideación indirecta + carga percibida y pertenencia frustrada "
@@ -1473,7 +1473,7 @@ def _alert_title(decision: RiskDecision) -> str:
         if "N3_senal_linguistica_ideacion_indirecta" in decision.triggering_rules:
             return "Alerta Nivel 3 – Posible ideación no explicitada: valoración pendiente"
         if "N3_convergencia_critica_extrema" in decision.triggering_rules:
-            return "Alerta Nivel 3 – Deterioro concurrente: revisión profesional"
+            return "Alerta Nivel 3 – Deterioro concurrente estadístico (validación prospectiva requerida)"
         if "N3_declaracion_crisis_consumo" in decision.triggering_rules:
             return "Alerta Nivel 3 – Crisis de consumo declarada"
         if "N3_declaracion_recaida" in decision.triggering_rules:
