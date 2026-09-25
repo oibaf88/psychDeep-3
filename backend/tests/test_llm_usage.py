@@ -40,7 +40,11 @@ class AnthropicUsageTests(unittest.TestCase):
         )
 
         kwargs = create.call_args.kwargs
-        self.assertEqual(kwargs["cache_control"], {"type": "ephemeral"})
+        system = kwargs["system"]
+        self.assertIsInstance(system, list)
+        self.assertEqual(system[0]["text"], "stable system prompt")
+        self.assertEqual(system[0]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(system[1]["text"], "[CONTEXTO INTERNO DE SOLO LECTURA]\ndynamic context")
         self.assertEqual(result.metadata.input_tokens, 101)
         self.assertEqual(result.metadata.output_tokens, 79)
         self.assertEqual(result.metadata.thinking_tokens, 61)
@@ -58,7 +62,7 @@ class AnthropicUsageTests(unittest.TestCase):
         provider._client = SimpleNamespace(messages=SimpleNamespace(create=create))
 
         provider.chat(
-            "system prompt",
+            "stable system prompt\n[CONTEXTO INTERNO DE SOLO LECTURA]\ndynamic context",
             [
                 {"role": "user", "content": "hola"},
                 {"role": "assistant", "content": "hola, te leo"},
@@ -72,7 +76,10 @@ class AnthropicUsageTests(unittest.TestCase):
         recorded = recorder.call_args.kwargs
         self.assertEqual(recorded["call_kind"], "chat")
         self.assertEqual(recorded["status"], "succeeded")
-        self.assertEqual(recorded["system_chars"], len("system prompt"))
+        self.assertEqual(
+            recorded["system_chars"],
+            len("stable system prompt\n[CONTEXTO INTERNO DE SOLO LECTURA]\ndynamic context"),
+        )
         self.assertEqual(recorded["message_chars"], len("hola") + len("hola, te leo") + len("continúa"))
         self.assertEqual(recorded["schema_chars"], 0)
         # Raw prompts/messages must never be copied into accounting kwargs.

@@ -29,6 +29,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
+from app.services.context_budget import estimate_tokens, fit_recent_messages
+from app.services.llm_usage_context import record_context_budget
+
 from app.content.prompts import (
     AGENT1_CRISIS_INSTRUCTION,
     AGENT1_SYSTEM_PROMPT,
@@ -277,18 +281,37 @@ def _has_active_professional(db: Session, user_id) -> bool:
 
 
 def _recent_messages(db: Session, user_id) -> list[dict[str, str]]:
+    """Return only recent turns that fit the configured token budget.
+
+    Stored history is never deleted. The LLM sees a bounded working window,
+    with the newest user turn having priority when the budget is tight.
+    """
+    settings = get_settings()
     history = (
         db.query(ChatMessage)
         .filter(ChatMessage.user_id == user_id)
         .order_by(ChatMessage.created_at.desc())
-        .limit(MAX_HISTORY_MESSAGES)
+        .limit(max(MAX_HISTORY_MESSAGES, settings.conversation_max_history_messages))
         .all()
     )
-    return [
+    messages = [
         {"role": m.role, "content": m.content}
         for m in reversed(history)
         if m.role in ("user", "assistant")
     ]
+    result = fit_recent_messages(
+        messages,
+        settings.conversation_history_budget_tokens,
+        max_messages=settings.conversation_max_history_messages,
+    )
+    if result.truncated:
+        logger.info(
+            "Conversation history bounded: estimated_tokens=%s budget=%s messages=%s",
+            result.estimated_tokens,
+            settings.conversation_history_budget_tokens,
+            len(result.messages),
+        )
+    return result.messages
 
 
 def _reply_provenance(
@@ -336,11 +359,21 @@ def _agent1_crisis_accompaniment(db: Session, user_id, context_block: str) -> Ch
     """
     try:
         provider = get_llm_provider(db)
-        result = provider.chat(
-            AGENT1_SYSTEM_PROMPT + "\n\n" + context_block + AGENT1_CRISIS_INSTRUCTION,
-            _recent_messages(db, user_id),
-            max_tokens=400,
-        )
+        messages = _recent_messages(db, user_id)
+        system_prompt = AGENT1_SYSTEM_PROMPT + "\n\n" + context_block + AGENT1_CRISIS_INSTRUCTION
+        settings = get_settings()
+        with record_context_budget(
+            budget_tokens=settings.conversation_context_budget_tokens,
+            estimated_input_tokens=estimate_tokens(system_prompt)
+            + sum(estimate_tokens(m.get("content")) for m in messages),
+            message_count=len(messages),
+            truncated=False,
+        ):
+            result = provider.chat(
+                system_prompt,
+                messages,
+                max_tokens=400,
+            )
         return result if result.text.strip() else None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Agent1 crisis accompaniment failed; using fixed safety copy only: %s", type(exc).__name__)
@@ -430,7 +463,20 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
         failed = False
         try:
             provider = get_llm_provider(db)
-            result = provider.chat(AGENT1_SYSTEM_PROMPT + "\n\n" + context_block, messages)
+            system_prompt = AGENT1_SYSTEM_PROMPT + "\n\n" + context_block
+            settings = get_settings()
+            with record_context_budget(
+                budget_tokens=settings.conversation_context_budget_tokens,
+                estimated_input_tokens=estimate_tokens(system_prompt)
+                + sum(estimate_tokens(m.get("content")) for m in messages),
+                message_count=len(messages),
+                truncated=False,
+            ):
+                result = provider.chat(
+                    system_prompt,
+                    messages,
+                    max_tokens=settings.conversation_max_output_tokens,
+                )
             reply_metadata = result.metadata
             reply_text = result.text
         except Exception as exc:  # noqa: BLE001

@@ -66,6 +66,29 @@ def _content_chars(messages: list[dict[str, str]]) -> int:
     return sum(len(str(message.get("content") or "")) for message in messages)
 
 
+def _cached_system_content(system_prompt: str) -> list[dict[str, Any]] | str:
+    """Cache the immutable instruction prefix, not the per-turn patient context.
+
+    Agent 1 marks its dynamic context with [CONTEXTO INTERNO...]. Keeping the
+    stable clinical policy prompt as the cacheable prefix means a changing
+    patient turn does not invalidate the whole cached system prompt.
+    """
+    marker = "[CONTEXTO INTERNO DE SOLO LECTURA"
+    index = system_prompt.find(marker)
+    if index <= 0:
+        return system_prompt
+    stable = system_prompt[:index].rstrip()
+    dynamic = system_prompt[index:].lstrip()
+    return [
+        {
+            "type": "text",
+            "text": stable,
+            "cache_control": {"type": "ephemeral"},
+        },
+        {"type": "text", "text": dynamic},
+    ]
+
+
 class RefusalError(StructuredAnalysisError):
     """Claude's safety classifiers declined the request."""
 
@@ -170,8 +193,7 @@ class AnthropicProvider(LLMProvider):
                 model=requested_model,
                 max_tokens=token_budget,
                 output_config={"effort": effective_effort},
-                cache_control={"type": "ephemeral"},
-                system=system_prompt,
+                system=_cached_system_content(system_prompt),
                 messages=messages,
             )
         except Exception as exc:
