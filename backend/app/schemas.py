@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
-from pydantic import AfterValidator, BaseModel, EmailStr, Field, StringConstraints, field_serializer, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_serializer, field_validator
 
 
 def _utc_iso(value: datetime | None) -> str | None:
@@ -46,8 +46,8 @@ class UserOut(BaseModel):
     def _local_llm_approved_default(cls, value):
         return bool(value)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 class Token(BaseModel):
@@ -109,8 +109,8 @@ class ConsentOut(BaseModel):
     granted_at: datetime
     revoked_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 
@@ -127,8 +127,8 @@ class CheckInOut(CheckInIn):
     id: uuid.UUID
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 # --------------------------------------------------------------- diary -----
@@ -141,8 +141,8 @@ class DiaryOut(BaseModel):
     content: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 # ---------------------------------------------------------- safety plan ---
@@ -159,8 +159,8 @@ class SafetyPlanOut(SafetyPlanIn):
     id: uuid.UUID
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 # ------------------------------------------------------------- timeline ----
@@ -230,8 +230,8 @@ class ChatMessageOut(BaseModel):
     provider_base_url: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 # ------------------------------------------------------------- facts -------
@@ -248,8 +248,8 @@ class FactOut(BaseModel):
     is_active: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 # --------------------------------------------------------- professional ---
@@ -269,8 +269,8 @@ class AssignmentOut(BaseModel):
     professional_email: Optional[str] = None
     professional_display_name: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 class AlertOut(BaseModel):
@@ -299,8 +299,8 @@ class AlertOut(BaseModel):
     what_now: Optional[str] = None
     evidence: Optional[dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 class AlertResolveIn(BaseModel):
@@ -342,12 +342,13 @@ class RiskAssessmentOut(BaseModel):
     linguistic_signal_id_used: Optional[uuid.UUID] = None
     calculation_trace: Optional[Any] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(
+        from_attributes=True,
         # ``model_version`` is part of the deterministic risk-engine contract,
         # not a Pydantic model helper. Explicitly allow that field name so
         # production startup stays warning-free.
-        protected_namespaces = ()
+        protected_namespaces=()
+    )
 
     @field_serializer("calculated_at")
     def serialize_calculated_at(self, value: datetime) -> str:
@@ -362,8 +363,8 @@ class SignalOut(BaseModel):
     timestamp: datetime
     agent2_trace_id: Optional[uuid.UUID] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
     @field_serializer("timestamp")
     def serialize_timestamp(self, value: datetime) -> str:
@@ -432,8 +433,8 @@ class PatientChatMessageOut(BaseModel):
     provider_base_url: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
     @field_serializer("created_at")
     def serialize_created_at(self, value: datetime) -> str:
@@ -746,8 +747,8 @@ class CopilotMessageOut(BaseModel):
     error_kind: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
     @field_serializer("created_at")
     def serialize_created_at(self, value: datetime) -> str:
