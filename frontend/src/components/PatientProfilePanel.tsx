@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api";
+import PsychDeepLoader from "./PsychDeepLoader";
 
 /**
  * What the system has accumulated about a patient, and what it plans to
@@ -107,7 +108,7 @@ export default function PatientProfilePanel({
   }
 
   if (error) return <p className="error">No se pudo cargar el perfil: {error}</p>;
-  if (!profile) return <p className="meta">Cargando…</p>;
+  if (!profile) return <PsychDeepLoader size="sm" label="Cargando perfil…" />;
 
   const hasPortrait = Boolean(profile.portrait);
 
