@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import PsychDeepLoader from "../components/PsychDeepLoader";
 
 type Provider = "anthropic" | "openai_compatible";
 interface PersonalStatus {
@@ -157,6 +158,7 @@ export default function SettingsPage() {
             <button className="btn-secondary" disabled={busy !== "" || !status?.configured} onClick={remove}>Eliminar mi configuración</button>
           </div>
         </>}
+        {busy === "test" && <PsychDeepLoader size="sm" label="Probando la conexión del modelo…" />}
         {error && <p className="error" role="alert">{error}</p>}
         {message && <p className="info" role="status">{message}</p>}
         <p className="meta">La selección de tu cuenta no afecta a las demás. Si el modelo falla, no se envía información clínica automáticamente a otro proveedor.</p>
