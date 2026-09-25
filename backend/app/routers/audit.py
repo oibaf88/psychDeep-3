@@ -1,4 +1,3 @@
-from pydantic import ConfigDict
 import uuid
 from datetime import datetime
 from typing import Any
@@ -24,8 +23,8 @@ class AuditLogOut(BaseModel):
     extra: Any
     created_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
-
+    class Config:
+        from_attributes = True
 
 
 class AuditLogPageOut(BaseModel):

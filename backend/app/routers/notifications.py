@@ -1,4 +1,3 @@
-from pydantic import ConfigDict
 import uuid
 from datetime import datetime
 
@@ -21,8 +20,8 @@ class NotificationOut(BaseModel):
     status: str
     created_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
-
+    class Config:
+        from_attributes = True
 
 
 @router.get("", response_model=list[NotificationOut])
