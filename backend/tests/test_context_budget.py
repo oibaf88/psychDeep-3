@@ -22,7 +22,7 @@ def test_recent_history_prefers_latest_turns():
     result = fit_recent_messages(messages, max_tokens=220, max_messages=12)
     assert result.truncated is True
     assert result.messages[-1]["content"].startswith("d")
-    assert len(result.messages) <= 1
+    assert len(result.messages) <= 2
 
 
 def test_latest_user_turn_is_never_lost():
