@@ -6,6 +6,7 @@ from app.models import ChatMessage, User
 from app.schemas import ChatIn, ChatMessageOut, ChatOut
 from app.security import require_patient
 from app.services import conversation
+from app.services.consent import CORE_PROCESSING, require_granted
 from app.services.deterministic_safety_text import materialize_user_declaration
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
 @router.post("", response_model=ChatOut)
 def send_message(payload: ChatIn, db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    require_granted(db, user.id, CORE_PROCESSING)
     # Safety is evaluated independently of generative availability. Explicit
     # first-person crisis declarations become user-originated facts before any
     # LLM call; the existing deterministic risk engine therefore still sees

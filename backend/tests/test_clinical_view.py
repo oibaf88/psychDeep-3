@@ -402,6 +402,15 @@ class RuleCatalogTests(unittest.TestCase):
         for code, info in clinical_view.RULE_CATALOG.items():
             self.assertEqual(int(code[1]), info["level"], code)
 
+    def test_historical_rule_aliases_remain_explainable(self):
+        for code in (
+            "N4_convergencia_critica_extrema",
+            "N4_convergencia_interpersonal_despedida",
+        ):
+            info = clinical_view.rule_info(code)
+            self.assertEqual(info["level"], 4)
+            self.assertNotEqual(info["family"], clinical_view.FAMILY_NONE)
+
 
 class EvidenceBatchingTests(unittest.TestCase):
     def test_evidence_for_assessments_matches_individual_calls(self):

@@ -19,7 +19,7 @@ from app.services import notifications as notification_service
 from app.services import profile as profile_service
 from app.services import psychosocial as psychosocial_service
 
-MODEL_VERSION = "risk-engine-v1.4"
+MODEL_VERSION = "risk-engine-v1.5"
 
 # Operational review priorities, NOT a validated suicide/relapse prediction
 # scale. Text flags never constitute an administered C-SSRS/BAM/ASSIST.
@@ -31,7 +31,7 @@ CLINICAL_BASIS = {
     "safety": "Textual ideation requires human inquiry; protective scores do not cancel it.",
 }
 
-# N4 (emergencia): only explicit self-harm crisis declarations / ideation.
+# N4 (revisión clínica urgente): only explicit self-harm crisis declarations / ideation.
 N4_FACT_CATEGORIES = {"ideation_active", "planning"}
 # N3 (alarma profesional): consumption crisis and a confirmed recent relapse
 # are professional review, not 112. They are separate rules so a relapse is
@@ -628,7 +628,10 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
                 ),
                 _trace_condition("tendencia de sueño", sleep_detail.label, "eq", "empeorando", sleep_worsening),
             ],
-            extreme_convergence if structural.adverse_composite_z is not None and rumination is not None else None,
+            # Sleep is an independent leg of the OR predicate. A missing
+            # linguistic/rumination value must not turn a valid sleep-only
+            # convergence into an unevaluated rule.
+            extreme_convergence if structural.adverse_composite_z is not None else None,
         ),
         _trace_rule(
             "N3_convergencia_interpersonal_despedida",

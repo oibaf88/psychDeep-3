@@ -252,6 +252,10 @@ class LinguisticBoundaryTests(unittest.TestCase):
         self.assertEqual(stored[0].model, "llama-3.1-70b-actually-loaded")
         self.assertEqual(stored[0].provider, "openai_compatible")
         self.assertEqual(stored[0].provider_base_url, "http://localhost:1234/v1")
+        self.assertEqual(stored[0].prompt_version, "agent1-prompt-2026-09-21")
+        self.assertEqual(stored[0].context_version, "agent1-context-2026-09-21")
+        self.assertEqual(len(stored[0].prompt_sha256), 64)
+        self.assertEqual(len(stored[0].context_sha256), 64)
 
     def test_a_template_only_reply_still_records_no_model(self):
         """A turn with no model behind it must keep saying so."""
@@ -574,7 +578,7 @@ class PsychosocialRuleTests(_CalculationHarness, unittest.TestCase):
 class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
     """The constellation that reads as harmless message by message.
 
-    Each leg of the level-4 rule is, on its own, something a person might say
+    Each leg of the level-3 rule is, on its own, something a person might say
     on an ordinary bad week. The rule exists because their coincidence is not
     ordinary, and because nothing else in the pipeline was able to see it: the
     linguistic flags stay false and the structural score never moves.
@@ -622,7 +626,7 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
         self.assertEqual(decision.level, 3)
         self.assertEqual(decision.triggering_rules, ["N3_convergencia_interpersonal_despedida"])
 
-    def test_without_the_leave_taking_signal_it_does_not_reach_level_four(self):
+    def test_without_the_leave_taking_signal_it_does_not_trigger_interpersonal_convergence(self):
         """Removing one leg must de-escalate: the rule is a conjunction."""
         decision = self._calculate(
             structural=_structural(score=0.9, band="stable"),
@@ -631,7 +635,7 @@ class InterpersonalConvergenceRuleTests(unittest.TestCase, _CalculationHarness):
         )
         self.assertNotIn("N3_convergencia_interpersonal_despedida", decision.triggering_rules)
 
-    def test_without_indirect_ideation_it_does_not_reach_level_four(self):
+    def test_without_indirect_ideation_it_does_not_trigger_interpersonal_convergence(self):
         decision = self._calculate(
             structural=_structural(score=0.9, band="stable"),
             linguistic=_linguistic(ideation_indirect=False, rumination=0.2),

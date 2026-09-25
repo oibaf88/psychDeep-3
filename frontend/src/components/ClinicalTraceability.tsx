@@ -28,6 +28,9 @@ const RULE_LABELS: Record<string, string> = {
   N3_convergencia_critica_extrema: "Deterioro concurrente: revisión profesional",
   N4_declaracion_ideacion_o_plan: "Declaración confirmada de ideación activa o planificación",
   N4_senal_linguistica_ideacion_directa: "Agent 2 detecta ideación directa reciente",
+  // Compatibility labels for rule IDs persisted by earlier engine versions.
+  N4_convergencia_critica_extrema: "Convergencia extrema histórica de estructura, rumiación y sueño",
+  N4_convergencia_interpersonal_despedida: "Convergencia interpersonal histórica con despedida",
   N3_declaracion_crisis_consumo: "Crisis de consumo confirmada",
   N3_declaracion_recaida: "Recaída confirmada: revisión profesional, no emergencia",
   N3_senal_linguistica_crisis_consumo: "Agent 2 detecta crisis de consumo",

@@ -1,8 +1,7 @@
 # Render Blueprint for PsychDeep vNext.
-# Clinical data remains in the existing Supabase project; inference may use
-# the approved local tunnel OR a separately validated Runpod cloud endpoint.
-# Runpod settings below are STAGING ONLY. Keep live alias unchanged until
-# smoke tests, clinical review, and an explicit audited admin selection.
+# Clinical data remains in the existing Supabase project. Inference uses the
+# approved local tunnel or explicitly selected commercial provider. Runpod
+# configuration may be staged, but remains hard-disabled.
 services:
   - type: web
     name: psychdeep-api
@@ -27,6 +26,8 @@ services:
         value: support-policy-v1
       - key: MODEL_ALLOW_COMMERCIAL
         value: "true"
+      - key: RUNPOD_ENABLED
+        value: "false"
       # Runpod: configure actual endpoint URL and API key in Render Environment
       # after deployment. On existing Blueprints sync:false does not re-prompt.
       # USER-REQUESTED MODEL: Biomedical Llama 3.1. Exact HF repo and revision

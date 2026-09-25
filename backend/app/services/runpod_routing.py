@@ -45,6 +45,11 @@ def cloud_credentials_for(config, settings) -> str | None:
     pinned = raw.rstrip("/")
     actual = (config.base_url or "").strip().rstrip("/")
 
+    # Configuration may be staged without making the provider reachable.
+    # Enabling Runpod requires an explicit deployment change after review.
+    if urlsplit(actual).hostname == "api.runpod.ai" and not settings.runpod_enabled:
+        raise RuntimeError("RUNPOD_DISABLED")
+
     # This check precedes the optional cloud-profile check: otherwise a
     # runtime override could send an LM Studio bearer to another Runpod ID.
     if urlsplit(actual).hostname == "api.runpod.ai" and (not pinned or actual != pinned):
