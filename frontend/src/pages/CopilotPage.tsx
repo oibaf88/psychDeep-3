@@ -9,6 +9,7 @@ import {
   formatDateTime,
 } from "../api";
 import CopilotPanel from "../components/CopilotPanel";
+import PsychDeepLoader from "../components/PsychDeepLoader";
 
 /**
  * Standalone copilot: pick a patient from the menu and talk to Agent 3
@@ -41,7 +42,7 @@ export default function CopilotPage() {
     [patients, selected]
   );
 
-  if (loading) return <div className="loading">Cargando pacientes…</div>;
+  if (loading) return <div className="loading"><PsychDeepLoader size="md" label="Cargando pacientes…" /></div>;
 
   return (
     <div className="page">

@@ -9,6 +9,7 @@
  */
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { CopilotMessageOut, api, formatDateTime } from "../api";
+import PsychDeepLoader from "./PsychDeepLoader";
 
 const SUGGESTIONS = [
   "Resúmeme la situación actual y qué ha cambiado esta semana.",
@@ -158,7 +159,7 @@ export default function CopilotPanel({
             <div className="copilot-content">{message.content}</div>
           </div>
         ))}
-        {busy && <div className="copilot-bubble copilot-assistant copilot-pending">Leyendo el expediente…</div>}
+        {busy && <div className="copilot-bubble copilot-assistant copilot-pending"><PsychDeepLoader size="sm" label="Leyendo el expediente…" /></div> }
         <div ref={endRef} />
       </div>
 

@@ -284,7 +284,7 @@ class AnthropicProvider(LLMProvider):
                     "format": {"type": "json_schema", "schema": schema},
                 },
                 cache_control={"type": "ephemeral"},
-                system=system_prompt,
+                system=_cached_system_content(system_prompt),
                 messages=[{"role": "user", "content": user_text}],
             )
         except Exception as exc:

@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { ROLE_LABELS, UserRole } from "../api";
 import { useAuth } from "../auth/AuthContext";
-import PsychDeepMark from "./PsychDeepMark";
+import PsychDeepLogo from "./PsychDeepLogo";
 
 export default function NavBar() {
   const { user, logout } = useAuth();
@@ -10,7 +10,7 @@ export default function NavBar() {
     return (
       <nav className="navbar">
         <div className="navbar-brand">
-          <PsychDeepMark variant="compact" className="navbar-mark" />
+          <PsychDeepLogo className="navbar-mark" />
           <span>PsychDeep</span>
         </div>
         <div className="navbar-links">
@@ -29,7 +29,7 @@ export default function NavBar() {
   return (
     <nav className="navbar">
       <div className="navbar-brand">
-        <PsychDeepMark variant="compact" className="navbar-mark" />
+        <PsychDeepLogo className="navbar-mark" />
         <span>PsychDeep</span>
       </div>
       <div className="navbar-links">
