@@ -34,7 +34,7 @@ class AnthropicUsageTests(unittest.TestCase):
         provider._client = SimpleNamespace(messages=SimpleNamespace(create=create))
 
         result = provider.analyze_structured(
-            "large static clinical prompt",
+            "large static clinical prompt\n[CONTEXTO INTERNO DE SOLO LECTURA]\ndynamic context",
             "short patient message",
             {"input_schema": {"type": "object", "properties": {}}},
         )
@@ -42,9 +42,10 @@ class AnthropicUsageTests(unittest.TestCase):
         kwargs = create.call_args.kwargs
         system = kwargs["system"]
         self.assertIsInstance(system, list)
-        self.assertEqual(system[0]["text"], "stable system prompt")
+        self.assertEqual(system[0]["text"], "large static clinical prompt")
         self.assertEqual(system[0]["cache_control"], {"type": "ephemeral"})
         self.assertEqual(system[1]["text"], "[CONTEXTO INTERNO DE SOLO LECTURA]\ndynamic context")
+        self.assertEqual(kwargs["cache_control"], {"type": "ephemeral"})
         self.assertEqual(result.metadata.input_tokens, 101)
         self.assertEqual(result.metadata.output_tokens, 79)
         self.assertEqual(result.metadata.thinking_tokens, 61)
@@ -72,7 +73,9 @@ class AnthropicUsageTests(unittest.TestCase):
         )
 
         kwargs = create.call_args.kwargs
-        self.assertEqual(kwargs["cache_control"], {"type": "ephemeral"})
+        self.assertNotIn("cache_control", kwargs)
+        self.assertIsInstance(kwargs["system"], list)
+        self.assertEqual(kwargs["system"][0]["cache_control"], {"type": "ephemeral"})
         recorded = recorder.call_args.kwargs
         self.assertEqual(recorded["call_kind"], "chat")
         self.assertEqual(recorded["status"], "succeeded")
