@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { homePathForRole } from "../api";
 import { useAuth } from "../auth/AuthContext";
+import PsychDeepLogo from "../components/PsychDeepLogo";
 
 const SHOW_LOCAL_DEMO = import.meta.env.DEV;
 const DEMO_ACCOUNTS = [
@@ -38,7 +39,10 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
-      <h1>PsychApp</h1>
+      <div className="auth-brand" aria-hidden="true">
+        <PsychDeepLogo className="auth-brand__logo" />
+      </div>
+      <h1>PsychDeep</h1>
       <p className="subtitle">
         Herramienta de autorregulacion y autoconciencia. No es un dispositivo medico ni sustituye a tu equipo de
         tratamiento.
