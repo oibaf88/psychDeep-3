@@ -30,7 +30,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.services.context_budget import fit_recent_messages
+from app.services.context_budget import estimate_tokens, fit_recent_messages
+from app.services.llm_usage_context import record_context_budget
 
 from app.content.prompts import (
     AGENT1_CRISIS_INSTRUCTION,
@@ -358,11 +359,21 @@ def _agent1_crisis_accompaniment(db: Session, user_id, context_block: str) -> Ch
     """
     try:
         provider = get_llm_provider(db)
-        result = provider.chat(
-            AGENT1_SYSTEM_PROMPT + "\n\n" + context_block + AGENT1_CRISIS_INSTRUCTION,
-            _recent_messages(db, user_id),
-            max_tokens=400,
-        )
+        messages = _recent_messages(db, user_id)
+        system_prompt = AGENT1_SYSTEM_PROMPT + "\n\n" + context_block + AGENT1_CRISIS_INSTRUCTION
+        settings = get_settings()
+        with record_context_budget(
+            budget_tokens=settings.conversation_context_budget_tokens,
+            estimated_input_tokens=estimate_tokens(system_prompt)
+            + sum(estimate_tokens(m.get("content")) for m in messages),
+            message_count=len(messages),
+            truncated=False,
+        ):
+            result = provider.chat(
+                system_prompt,
+                messages,
+                max_tokens=400,
+            )
         return result if result.text.strip() else None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Agent1 crisis accompaniment failed; using fixed safety copy only: %s", type(exc).__name__)
@@ -452,7 +463,20 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
         failed = False
         try:
             provider = get_llm_provider(db)
-            result = provider.chat(AGENT1_SYSTEM_PROMPT + "\n\n" + context_block, messages)
+            system_prompt = AGENT1_SYSTEM_PROMPT + "\n\n" + context_block
+            settings = get_settings()
+            with record_context_budget(
+                budget_tokens=settings.conversation_context_budget_tokens,
+                estimated_input_tokens=estimate_tokens(system_prompt)
+                + sum(estimate_tokens(m.get("content")) for m in messages),
+                message_count=len(messages),
+                truncated=False,
+            ):
+                result = provider.chat(
+                    system_prompt,
+                    messages,
+                    max_tokens=settings.conversation_max_output_tokens,
+                )
             reply_metadata = result.metadata
             reply_text = result.text
         except Exception as exc:  # noqa: BLE001
