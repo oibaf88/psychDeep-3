@@ -858,6 +858,69 @@ button:disabled {
   text-align: center;
   padding: 40px;
 }
+/* --- PsychDeep brand assets and wait states -------------------------- */
+.psychdeep-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  flex: none;
+}
+
+.psychdeep-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  text-align: center;
+}
+
+.psychdeep-loader--sm { min-height: 56px; }
+.psychdeep-loader--md { min-height: 160px; }
+.psychdeep-loader--lg { min-height: 260px; }
+
+.psychdeep-loader__video,
+.psychdeep-loader__fallback {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  border-radius: 50%;
+  flex: none;
+}
+
+.psychdeep-loader--sm .psychdeep-loader__video,
+.psychdeep-loader--sm .psychdeep-loader__fallback {
+  width: 56px;
+  height: 56px;
+}
+
+.psychdeep-loader--md .psychdeep-loader__video,
+.psychdeep-loader--md .psychdeep-loader__fallback {
+  width: 108px;
+  height: 108px;
+}
+
+.psychdeep-loader--lg .psychdeep-loader__video,
+.psychdeep-loader--lg .psychdeep-loader__fallback {
+  width: 168px;
+  height: 168px;
+}
+
+.psychdeep-loader__fallback { display: none; }
+
+.psychdeep-loader__label {
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .psychdeep-loader__video { display: none; }
+  .psychdeep-loader__fallback { display: block; }
+}
+
 
 .table-wrap {
   overflow-x: auto;
@@ -2170,6 +2233,15 @@ tr.direction-peor td:first-child {
 .copilot-pending {
   color: var(--ink-muted);
   font-style: italic;
+}
+
+.copilot-pending .psychdeep-loader {
+  align-items: flex-start;
+  width: auto;
+}
+
+.copilot-pending .psychdeep-loader__label {
+  font-style: normal;
 }
 
 .copilot-meta {
