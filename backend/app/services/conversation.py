@@ -29,6 +29,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
+from app.services.context_budget import fit_recent_messages
+
 from app.content.prompts import (
     AGENT1_CRISIS_INSTRUCTION,
     AGENT1_SYSTEM_PROMPT,
@@ -277,18 +280,37 @@ def _has_active_professional(db: Session, user_id) -> bool:
 
 
 def _recent_messages(db: Session, user_id) -> list[dict[str, str]]:
+    """Return only recent turns that fit the configured token budget.
+
+    Stored history is never deleted. The LLM sees a bounded working window,
+    with the newest user turn having priority when the budget is tight.
+    """
+    settings = get_settings()
     history = (
         db.query(ChatMessage)
         .filter(ChatMessage.user_id == user_id)
         .order_by(ChatMessage.created_at.desc())
-        .limit(MAX_HISTORY_MESSAGES)
+        .limit(max(MAX_HISTORY_MESSAGES, settings.conversation_max_history_messages))
         .all()
     )
-    return [
+    messages = [
         {"role": m.role, "content": m.content}
         for m in reversed(history)
         if m.role in ("user", "assistant")
     ]
+    result = fit_recent_messages(
+        messages,
+        settings.conversation_history_budget_tokens,
+        max_messages=settings.conversation_max_history_messages,
+    )
+    if result.truncated:
+        logger.info(
+            "Conversation history bounded: estimated_tokens=%s budget=%s messages=%s",
+            result.estimated_tokens,
+            settings.conversation_history_budget_tokens,
+            len(result.messages),
+        )
+    return result.messages
 
 
 def _reply_provenance(
