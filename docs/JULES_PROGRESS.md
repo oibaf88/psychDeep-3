@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
+- **Clinical Safety:** Updated the `profile_update` prompt in `backend/app/content/prompts.py` to prevent the AI from converting transient emotional states or acute crises into permanent traits in the patient's portrait, aligning with clinical directives. Generated clinical review finding in `docs/agentes/hallazgo_profile_update_rasgo_permanente.md`.
 - **Clinical Safety:** Corrected an outdated `N4_convergencia_interpersonal_despedida` reference in the frontend manual (`ManualPage.tsx`) to its actual `N3` level, aligning documentation with backend behavior and NICE NG225 guidelines. Generated clinical review report in `docs/agentes/hallazgo_convergencia_interpersonal.md`.
 - **Clinical Safety:** Removed obsolete `N4_convergencia_critica_extrema` references from the therapist manual and frontend component (`ClinicalTraceability.tsx`), completing the alignment of statistical convergence handling with N3 professional review requirements.
 - **Clinical Safety:** Actualizada la terminología de las alertas Nivel 4 en toda la aplicación de "Emergencia" a "Revisión clínica urgente" para cumplir con las directrices de seguridad clínica de que las señales de IA determinan prioridades de revisión, no diagnósticos de emergencia automatizados.
