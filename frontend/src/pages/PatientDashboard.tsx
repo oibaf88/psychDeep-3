@@ -46,7 +46,7 @@ export default function PatientDashboard() {
       <h1>Tu acompañamiento</h1>
 
       {pendingLinks.length > 0 && (
-        <section className="card alert-level-3">
+        <section className="card patient-notice patient-notice--accent">
           <h2>Solicitudes de vinculación pendientes</h2>
           <p>
             Tienes {pendingLinks.length} profesional(es) pidiendo acceso a tu seguimiento. Debes aceptar o rechazar
