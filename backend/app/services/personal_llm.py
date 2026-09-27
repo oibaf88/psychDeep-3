@@ -138,9 +138,10 @@ def status(db: Session, user_id: uuid.UUID) -> dict:
         and (row.base_url or "").rstrip("/") == "https://api.openai.com/v1"
     )
     local = selected == llm_config.PROVIDER_LOCAL and not openai
+    logical_provider = "openai" if openai else selected
     return {
         "configured": row is not None,
-        "provider": selected,
+        "provider": logical_provider,
         "chat_model": (
             settings.local_chat_model if local
             else settings.openai_chat_model if openai
@@ -208,7 +209,7 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
     if row is None:
         row = UserLLMPreference(user_id=user_id, provider=fields["provider"],
                                 chat_model=fields["chat_model"], analysis_model=fields["analysis_model"])
-    row.provider = fields["provider"]
+    row.provider = llm_config.PROVIDER_LOCAL if payload.provider == "openai" else fields["provider"]
     row.base_url = fields["base_url"] if payload.provider == "openai" else None  # OpenAI is a fixed server-owned destination.
     row.chat_model = fields["chat_model"]
     row.analysis_model = fields["analysis_model"]
