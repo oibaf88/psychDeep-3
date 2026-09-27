@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.services import llm_config
-from app.services.llm import AnthropicProvider, build_provider
+from app.services.llm import AnthropicProvider, OpenAIProvider, build_provider
 from app.services.llm.base import StructuredAnalysisError
 from app.services.llm.openai_compatible import OpenAICompatibleProvider, extract_json_object
 
@@ -81,8 +81,8 @@ def _settings(*, provider="anthropic", allow_override=False, production=False, a
         local_analysis_model="gemma-2-2b-it",
         local_copilot_model="gemma-2-2b-it",
         anthropic_api_key=anthropic_key,
-        anthropic_chat_model="claude-3-5-sonnet",
-        anthropic_analysis_model="claude-3-5-sonnet",
+        anthropic_chat_model="claude-sonnet-4-6",
+        anthropic_analysis_model="claude-sonnet-4-6",
         anthropic_copilot_model="",
         anthropic_max_tokens=8192,
         anthropic_max_tokens_chat=0,
@@ -90,11 +90,19 @@ def _settings(*, provider="anthropic", allow_override=False, production=False, a
         anthropic_chat_effort="medium",
         anthropic_analysis_effort="high",
         anthropic_copilot_effort="",
-        copilot_model="claude-3-5-sonnet",
+        copilot_model="claude-sonnet-4-6",
         copilot_effort="medium",
         max_tokens_chat=8192,
         max_tokens_analysis=8192,
         is_production=production,
+        openai_api_key="openai-test",
+        openai_chat_model="gpt-5.6-luna",
+        openai_analysis_model="gpt-5.6-luna",
+        openai_copilot_model="gpt-5.6-luna",
+        openai_max_tokens=8192,
+        openai_timeout_seconds=120,
+        openai_chat_effort="medium",
+        openai_analysis_effort="high",
     )
 
 
@@ -154,6 +162,60 @@ class GemmaProviderTests(unittest.TestCase):
         self.assertEqual(candidates[0], "http://host.docker.internal:1234/v1")
 
 
+class OpenAIProviderTests(unittest.TestCase):
+    def test_responses_api_chat_preserves_shared_system_prompt_and_effort(self):
+        from app.services.llm.openai_provider import OPENAI_RESPONSES_URL
+
+        class Response:
+            status_code = 200
+            headers = {"x-request-id": "req-openai-test"}
+
+            def json(self):
+                return {
+                    "id": "resp-test",
+                    "model": "gpt-5.6-luna",
+                    "status": "completed",
+                    "output": [{
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "hola"}],
+                    }],
+                    "usage": {"input_tokens": 10, "output_tokens": 4},
+                }
+
+            @property
+            def is_error(self):
+                return False
+
+        client = _FakeClient([])
+
+        class OpenAIClient(_FakeClient):
+            def post(self, url, headers=None, json=None):
+                self.requests.append({"url": url, "headers": dict(headers or {}), "json": copy.deepcopy(json or {})})
+                return Response()
+
+        fake = OpenAIClient([])
+        with patch("httpx.Client", return_value=fake):
+            provider = OpenAIProvider(
+                api_key="openai-test",
+                chat_model="gpt-5.6-luna",
+                analysis_model="gpt-5.6-luna",
+                chat_effort="medium",
+                analysis_effort="high",
+            )
+            result = provider.chat(
+                "SYSTEM PROMPT",
+                [{"role": "user", "content": "hola"}],
+                max_tokens=1536,
+            )
+
+        self.assertEqual(result.text, "hola")
+        self.assertEqual(fake.requests[0]["url"], OPENAI_RESPONSES_URL)
+        self.assertEqual(fake.requests[0]["json"]["instructions"], "SYSTEM PROMPT")
+        self.assertEqual(fake.requests[0]["json"]["reasoning"]["effort"], "medium")
+        self.assertEqual(fake.requests[0]["json"]["max_output_tokens"], 1536)
+        self.assertFalse(fake.requests[0]["json"]["store"])
+
+
 class ProviderSelectionTests(unittest.TestCase):
     def tearDown(self):
         llm_config.invalidate_cache()
@@ -163,7 +225,7 @@ class ProviderSelectionTests(unittest.TestCase):
             config = llm_config.environment_config()
             public = config.public_dict()
         self.assertEqual(config.provider, llm_config.PROVIDER_ANTHROPIC)
-        self.assertEqual(config.chat_model, "claude-3-5-sonnet")
+        self.assertEqual(config.chat_model, "claude-sonnet-4-6")
         self.assertTrue(public["uses_server_api_key"])
         self.assertNotIn("api_key", public)
         self.assertNotIn("anthropic-test", str(public))
@@ -171,8 +233,8 @@ class ProviderSelectionTests(unittest.TestCase):
     def test_claude_factory_uses_server_key_not_runtime_payload(self):
         config = llm_config.ResolvedConfig(
             provider=llm_config.PROVIDER_ANTHROPIC,
-            chat_model="claude-3-5-sonnet",
-            analysis_model="claude-3-5-sonnet",
+            chat_model="claude-sonnet-4-6",
+            analysis_model="claude-sonnet-4-6",
             api_key="browser-must-not-win",
         )
         with patch("app.services.llm.anthropic_provider.get_settings", return_value=_settings()):
@@ -222,7 +284,7 @@ class ProviderSelectionTests(unittest.TestCase):
     def test_validation_accepts_only_the_two_intended_providers(self):
         with patch.object(llm_config, "backend_runtime", return_value="local"):
             claude = llm_config.validate(
-                provider="anthropic", base_url="http://ignored.example/v1", chat_model="claude-3-5-sonnet",
+                provider="anthropic", base_url="http://ignored.example/v1", chat_model="claude-sonnet-4-6",
                 analysis_model="claude-3-5-sonnet", max_tokens=8192, timeout_seconds=300,
             )
             self.assertIsNone(claude["base_url"])
