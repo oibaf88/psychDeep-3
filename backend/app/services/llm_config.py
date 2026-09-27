@@ -35,7 +35,8 @@ logger = logging.getLogger("psychapp.llm_config")
 
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_LOCAL = "openai_compatible"
-PROVIDERS = (PROVIDER_LOCAL, PROVIDER_ANTHROPIC)
+PROVIDER_OPENAI = "openai"
+PROVIDERS = (PROVIDER_LOCAL, PROVIDER_ANTHROPIC, PROVIDER_OPENAI)
 
 CACHE_TTL_SECONDS = 30.0
 MAX_TOKENS_MIN, MAX_TOKENS_MAX = 256, 32768
@@ -269,7 +270,11 @@ def environment_config() -> ResolvedConfig:
 
 def _from_row(row: LLMEndpointConfig) -> ResolvedConfig:
     settings = get_settings()
-    api_key = settings.anthropic_api_key if row.provider == PROVIDER_ANTHROPIC else settings.local_api_key
+    api_key = (
+        settings.anthropic_api_key if row.provider == PROVIDER_ANTHROPIC
+        else settings.openai_api_key if row.provider == PROVIDER_OPENAI
+        else settings.local_api_key
+    )
     return ResolvedConfig(
         provider=row.provider,
         chat_model=row.chat_model,
@@ -388,7 +393,9 @@ def validate(
     if not TIMEOUT_MIN <= timeout_seconds <= TIMEOUT_MAX:
         raise LLMConfigError(f"El tiempo de espera tiene que estar entre {TIMEOUT_MIN} y {TIMEOUT_MAX} segundos.")
 
-    if provider == PROVIDER_ANTHROPIC:
+    if provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENAI):
+        if provider == PROVIDER_OPENAI and not get_settings().openai_api_key.strip():
+            raise LLMConfigError("OpenAI no está habilitado: falta OPENAI_API_KEY en Render.")
         return {
             "provider": provider,
             "base_url": None,
