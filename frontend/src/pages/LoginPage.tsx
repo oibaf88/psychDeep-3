@@ -39,10 +39,12 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
-      <div className="auth-brand" aria-hidden="true">
-        <PsychDeepLogo className="auth-brand__logo" />
+      <div className="auth-brand-lockup">
+        <div className="auth-brand" aria-hidden="true">
+          <PsychDeepLogo className="auth-brand__logo" />
+        </div>
+        <h1>psychDeep - cuidamos de tu salud</h1>
       </div>
-      <h1>PsychDeep</h1>
       <p className="subtitle">
         Herramienta de autorregulacion y autoconciencia. No es un dispositivo medico ni sustituye a tu equipo de
         tratamiento.
