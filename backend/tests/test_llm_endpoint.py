@@ -204,7 +204,11 @@ class OpenAIProviderTests(unittest.TestCase):
             )
             result = provider.chat(
                 "SYSTEM PROMPT",
-                [{"role": "user", "content": "hola"}],
+                [
+                    {"role": "user", "content": "hola"},
+                    {"role": "assistant", "content": "¿En qué puedo ayudarte?"},
+                    {"role": "user", "content": "Necesito ayuda"},
+                ],
                 max_tokens=1536,
             )
 
@@ -214,6 +218,18 @@ class OpenAIProviderTests(unittest.TestCase):
         self.assertEqual(fake.requests[0]["json"]["reasoning"]["effort"], "medium")
         self.assertEqual(fake.requests[0]["json"]["max_output_tokens"], 1536)
         self.assertFalse(fake.requests[0]["json"]["store"])
+        self.assertEqual(
+            fake.requests[0]["json"]["input"][0]["content"][0]["type"],
+            "input_text",
+        )
+        self.assertEqual(
+            fake.requests[0]["json"]["input"][1]["content"][0]["type"],
+            "output_text",
+        )
+        self.assertEqual(
+            fake.requests[0]["json"]["input"][2]["content"][0]["type"],
+            "input_text",
+        )
 
 
 class ProviderSelectionTests(unittest.TestCase):
