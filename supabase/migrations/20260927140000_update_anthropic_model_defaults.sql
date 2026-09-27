@@ -1,10 +1,5 @@
 begin;
 
-alter table psychdeep_v12.llm_user_preferences
-    alter column chat_model set default 'claude-sonnet-4-6',
-    alter column analysis_model set default 'claude-sonnet-4-6',
-    alter column copilot_model set default 'claude-sonnet-4-6';
-
 update psychdeep_v12.llm_user_preferences
 set
     chat_model = 'claude-sonnet-4-6',
