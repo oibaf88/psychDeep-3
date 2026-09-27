@@ -132,8 +132,12 @@ def status(db: Session, user_id: uuid.UUID) -> dict:
     row = db.get(UserLLMPreference, user_id)
     settings = get_settings()
     selected = row.provider if row else llm_config.PROVIDER_LOCAL
-    local = selected == llm_config.PROVIDER_LOCAL
-    openai = selected == "openai"
+    openai = bool(
+        row
+        and row.provider == llm_config.PROVIDER_LOCAL
+        and (row.base_url or "").rstrip("/") == "https://api.openai.com/v1"
+    )
+    local = selected == llm_config.PROVIDER_LOCAL and not openai
     return {
         "configured": row is not None,
         "provider": selected,
@@ -177,6 +181,13 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
         chat_model = payload.chat_model or settings.openai_chat_model
         analysis_model = payload.analysis_model or settings.openai_analysis_model
         copilot_model = payload.copilot_model or settings.openai_copilot_model or chat_model
+    elif payload.provider == "openai":
+        if not settings.openai_api_key:
+            raise ValueError("OpenAI no está habilitado: falta OPENAI_API_KEY en Render.")
+        endpoint = "https://api.openai.com/v1"
+        chat_model = payload.chat_model or settings.openai_chat_model
+        analysis_model = payload.analysis_model or settings.openai_analysis_model
+        copilot_model = payload.copilot_model or settings.openai_copilot_model or chat_model
     else:
         _, endpoint = shared_gateway()
         # Only the operator's pinned local model IDs are authoritative.
@@ -198,7 +209,7 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
         row = UserLLMPreference(user_id=user_id, provider=fields["provider"],
                                 chat_model=fields["chat_model"], analysis_model=fields["analysis_model"])
     row.provider = fields["provider"]
-    row.base_url = None  # Never persist a user-controlled destination.
+    row.base_url = fields["base_url"] if payload.provider == "openai" else None  # OpenAI is a fixed server-owned destination.
     row.chat_model = fields["chat_model"]
     row.analysis_model = fields["analysis_model"]
     row.copilot_model = fields["copilot_model"]
@@ -228,7 +239,7 @@ def resolve(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
             max_tokens=row.max_tokens, timeout_seconds=row.timeout_seconds,
             label="Selección de cuenta", source="runtime",
         )
-    if selected == "openai":
+    if openai:
         if not settings.openai_api_key:
             raise RuntimeError("OpenAI no está habilitado: falta OPENAI_API_KEY en Render.")
         return PersonalResolvedConfig(
