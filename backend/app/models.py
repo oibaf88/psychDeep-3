@@ -581,11 +581,11 @@ class LLMEndpointConfig(Base):
     deactivated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (
-        CheckConstraint("provider IN ('anthropic','openai','openai_compatible')", name="ck_llm_endpoint_provider"),
+        CheckConstraint("provider IN ('anthropic','openai_compatible')", name="ck_llm_endpoint_provider"),
         # Gemma 2 endpoints require a URL; Claude is server-keyed and has none.
         # accepted solely so historical rows never become unreadable.
         CheckConstraint(
-            "(provider IN ('anthropic','openai') AND base_url IS NULL) OR "
+            "(provider = 'anthropic' AND base_url IS NULL) OR "
             "(provider = 'openai_compatible' AND base_url IS NOT NULL)",
             name="ck_llm_endpoint_base_url",
         ),
