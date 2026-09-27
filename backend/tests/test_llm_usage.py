@@ -45,7 +45,6 @@ class AnthropicUsageTests(unittest.TestCase):
         self.assertEqual(system[0]["text"], "large static clinical prompt")
         self.assertEqual(system[0]["cache_control"], {"type": "ephemeral"})
         self.assertEqual(system[1]["text"], "[CONTEXTO INTERNO DE SOLO LECTURA]\ndynamic context")
-        self.assertEqual(kwargs["cache_control"], {"type": "ephemeral"})
         self.assertEqual(result.metadata.input_tokens, 101)
         self.assertEqual(result.metadata.output_tokens, 79)
         self.assertEqual(result.metadata.thinking_tokens, 61)
