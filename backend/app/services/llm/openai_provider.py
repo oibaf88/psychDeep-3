@@ -178,6 +178,17 @@ class OpenAIProvider(LLMProvider):
             body = {}
         if response.is_error:
             status = response.status_code
+            error = body.get("error") if isinstance(body, dict) else None
+            if isinstance(error, dict):
+                code = error.get("code") if isinstance(error.get("code"), str) else ""
+                kind = error.get("type") if isinstance(error.get("type"), str) else ""
+                message = error.get("message") if isinstance(error.get("message"), str) else ""
+                import logging
+                logging.getLogger("psychapp.llm.openai").warning(
+                    "OpenAI rejected request: status=%s code=%s type=%s message=%s request_id=%s",
+                    status, code[:120], kind[:120], message[:500],
+                    response.headers.get("x-request-id", "")[:120],
+                )
             raise StructuredAnalysisError(
                 "configuration_error" if status in (400, 401, 403, 404) else "provider_error",
                 error_code=f"http_{status}",
