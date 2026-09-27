@@ -22,47 +22,69 @@ const CREST_FRAC = 0.12;
 type RideStatus = "idle" | "riding" | "paused" | "done";
 type RidePhase = "idle" | "rising" | "crest" | "falling" | "done";
 
-/**
- * One soft swell: water fills from the bottom and a single crest sits on top.
- * Higher `level` → higher water + taller crest. `crestX` slides the crest
- * left→center→right so the ride reads as one wave passing, not a scrolling sine.
- */
-function swellPath(level: number, crestX: number, softness = 1) {
-  const clamped = Math.min(10, Math.max(0, level));
-  const surface = 152 - clamped * 9.8;
-  const amp = (6 + clamped * 5.2) * softness;
-  const halfWidth = 70 + clamped * 4;
-  const left = crestX - halfWidth;
-  const right = crestX + halfWidth;
-  const crestY = surface - amp;
-  const shoulder = surface - amp * 0.28;
+const WAVE_WIDTH = 320;
+const WAVE_HEIGHT = 160;
+const WAVE_SAMPLES = 48;
 
-  return [
-    `M 0 160`,
-    `L 0 ${surface}`,
-    `L ${Math.max(0, left - 20)} ${surface}`,
-    `C ${left} ${surface}, ${left + halfWidth * 0.28} ${shoulder}, ${crestX - halfWidth * 0.18} ${crestY + amp * 0.12}`,
-    `C ${crestX - halfWidth * 0.06} ${crestY}, ${crestX + halfWidth * 0.06} ${crestY}, ${crestX + halfWidth * 0.18} ${crestY + amp * 0.12}`,
-    `C ${right - halfWidth * 0.28} ${shoulder}, ${right} ${surface}, ${Math.min(320, right + 20)} ${surface}`,
-    `L 320 ${surface}`,
-    `L 320 160`,
-    `Z`,
-  ].join(" ");
+interface WaveLayer {
+  amplitude: number;
+  cycles: number;
+  phaseOffset: number;
+  speed: number;
+  verticalOffset: number;
 }
 
-function foamPath(level: number, crestX: number) {
-  const clamped = Math.min(10, Math.max(0, level));
-  const surface = 152 - clamped * 9.8;
-  const amp = 6 + clamped * 5.2;
-  const halfWidth = 70 + clamped * 4;
-  const crestY = surface - amp;
-  const left = crestX - halfWidth * 0.55;
-  const right = crestX + halfWidth * 0.55;
-  return [
-    `M ${left} ${surface - amp * 0.15}`,
-    `C ${crestX - halfWidth * 0.2} ${crestY + 2}, ${crestX - 8} ${crestY}, ${crestX} ${crestY}`,
-    `C ${crestX + 8} ${crestY}, ${crestX + halfWidth * 0.2} ${crestY + 2}, ${right} ${surface - amp * 0.15}`,
-  ].join(" ");
+/**
+ * Three independent wave fields make the visual read as layered water rather
+ * than three copies of the same curve. Intensity changes the response
+ * non-linearly: high urge raises the whole body, increases crest-to-trough
+ * distance and accelerates the motion.
+ */
+const WAVE_LAYERS: WaveLayer[] = [
+  { amplitude: 0.62, cycles: 1.65, phaseOffset: 1.25, speed: 0.76, verticalOffset: 6 },
+  { amplitude: 0.82, cycles: 2.05, phaseOffset: -0.45, speed: 1.02, verticalOffset: 2 },
+  { amplitude: 1.0, cycles: 2.35, phaseOffset: 0, speed: 1.28, verticalOffset: 0 },
+];
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function waveSurface(level: number, phase: number, layer: WaveLayer): Array<{ x: number; y: number }> {
+  const normalized = clamp01(level / 10);
+  const severity = Math.pow(normalized, 1.55);
+  const baseWaterline = 140 - severity * 72;
+  const swellRange = 3 + severity * 27;
+  const swell = (0.5 - 0.5 * Math.cos(phase * 0.72 + layer.phaseOffset)) * swellRange;
+  const amplitude = (2.5 + severity * 28) * layer.amplitude;
+  const travelPhase = phase * layer.speed;
+
+  return Array.from({ length: WAVE_SAMPLES + 1 }, (_, index) => {
+    const x = (index / WAVE_SAMPLES) * WAVE_WIDTH;
+    const position = index / WAVE_SAMPLES;
+    const angle = position * Math.PI * 2 * layer.cycles + travelPhase + layer.phaseOffset;
+    const primary = Math.sin(angle);
+    const harmonic = 0.28 * Math.sin(angle * 1.92 - travelPhase * 0.7);
+    const y = baseWaterline - swell + layer.verticalOffset + (primary + harmonic) * amplitude * 0.5;
+    return { x, y: Math.max(14, Math.min(WAVE_HEIGHT - 2, y)) };
+  });
+}
+
+function fillWavePath(points: Array<{ x: number; y: number }>): string {
+  const surface = points.map(({ x, y }) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(" L ");
+  return `M 0 ${WAVE_HEIGHT} L ${surface} L ${WAVE_WIDTH} ${WAVE_HEIGHT} Z`;
+}
+
+function surfacePath(points: Array<{ x: number; y: number }>): string {
+  return `M ${points.map(({ x, y }) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(" L ")}`;
+}
+
+function wavePath(level: number, phase: number, layer: WaveLayer): string {
+  return fillWavePath(waveSurface(level, phase, layer));
+}
+
+function foamPath(level: number, phase: number): string {
+  return surfacePath(waveSurface(level, phase, WAVE_LAYERS[2]));
 }
 
 function peakForStart(start: number): number {
@@ -85,18 +107,6 @@ function intensityAt(progress: number, start: number, peak: number): number {
   return peak * (1 - eased);
 }
 
-function crestXAt(progress: number): number {
-  const p = Math.min(1, Math.max(0, progress));
-  if (p < RISE_FRAC) {
-    const t = p / RISE_FRAC;
-    return 48 + (160 - 48) * (t * t * (3 - 2 * t));
-  }
-  if (p < RISE_FRAC + CREST_FRAC) {
-    return 160;
-  }
-  const t = (p - RISE_FRAC - CREST_FRAC) / (1 - RISE_FRAC - CREST_FRAC);
-  return 160 + (272 - 160) * (t * t * (3 - 2 * t));
-}
 
 function phaseFromProgress(progress: number, start: number, peak: number): RidePhase {
   if (progress <= 0) return "idle";
@@ -132,11 +142,15 @@ export default function WavePage() {
   const [alternatives, setAlternatives] = useState<string[]>([]);
   const [rideStatus, setRideStatus] = useState<RideStatus>("idle");
   const [rideProgress, setRideProgress] = useState(0);
+  const [visualPhase, setVisualPhase] = useState(0);
 
   const startLevelRef = useRef(5);
   const peakRef = useRef(7);
   const elapsedRef = useRef(0);
+  const urgeLevelRef = useRef(5);
   const lastTickRef = useRef<number | null>(null);
+  const visualPhaseRef = useRef(0);
+  const visualFrameAccumulatorRef = useRef(0);
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -147,43 +161,59 @@ export default function WavePage() {
   }, []);
 
   useEffect(() => {
-    if (rideStatus !== "riding") {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      lastTickRef.current = null;
-      return undefined;
-    }
+    let mounted = true;
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
     const tick = (now: number) => {
-      if (lastTickRef.current === null) {
-        lastTickRef.current = now;
-      }
-      const delta = now - lastTickRef.current;
-      lastTickRef.current = now;
-      elapsedRef.current = Math.min(RIDE_DURATION_MS, elapsedRef.current + delta);
-      const progress = elapsedRef.current / RIDE_DURATION_MS;
-      const next = intensityAt(progress, startLevelRef.current, peakRef.current);
-      setUrgeLevel(Math.round(next * 10) / 10);
-      setRideProgress(progress);
+      if (!mounted) return;
+      if (lastTickRef.current === null) lastTickRef.current = now;
 
-      if (progress >= 1) {
-        setUrgeLevel(0);
-        setRideProgress(1);
-        setRideStatus("done");
-        rafRef.current = null;
-        return;
+      const delta = Math.min(80, now - lastTickRef.current);
+      lastTickRef.current = now;
+
+      if (rideStatus === "riding") {
+        elapsedRef.current = Math.min(RIDE_DURATION_MS, elapsedRef.current + delta);
+        const progress = elapsedRef.current / RIDE_DURATION_MS;
+        const next = intensityAt(progress, startLevelRef.current, peakRef.current);
+        const displayNext = Math.round(next * 10) / 10;
+        urgeLevelRef.current = displayNext;
+        setUrgeLevel(displayNext);
+        setRideProgress(progress);
+
+        if (progress >= 1) {
+          urgeLevelRef.current = 0;
+          setUrgeLevel(0);
+          setRideProgress(1);
+          setRideStatus("done");
+        }
       }
+
+      if (rideStatus !== "paused" && !reducedMotion) {
+        const motionLevel = rideStatus === "riding"
+          ? intensityAt(elapsedRef.current / RIDE_DURATION_MS, startLevelRef.current, peakRef.current)
+          : urgeLevelRef.current;
+        const speed = 0.00115 + clamp01(motionLevel / 10) * 0.0048;
+        visualPhaseRef.current += delta * speed;
+
+        visualFrameAccumulatorRef.current += delta;
+        if (visualFrameAccumulatorRef.current >= 33) {
+          visualFrameAccumulatorRef.current = 0;
+          setVisualPhase(visualPhaseRef.current);
+        }
+      }
+
       rafRef.current = requestAnimationFrame(tick);
     };
 
     rafRef.current = requestAnimationFrame(tick);
     return () => {
+      mounted = false;
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
+      lastTickRef.current = null;
+      visualFrameAccumulatorRef.current = 0;
     };
   }, [rideStatus]);
 
@@ -196,22 +226,33 @@ export default function WavePage() {
         ? phaseFromProgress(rideProgress, startLevelRef.current, peakRef.current)
         : "idle";
 
-  const crestX = isAuto || rideStatus === "done" ? crestXAt(rideProgress) : 160;
-  const waveFront = useMemo(() => swellPath(urgeLevel, crestX, 1), [urgeLevel, crestX]);
-  const waveBack = useMemo(
-    () => swellPath(Math.max(0, urgeLevel - 1.5), crestX - 28, 0.72),
-    [urgeLevel, crestX],
+  const waveBack = useMemo(() => wavePath(
+    Math.max(0, urgeLevel - 1.3),
+    visualPhase,
+    WAVE_LAYERS[0],
+  ), [urgeLevel, visualPhase]);
+
+  const waveMid = useMemo(() => wavePath(
+    Math.max(0, urgeLevel - 0.5),
+    visualPhase,
+    WAVE_LAYERS[1],
+  ), [urgeLevel, visualPhase]);
+
+  const waveFront = useMemo(
+    () => wavePath(urgeLevel, visualPhase, WAVE_LAYERS[2]),
+    [urgeLevel, visualPhase],
   );
-  const waveMid = useMemo(
-    () => swellPath(Math.max(0, urgeLevel - 0.6), crestX + 18, 0.88),
-    [urgeLevel, crestX],
+
+  const waveFoam = useMemo(
+    () => foamPath(urgeLevel, visualPhase),
+    [urgeLevel, visualPhase],
   );
-  const waveFoam = useMemo(() => foamPath(urgeLevel, crestX), [urgeLevel, crestX]);
 
   const waveState =
     ridePhase === "crest" || urgeLevel >= 8 ? "storm" : ridePhase === "rising" || urgeLevel >= 4 ? "rising" : "calm";
   const waveStyle = {
     "--wave-fill": `${Math.min(100, Math.max(8, urgeLevel * 9.2))}%`,
+    "--wave-intensity": String(urgeLevel / 10),
   } as CSSProperties;
 
   function startRide() {
@@ -224,6 +265,7 @@ export default function WavePage() {
     elapsedRef.current = RIDE_DURATION_MS * startProgress;
     lastTickRef.current = null;
     setRideProgress(startProgress);
+    urgeLevelRef.current = start;
     setUrgeLevel(start);
     setRideStatus("riding");
   }
@@ -246,6 +288,7 @@ export default function WavePage() {
 
   function onSliderChange(value: number) {
     if (isAuto) return;
+    urgeLevelRef.current = value;
     setUrgeLevel(value);
     if (rideStatus === "done") {
       setRideStatus("idle");
