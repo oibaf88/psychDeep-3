@@ -1,6 +1,7 @@
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import BreathingPacer from "../components/BreathingPacer";
 import { api } from "../api";
+import "../wave-swell.css";
 
 interface ResourcesResponse {
   safe_grounding_alternatives: string[];
@@ -19,24 +20,49 @@ const RISE_FRAC = 0.28;
 const CREST_FRAC = 0.12;
 
 type RideStatus = "idle" | "riding" | "paused" | "done";
+type RidePhase = "idle" | "rising" | "crest" | "falling" | "done";
 
-function wavePath(level: number, offset: number, detail = 1) {
-  const baseline = 128 - level * 6.5;
-  const amplitude = 5 + level * 3.15;
-  const wavelength = Math.max(38, 98 - level * 4) / detail;
-  const crestSkew = Math.min(0.72, 0.34 + level * 0.035);
-  let path = `M ${-wavelength + offset} ${baseline}`;
+/**
+ * One soft swell: water fills from the bottom and a single crest sits on top.
+ * Higher `level` → higher water + taller crest. `crestX` slides the crest
+ * left→center→right so the ride reads as one wave passing, not a scrolling sine.
+ */
+function swellPath(level: number, crestX: number, softness = 1) {
+  const clamped = Math.min(10, Math.max(0, level));
+  const surface = 152 - clamped * 9.8;
+  const amp = (6 + clamped * 5.2) * softness;
+  const halfWidth = 70 + clamped * 4;
+  const left = crestX - halfWidth;
+  const right = crestX + halfWidth;
+  const crestY = surface - amp;
+  const shoulder = surface - amp * 0.28;
 
-  for (let x = -wavelength + offset; x < 384 + wavelength; x += wavelength) {
-    path += ` C ${x + wavelength * 0.15} ${baseline - amplitude * crestSkew}, ${x + wavelength * 0.42} ${
-      baseline - amplitude
-    }, ${x + wavelength * 0.58} ${baseline - amplitude * 0.68}`;
-    path += ` C ${x + wavelength * 0.76} ${baseline - amplitude * 0.18}, ${x + wavelength * 0.84} ${
-      baseline + amplitude
-    }, ${x + wavelength} ${baseline}`;
-  }
+  return [
+    `M 0 160`,
+    `L 0 ${surface}`,
+    `L ${Math.max(0, left - 20)} ${surface}`,
+    `C ${left} ${surface}, ${left + halfWidth * 0.28} ${shoulder}, ${crestX - halfWidth * 0.18} ${crestY + amp * 0.12}`,
+    `C ${crestX - halfWidth * 0.06} ${crestY}, ${crestX + halfWidth * 0.06} ${crestY}, ${crestX + halfWidth * 0.18} ${crestY + amp * 0.12}`,
+    `C ${right - halfWidth * 0.28} ${shoulder}, ${right} ${surface}, ${Math.min(320, right + 20)} ${surface}`,
+    `L 320 ${surface}`,
+    `L 320 160`,
+    `Z`,
+  ].join(" ");
+}
 
-  return `${path} L 384 160 L 0 160 Z`;
+function foamPath(level: number, crestX: number) {
+  const clamped = Math.min(10, Math.max(0, level));
+  const surface = 152 - clamped * 9.8;
+  const amp = 6 + clamped * 5.2;
+  const halfWidth = 70 + clamped * 4;
+  const crestY = surface - amp;
+  const left = crestX - halfWidth * 0.55;
+  const right = crestX + halfWidth * 0.55;
+  return [
+    `M ${left} ${surface - amp * 0.15}`,
+    `C ${crestX - halfWidth * 0.2} ${crestY + 2}, ${crestX - 8} ${crestY}, ${crestX} ${crestY}`,
+    `C ${crestX + 8} ${crestY}, ${crestX + halfWidth * 0.2} ${crestY + 2}, ${right} ${surface - amp * 0.15}`,
+  ].join(" ");
 }
 
 function peakForStart(start: number): number {
@@ -44,7 +70,6 @@ function peakForStart(start: number): number {
   return Math.min(10, start + Math.max(2, Math.ceil((10 - start) * 0.35)));
 }
 
-/** Smooth urge curve: rise from start → peak, hold, then fall to 0. */
 function intensityAt(progress: number, start: number, peak: number): number {
   const p = Math.min(1, Math.max(0, progress));
   if (p < RISE_FRAC) {
@@ -60,17 +85,46 @@ function intensityAt(progress: number, start: number, peak: number): number {
   return peak * (1 - eased);
 }
 
-function ridePhaseLabel(progress: number, level: number): string {
-  if (progress < RISE_FRAC) {
-    return "La ola está subiendo. Obsérvala sin pelear ni perseguirla.";
+function crestXAt(progress: number): number {
+  const p = Math.min(1, Math.max(0, progress));
+  if (p < RISE_FRAC) {
+    const t = p / RISE_FRAC;
+    return 48 + (160 - 48) * (t * t * (3 - 2 * t));
   }
-  if (progress < RISE_FRAC + CREST_FRAC) {
-    return "Este es el pico. Se siente intenso, y también pasa.";
+  if (p < RISE_FRAC + CREST_FRAC) {
+    return 160;
   }
-  if (level <= 2) {
-    return "La ola casi ha bajado. Quédate un momento con lo que queda.";
+  const t = (p - RISE_FRAC - CREST_FRAC) / (1 - RISE_FRAC - CREST_FRAC);
+  return 160 + (272 - 160) * (t * t * (3 - 2 * t));
+}
+
+function phaseFromProgress(progress: number, start: number, peak: number): RidePhase {
+  if (progress <= 0) return "idle";
+  if (progress >= 1) return "done";
+  // Already at peak: skip "rising" copy even during the rise time window.
+  if (start >= peak - 0.05) {
+    if (progress < RISE_FRAC + CREST_FRAC) return "crest";
+    return "falling";
   }
-  return "La ola está bajando. Sigue observando el movimiento.";
+  if (progress < RISE_FRAC) return "rising";
+  if (progress < RISE_FRAC + CREST_FRAC) return "crest";
+  return "falling";
+}
+
+function coachingForPhase(phase: RidePhase, paused: boolean): string {
+  if (paused) return "Pausa. La ola se queda donde está hasta que sigas.";
+  switch (phase) {
+    case "rising":
+      return "La ola está subiendo. Obsérvala sin pelear ni perseguirla.";
+    case "crest":
+      return "Este es el pico. Se siente intenso, y también pasa.";
+    case "falling":
+      return "La ola está bajando. Sigue observando el movimiento.";
+    case "done":
+      return "La ola ha bajado. Puedes volver a observar o ajustar la intensidad a mano.";
+    default:
+      return "Ajusta la intensidad inicial y pulsa «Observar la ola» para verla subir, hacer pico y bajar.";
+  }
 }
 
 export default function WavePage() {
@@ -133,27 +187,43 @@ export default function WavePage() {
     };
   }, [rideStatus]);
 
-  const waveFront = useMemo(() => wavePath(urgeLevel, 0), [urgeLevel]);
-  const waveBack = useMemo(() => wavePath(Math.max(1, urgeLevel - 2), 32, 0.85), [urgeLevel]);
-  const waveMid = useMemo(() => wavePath(Math.max(1, urgeLevel - 1), 62, 1.25), [urgeLevel]);
-  const waveFoam = useMemo(() => wavePath(Math.min(10, urgeLevel + 1), 12, 1.6), [urgeLevel]);
-  const waveState = urgeLevel >= 8 ? "storm" : urgeLevel >= 4 ? "rising" : "calm";
-  const waveStyle = {
-    "--wave-duration": `${Math.max(5, 12 - urgeLevel * 0.6)}s`,
-    "--wave-back-duration": `${Math.max(8, 16 - urgeLevel * 0.5)}s`,
-    "--wave-crest-duration": `${Math.max(3.5, 9 - urgeLevel * 0.42)}s`,
-  } as CSSProperties;
-
   const isAuto = rideStatus === "riding" || rideStatus === "paused";
   const displayLevel = Math.round(urgeLevel);
+  const ridePhase: RidePhase =
+    rideStatus === "done"
+      ? "done"
+      : isAuto
+        ? phaseFromProgress(rideProgress, startLevelRef.current, peakRef.current)
+        : "idle";
+
+  const crestX = isAuto || rideStatus === "done" ? crestXAt(rideProgress) : 160;
+  const waveFront = useMemo(() => swellPath(urgeLevel, crestX, 1), [urgeLevel, crestX]);
+  const waveBack = useMemo(
+    () => swellPath(Math.max(0, urgeLevel - 1.5), crestX - 28, 0.72),
+    [urgeLevel, crestX],
+  );
+  const waveMid = useMemo(
+    () => swellPath(Math.max(0, urgeLevel - 0.6), crestX + 18, 0.88),
+    [urgeLevel, crestX],
+  );
+  const waveFoam = useMemo(() => foamPath(urgeLevel, crestX), [urgeLevel, crestX]);
+
+  const waveState =
+    ridePhase === "crest" || urgeLevel >= 8 ? "storm" : ridePhase === "rising" || urgeLevel >= 4 ? "rising" : "calm";
+  const waveStyle = {
+    "--wave-fill": `${Math.min(100, Math.max(8, urgeLevel * 9.2))}%`,
+  } as CSSProperties;
 
   function startRide() {
     const start = Math.min(10, Math.max(0, urgeLevel));
+    const peak = peakForStart(start);
     startLevelRef.current = start;
-    peakRef.current = peakForStart(start);
-    elapsedRef.current = 0;
+    peakRef.current = peak;
+    // If already at the peak, skip the empty "rise" and begin at the crest window.
+    const startProgress = start >= peak - 0.05 ? RISE_FRAC : 0;
+    elapsedRef.current = RIDE_DURATION_MS * startProgress;
     lastTickRef.current = null;
-    setRideProgress(0);
+    setRideProgress(startProgress);
     setUrgeLevel(start);
     setRideStatus("riding");
   }
@@ -177,8 +247,13 @@ export default function WavePage() {
   function onSliderChange(value: number) {
     if (isAuto) return;
     setUrgeLevel(value);
-    if (rideStatus === "done") setRideStatus("idle");
+    if (rideStatus === "done") {
+      setRideStatus("idle");
+      setRideProgress(0);
+    }
   }
+
+  const coaching = coachingForPhase(ridePhase, rideStatus === "paused");
 
   return (
     <div className="page">
@@ -229,20 +304,9 @@ export default function WavePage() {
           ) : null}
         </div>
 
-        {isAuto || rideStatus === "done" ? (
-          <p className="meta" aria-live="polite">
-            {rideStatus === "paused"
-              ? "Pausa. La ola se queda donde está hasta que sigas."
-              : rideStatus === "done"
-                ? "La ola ha bajado. Puedes volver a observar o ajustar la intensidad a mano."
-                : ridePhaseLabel(rideProgress, urgeLevel)}
-          </p>
-        ) : (
-          <p className="info">
-            Ajusta la intensidad inicial y pulsa «Observar la ola» para recorrer subir, pico y bajada sin mover el
-            control.
-          </p>
-        )}
+        <p className="meta" aria-live="polite">
+          {coaching}
+        </p>
 
         {isAuto ? (
           <div
@@ -252,26 +316,17 @@ export default function WavePage() {
             aria-valuemax={100}
             aria-valuenow={Math.round(rideProgress * 100)}
             aria-label="Progreso de la observación de la ola"
-            style={{
-              marginTop: "8px",
-              height: "6px",
-              borderRadius: "999px",
-              background: "rgba(47, 79, 158, 0.15)",
-              overflow: "hidden",
-            }}
           >
-            <div
-              style={{
-                width: `${Math.round(rideProgress * 100)}%`,
-                height: "100%",
-                background: "#6c98f4",
-                transition: "width 0.1s linear",
-              }}
-            />
+            <div className="wave-ride-progress__bar" style={{ width: `${Math.round(rideProgress * 100)}%` }} />
           </div>
         ) : null}
 
-        <div className={`wave-visual wave-visual--${waveState}`} style={waveStyle} aria-hidden="true">
+        <div
+          className={`wave-visual wave-visual--swell wave-visual--${waveState}${isAuto || rideStatus === "done" ? " wave-visual--riding" : ""}`}
+          style={waveStyle}
+          aria-hidden="true"
+          data-phase={ridePhase}
+        >
           <svg className="wave-svg" viewBox="0 0 320 160" preserveAspectRatio="none">
             <defs>
               <linearGradient id="waveFrontGradient" x1="0" x2="0" y1="0" y2="1">
@@ -294,11 +349,6 @@ export default function WavePage() {
             <path className="wave-foam" d={waveFoam} />
           </svg>
         </div>
-        <p>
-          {urgeLevel <= 3 && "La ola esta perdiendo fuerza. Sigue observando sin perseguirla ni pelear con ella."}
-          {urgeLevel > 3 && urgeLevel <= 7 && "Estas dentro de la ola. Respira, nota el movimiento y date tiempo."}
-          {urgeLevel > 7 && "Este es el pico. Se siente muy intenso, pero el pico tambien se mueve y termina bajando."}
-        </p>
       </section>
 
       <section className="card">
