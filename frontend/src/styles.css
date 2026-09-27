@@ -216,8 +216,10 @@ main {
 /* At 26px the master's 13 curves fill in, so the chrome takes the compact
    drawing — the same shape, read at the size it was cut for. */
 .navbar-mark {
-  width: 26px;
-  height: 26px;
+  width: 26px !important;
+  height: 26px !important;
+  max-width: 26px;
+  max-height: 26px;
   flex: none;
 }
 
