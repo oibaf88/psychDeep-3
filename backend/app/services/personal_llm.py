@@ -133,12 +133,25 @@ def status(db: Session, user_id: uuid.UUID) -> dict:
     settings = get_settings()
     selected = row.provider if row else llm_config.PROVIDER_LOCAL
     local = selected == llm_config.PROVIDER_LOCAL
+    openai = selected == "openai"
     return {
         "configured": row is not None,
         "provider": selected,
-        "chat_model": settings.local_chat_model if local else row.chat_model,
-        "analysis_model": settings.local_analysis_model if local else row.analysis_model,
-        "copilot_model": "" if local else row.copilot_model,
+        "chat_model": (
+            settings.local_chat_model if local
+            else settings.openai_chat_model if openai
+            else row.chat_model
+        ),
+        "analysis_model": (
+            settings.local_analysis_model if local
+            else settings.openai_analysis_model if openai
+            else row.analysis_model
+        ),
+        "copilot_model": (
+            "" if local
+            else settings.openai_copilot_model or settings.openai_chat_model if openai
+            else row.copilot_model
+        ),
         "default_local_chat_model": settings.local_chat_model,
         "default_local_analysis_model": settings.local_analysis_model,
         "max_tokens": row.max_tokens if row else min(settings.model_local_max_tokens, 32768),
@@ -146,6 +159,7 @@ def status(db: Session, user_id: uuid.UUID) -> dict:
         "local_available": shared_ready(),
         "lm_api_key_configured": bool(row and row.lm_api_key_encrypted),
         "anthropic_allowed": bool(settings.model_allow_commercial and settings.anthropic_api_key),
+        "openai_allowed": bool(settings.openai_api_key),
     }
 
 
@@ -156,6 +170,13 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
             raise ValueError("Anthropic no está habilitado por el administrador.")
         endpoint = None
         chat_model, analysis_model, copilot_model = payload.chat_model, payload.analysis_model, payload.copilot_model
+    elif payload.provider == "openai":
+        if not settings.openai_api_key:
+            raise ValueError("OpenAI no está habilitado: falta OPENAI_API_KEY en Render.")
+        endpoint = None
+        chat_model = payload.chat_model or settings.openai_chat_model
+        analysis_model = payload.analysis_model or settings.openai_analysis_model
+        copilot_model = payload.copilot_model or settings.openai_copilot_model or chat_model
     else:
         _, endpoint = shared_gateway()
         # Only the operator's pinned local model IDs are authoritative.
@@ -206,6 +227,21 @@ def resolve(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
             copilot_model_explicit=row.copilot_model, api_key=settings.anthropic_api_key,
             max_tokens=row.max_tokens, timeout_seconds=row.timeout_seconds,
             label="Selección de cuenta", source="runtime",
+        )
+    if selected == "openai":
+        if not settings.openai_api_key:
+            raise RuntimeError("OpenAI no está habilitado: falta OPENAI_API_KEY en Render.")
+        return PersonalResolvedConfig(
+            provider="openai",
+            chat_model=row.chat_model or settings.openai_chat_model,
+            analysis_model=row.analysis_model or settings.openai_analysis_model,
+            copilot_model=row.copilot_model or settings.openai_copilot_model or row.chat_model,
+            copilot_model_explicit=row.copilot_model,
+            api_key=settings.openai_api_key,
+            max_tokens=row.max_tokens,
+            timeout_seconds=row.timeout_seconds,
+            label="OpenAI / API de OpenAI",
+            source="runtime",
         )
     if selected != llm_config.PROVIDER_LOCAL:
         raise RuntimeError("Proveedor personal no autorizado.")
