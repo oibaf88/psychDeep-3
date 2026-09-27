@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NavBar from "./components/NavBar";
@@ -30,9 +30,12 @@ import AccountPage from "./pages/AccountPage";
 
 function Shell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const location = useLocation();
+  const isAuthPage = location.pathname === "/login" || location.pathname === "/register";
+
   return (
     <>
-      <NavBar />
+      {!isAuthPage && <NavBar />}
       <main>{children}</main>
       {user?.role === "patient" && <CrisisButton />}
     </>
