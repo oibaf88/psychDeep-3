@@ -124,7 +124,7 @@ class OpenAIProvider(LLMProvider):
             response_model=body.get("model") if isinstance(body.get("model"), str) else None,
             base_url=OPENAI_API_BASE_URL,
             message_id=body.get("id") if isinstance(body.get("id"), str) else None,
-            request_id=headers.get("x-request-id") or headers.get("x-request-id".replace("-", "_")),
+            request_id=headers.get("x-request-id"),
             stop_reason=body.get("status") if isinstance(body.get("status"), str) else None,
             input_tokens=_usage_value(usage, "input_tokens"),
             output_tokens=_usage_value(usage, "output_tokens"),
