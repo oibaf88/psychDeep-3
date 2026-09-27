@@ -178,13 +178,8 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
     elif payload.provider == "openai":
         if not settings.openai_api_key:
             raise ValueError("OpenAI no está habilitado: falta OPENAI_API_KEY en Render.")
-        endpoint = None
-        chat_model = payload.chat_model or settings.openai_chat_model
-        analysis_model = payload.analysis_model or settings.openai_analysis_model
-        copilot_model = payload.copilot_model or settings.openai_copilot_model or chat_model
-    elif payload.provider == "openai":
-        if not settings.openai_api_key:
-            raise ValueError("OpenAI no está habilitado: falta OPENAI_API_KEY en Render.")
+        # The OpenAI destination is server-owned. The account may choose models,
+        # but never an arbitrary URL.
         endpoint = "https://api.openai.com/v1"
         chat_model = payload.chat_model or settings.openai_chat_model
         analysis_model = payload.analysis_model or settings.openai_analysis_model
@@ -241,6 +236,11 @@ def resolve(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
     row = db.get(UserLLMPreference, user_id)
     settings = get_settings()
     selected = row.provider if row else llm_config.PROVIDER_LOCAL
+    openai = bool(
+        row
+        and row.provider == llm_config.PROVIDER_LOCAL
+        and (row.base_url or "").rstrip("/") == "https://api.openai.com/v1"
+    )
     if selected == llm_config.PROVIDER_ANTHROPIC:
         if not settings.model_allow_commercial or not settings.anthropic_api_key:
             raise RuntimeError("Anthropic no está habilitado por el administrador.")
