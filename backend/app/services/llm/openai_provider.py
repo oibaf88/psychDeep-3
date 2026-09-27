@@ -136,6 +136,14 @@ class OpenAIProvider(LLMProvider):
         if self._usage_recorder is not None:
             self._usage_recorder(**kwargs)
 
+    @property
+    def copilot_model(self) -> str:
+        return self._copilot_model
+
+    @property
+    def copilot_effort(self) -> str:
+        return self._chat_effort
+
     @staticmethod
     def _input(messages: list[dict[str, str]]) -> list[dict[str, Any]]:
         return [
