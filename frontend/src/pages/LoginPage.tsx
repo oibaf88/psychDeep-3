@@ -45,11 +45,8 @@ export default function LoginPage() {
         </div>
         <h1>psychDeep - cuidamos de tu salud</h1>
       </div>
-      <p className="subtitle">
-        Herramienta de autorregulacion y autoconciencia. No es un dispositivo medico ni sustituye a tu equipo de
-        tratamiento.
-      </p>
       <form onSubmit={onSubmit} className="auth-form">
+
         {notice && <p className="info" role="status">{notice}</p>}
         <label>
           Email
@@ -64,6 +61,10 @@ export default function LoginPage() {
           {busy ? "Entrando..." : "Entrar"}
         </button>
       </form>
+      <p className="subtitle auth-disclaimer">
+        Herramienta de autorregulacion y autoconciencia. No es un dispositivo medico ni sustituye a tu equipo de
+        tratamiento.
+      </p>
       <p>
         No tienes cuenta? <Link to="/register">Registrate</Link>
       </p>
