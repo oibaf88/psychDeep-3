@@ -349,15 +349,24 @@ button:disabled {
 }
 
 .auth-page {
-  width: min(100% - 32px, 440px);
+  width: min(100% - 32px, 520px);
   margin: 22px auto 32px;
   text-align: center;
 }
 
-.auth-brand {
-  width: clamp(92px, 17vw, 112px);
-  aspect-ratio: 1;
+.auth-brand-lockup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
   margin: 0 auto 12px;
+  text-align: left;
+}
+
+.auth-brand {
+  width: clamp(58px, 10vw, 72px);
+  height: clamp(58px, 10vw, 72px);
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
   position: relative;
@@ -366,10 +375,10 @@ button:disabled {
 .auth-brand::before {
   content: "";
   position: absolute;
-  inset: 10%;
+  inset: 8%;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(102, 199, 197, 0.09) 0%, rgba(102, 199, 197, 0.025) 48%, transparent 72%);
-  filter: blur(7px);
+  background: radial-gradient(circle, rgba(102, 199, 197, 0.08) 0%, rgba(102, 199, 197, 0.02) 48%, transparent 72%);
+  filter: blur(6px);
   pointer-events: none;
 }
 
@@ -380,16 +389,33 @@ button:disabled {
   object-fit: contain;
 }
 
-.auth-page h1 {
+.auth-brand-lockup h1 {
   margin: 0;
-  font-size: clamp(1.75rem, 4vw, 2.15rem);
-  letter-spacing: -0.03em;
+  max-width: 25rem;
+  font-size: clamp(1.65rem, 4vw, 2.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
 }
 
 .auth-page > .subtitle {
   max-width: 36rem;
   margin: 7px auto 18px;
   line-height: 1.45;
+}
+
+@media (max-width: 560px) {
+  .auth-brand-lockup {
+    gap: 11px;
+  }
+
+  .auth-brand {
+    width: 56px;
+    height: 56px;
+  }
+
+  .auth-brand-lockup h1 {
+    font-size: 1.55rem;
+  }
 }
 
 .auth-form {
@@ -877,12 +903,25 @@ button:disabled {
   text-align: left;
 }
 
+/* Clinical alert semantics: colour is reinforced by the explicit
+   level text/icon in the component, never used as the sole carrier of meaning. */
 .alert-level-4 {
   border-left: 6px solid var(--danger);
+  background: var(--danger-bg);
 }
 
 .alert-level-3 {
   border-left: 6px solid var(--warning);
+  background: var(--warning-bg);
+}
+
+.patient-notice {
+  border-left: 4px solid var(--primary);
+}
+
+.patient-notice--accent {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
 }
 
 .alert-actions {
