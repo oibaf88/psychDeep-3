@@ -43,10 +43,9 @@ export default function LoginPage() {
         <div className="auth-brand" aria-hidden="true">
           <PsychDeepLogo className="auth-brand__logo" />
         </div>
-        <h1>psychDeep - cuidamos de tu salud</h1>
+        <h1>psychDeep: cuidamos de tu salud</h1>
       </div>
       <form onSubmit={onSubmit} className="auth-form">
-
         {notice && <p className="info" role="status">{notice}</p>}
         <label>
           Email
