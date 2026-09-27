@@ -74,11 +74,17 @@ def build_provider(config) -> LLMProvider:
             usage_recorder=record_usage_safely,
         )
     if config.provider == "openai":
+        from app.config import get_settings
         from app.services.llm_usage import record_usage_safely
+        settings = get_settings()
         return OpenAIProvider(
             chat_model=config.chat_model, analysis_model=config.analysis_model,
-            copilot_model=config.copilot_model, max_tokens=config.max_tokens,
+            copilot_model=config.copilot_model,
+            api_key=config.api_key or settings.openai_api_key,
+            max_tokens=config.max_tokens,
             timeout_seconds=float(config.timeout_seconds),
+            chat_effort=settings.openai_chat_effort,
+            analysis_effort=settings.openai_analysis_effort,
             usage_recorder=record_usage_safely,
         )
     raise RuntimeError("Proveedor LLM no admitido.")
