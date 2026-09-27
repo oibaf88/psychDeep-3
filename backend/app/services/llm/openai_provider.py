@@ -145,10 +145,18 @@ class OpenAIProvider(LLMProvider):
 
     @staticmethod
     def _input(messages: list[dict[str, str]]) -> list[dict[str, Any]]:
+        """Convert shared chat history to Responses API content parts.
+
+        User messages use input_text; assistant messages are prior model
+        output and therefore must use output_text.
+        """
         return [
             {
                 "role": message["role"],
-                "content": [{"type": "input_text", "text": message["content"]}],
+                "content": [{
+                    "type": "output_text" if message["role"] == "assistant" else "input_text",
+                    "text": message["content"],
+                }],
             }
             for message in messages
         ]
