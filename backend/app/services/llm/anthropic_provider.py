@@ -24,6 +24,16 @@ from app.services.llm.base import (
 
 ANTHROPIC_API_BASE_URL = "https://api.anthropic.com"
 
+# Compatibility mapping for persisted settings created before Anthropic retired
+# Claude 3.5 Sonnet. This is adapter-level normalization, not provider fallback.
+LEGACY_MODEL_ALIASES = {
+    "claude-3-5-sonnet": "claude-sonnet-4-6",
+    "claude-3-5-sonnet-20240620": "claude-sonnet-4-6",
+}
+
+def _normalize_model(model: str) -> str:
+    return LEGACY_MODEL_ALIASES.get(model, model)
+
 _UNSUPPORTED_SCHEMA_KEYS = {
     "minimum",
     "maximum",
@@ -107,9 +117,9 @@ class AnthropicProvider(LLMProvider):
         usage_recorder: Callable[..., None] | None = None,
     ):
         settings = get_settings()
-        self._chat_model = chat_model or settings.anthropic_chat_model
-        self._analysis_model = analysis_model or settings.anthropic_analysis_model
-        self._copilot_model = copilot_model or settings.copilot_model
+        self._chat_model = _normalize_model(chat_model or settings.anthropic_chat_model)
+        self._analysis_model = _normalize_model(analysis_model or settings.anthropic_analysis_model)
+        self._copilot_model = _normalize_model(copilot_model or settings.copilot_model)
         self._chat_effort = settings.anthropic_chat_effort
         self._analysis_effort = settings.anthropic_analysis_effort
         self._copilot_effort = settings.copilot_effort
@@ -131,11 +141,14 @@ class AnthropicProvider(LLMProvider):
 
     def _require_client(self) -> anthropic.Anthropic:
         if self._client is None:
-            raise RuntimeError(
-                "ANTHROPIC_API_KEY is not configured. Set it in your environment "
-                "(see .env.example) to enable Claude-powered chat and analysis. "
-                "Without it, PsychApp still runs, but the conversational and "
-                "linguistic-analysis features are unavailable — see README."
+            raise StructuredAnalysisError(
+                "configuration_error",
+                error_code="api_key_not_configured",
+                metadata=ProviderMetadata(
+                    provider="anthropic",
+                    requested_model=self._chat_model,
+                    base_url=ANTHROPIC_API_BASE_URL,
+                ),
             )
         return self._client
 
