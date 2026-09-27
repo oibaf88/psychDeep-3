@@ -531,7 +531,7 @@ def get_reply(
                 else:
                     reply_text = (
                         "Ahora mismo no puedo generar una respuesta conversacional. "
-                        "El fallo queda registrado de forma segura y tus datos/check-ins "
+                        "El fallo queda registrado de forma segura y tus datos y check-ins "
                         "se han guardado con normalidad."
                     )
         ui_mode = "normal"
