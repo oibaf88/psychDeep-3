@@ -782,7 +782,7 @@ class PatientDossierOut(BaseModel):
 class LLMEndpointConfigIn(BaseModel):
     """A model endpoint to serve the inference agents from."""
 
-    provider: str = Field(pattern="^(anthropic|openai_compatible)$")
+    provider: str = Field(pattern="^(anthropic|openai|openai_compatible)$")
     base_url: Optional[str] = None
     chat_model: str = Field(min_length=1, max_length=160)
     analysis_model: str = Field(min_length=1, max_length=160)
