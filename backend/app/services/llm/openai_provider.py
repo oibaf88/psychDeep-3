@@ -60,8 +60,7 @@ def _extract_text(body: dict[str, Any]) -> str:
                 text = part.get("text")
                 if isinstance(text, str):
                     texts.append(text)
-    return "
-".join(texts).strip()
+    return "\n".join(texts).strip()
 
 
 def _usage_value(usage: Any, name: str) -> int | None:
