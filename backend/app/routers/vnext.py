@@ -18,6 +18,7 @@ from app.models import RiskAssessment, User
 from app.models_vnext import BaselineVersion, ChangeSignal, InterventionEvent, Observation
 from app.security import get_current_user, require_patient
 from app.services import conversation, risk_engine
+from app.services.canonical_analytics import run_canonical_analytics
 from app.services.consent import CORE_PROCESSING, is_granted
 from app.services.deterministic_safety_text import materialize_user_declaration
 from app.services.model_gateway import APPROVED_ALIASES, ModelUnavailable, get_model_gateway
@@ -181,16 +182,15 @@ def changes(
 
 @router.post("/analytics/run")
 def run_analytics(db: Session = Depends(get_db), user: User = Depends(require_patient)):
-    # The legacy v1.4 risk engine already computes its structural inputs from
-    # cloud data and is deterministic. vNext keeps this as a compatibility
-    # bridge while feature/baseline pipelines migrate to canonical tables.
-    assessment = risk_engine.run_and_persist(db, user.id)
-    return {
-        "status": "completed",
-        "correlation_id": str(assessment.correlation_id) if assessment.correlation_id else None,
-        "risk_assessment_id": str(assessment.id),
-        "risk_engine_version": assessment.model_version,
-    }
+    """Run canonical longitudinal analytics (not clinical risk).
+
+    Persists Observation-derived FeatureValue, BaselineVersion and ChangeSignal.
+    ChangeSignal is deliberately separate from RiskAssessment: safety/risk stays
+    on POST /api/v1/safety/evaluate via the deterministic risk engine. The LLM
+    is never consulted here.
+    """
+    result = run_canonical_analytics(db, user.id)
+    return result.to_response()
 
 
 @router.post("/safety/evaluate")
