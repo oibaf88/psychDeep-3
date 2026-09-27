@@ -515,6 +515,12 @@ def get_reply(
                     code,
                     "El proveedor LLM no pudo generar la respuesta. Tus datos y check-ins se han guardado con normalidad.",
                 )
+                if code not in messages and isinstance(exc, RuntimeError):
+                    reply_text = (
+                        "Ahora mismo no puedo generar una respuesta conversacional. "
+                        "El fallo queda registrado de forma segura y tus datos y check-ins "
+                        "se han guardado con normalidad."
+                    )
                 if code in messages:
                     reply_text += " Tus datos y check-ins se han guardado con normalidad."
             else:
