@@ -8,10 +8,11 @@ from app.services.llm.base import (
 )
 from app.services.llm.cloudflare_access import CloudflareAccessOpenAICompatibleProvider
 from app.services.llm.openai_compatible import OpenAICompatibleProvider
+from app.services.llm.openai_provider import OpenAIProvider
 
 __all__ = [
     "ChatResult", "LLMProvider", "ProviderMetadata", "StructuredAnalysisError",
-    "StructuredAnalysisResult", "AnthropicProvider", "OpenAICompatibleProvider",
+    "StructuredAnalysisResult", "AnthropicProvider", "OpenAICompatibleProvider", "OpenAIProvider",
     "CloudflareAccessOpenAICompatibleProvider", "get_llm_provider", "build_provider",
 ]
 
@@ -72,13 +73,34 @@ def build_provider(config) -> LLMProvider:
             copilot_model=config.copilot_model, max_tokens=config.explicit_max_tokens,
             usage_recorder=record_usage_safely,
         )
+    if config.provider == "openai":
+        from app.services.llm_usage import record_usage_safely
+        return OpenAIProvider(
+            chat_model=config.chat_model, analysis_model=config.analysis_model,
+            copilot_model=config.copilot_model, max_tokens=config.max_tokens,
+            timeout_seconds=float(config.timeout_seconds),
+            usage_recorder=record_usage_safely,
+        )
     raise RuntimeError("Proveedor LLM no admitido.")
 
 
-def get_llm_provider(db=None) -> LLMProvider:
-    """Use account-scoped resolution only after an explicitly staged cutover."""
+def get_llm_provider(db=None, provider_override: str | None = None) -> LLMProvider:
+    """Resolve the provider, with explicit provider overrides used by dedicated endpoints."""
     from app.services import llm_config, local_llm_access, personal_llm
     from app.services.personal_resolution import personal_mode_enabled
+
+    if provider_override == "openai":
+        from app.config import get_settings
+        settings = get_settings()
+        if not settings.openai_api_key.strip():
+            raise RuntimeError("OPENAI_API_KEY_NOT_CONFIGURED")
+        return OpenAIProvider(
+            chat_model=settings.openai_chat_model,
+            analysis_model=settings.openai_analysis_model,
+            copilot_model=settings.openai_copilot_model or settings.openai_chat_model,
+            max_tokens=settings.openai_max_tokens,
+            timeout_seconds=float(settings.openai_timeout_seconds),
+        )
 
     user = local_llm_access.request_user(db)
     if personal_mode_enabled():
