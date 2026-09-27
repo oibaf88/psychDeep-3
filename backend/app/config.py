@@ -61,8 +61,9 @@ class Settings(BaseSettings):
     # approved by MODEL_ALLOW_COMMERCIAL; vNext never silently fails over to it.
     model_allow_commercial: bool = False
     anthropic_api_key: str = ""
-    anthropic_chat_model: str = "claude-3-5-sonnet"
-    anthropic_analysis_model: str = "claude-3-5-sonnet"
+    # Claude 3.5 was retired by Anthropic; use an active model by default.
+    anthropic_chat_model: str = "claude-sonnet-4-6"
+    anthropic_analysis_model: str = "claude-sonnet-4-6"
     anthropic_copilot_model: str = ""
     anthropic_max_tokens: int = 8192
     anthropic_max_tokens_chat: int = 0
@@ -70,6 +71,17 @@ class Settings(BaseSettings):
     anthropic_chat_effort: str = "medium"
     anthropic_analysis_effort: str = "high"
     anthropic_copilot_effort: str = ""
+
+    # First-party OpenAI API used by the explicit /api/v1/chatgpt endpoint.
+    # Secrets stay in Render; the client never supplies or selects the key.
+    openai_api_key: str = ""
+    openai_chat_model: str = "gpt-5.6-luna"
+    openai_analysis_model: str = "gpt-5.6-luna"
+    openai_copilot_model: str = ""
+    openai_max_tokens: int = 8192
+    openai_timeout_seconds: int = 120
+    openai_chat_effort: str = "medium"
+    openai_analysis_effort: str = "high"
 
     # Legacy compatibility inputs plus the deployment-level runtime-switch
     # gate. False remains the fail-safe library default; production Render sets

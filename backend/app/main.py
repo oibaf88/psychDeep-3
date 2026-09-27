@@ -16,6 +16,7 @@ from app.routers import (
     audit,
     auth,
     chat,
+    chatgpt,
     checkins,
     consents,
     diary,
@@ -241,6 +242,7 @@ app.include_router(checkins.router)
 app.include_router(diary.router)
 app.include_router(timeline.router)
 app.include_router(chat.router)
+app.include_router(chatgpt.router)
 app.include_router(safety.router)
 app.include_router(facts.router)
 app.include_router(assignments.router)
