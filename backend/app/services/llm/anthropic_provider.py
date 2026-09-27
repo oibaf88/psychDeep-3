@@ -189,15 +189,19 @@ class AnthropicProvider(LLMProvider):
         effective_effort = effort or self._chat_effort
         started = time.perf_counter()
         try:
-            response = client.messages.create(
-                model=requested_model,
-                max_tokens=token_budget,
-                output_config={"effort": effective_effort},
-                system=_cached_system_content(system_prompt),
-                messages=messages,
-            )
+            kwargs: dict[str, Any] = {
+                "model": requested_model,
+                "max_tokens": token_budget,
+                "output_config": {"effort": effective_effort},
+                "system": _cached_system_content(system_prompt),
+                "messages": messages,
+            }
+            if effective_effort:
+                kwargs["thinking"] = {"type": "adaptive"}
+            response = client.messages.create(**kwargs)
         except Exception as exc:
             latency_ms = round((time.perf_counter() - started) * 1000)
+            status_code = getattr(exc, "status_code", None)
             metadata = ProviderMetadata(
                 provider="anthropic",
                 requested_model=requested_model,
@@ -216,6 +220,19 @@ class AnthropicProvider(LLMProvider):
                 schema_chars=0,
                 error_kind=type(exc).__name__[:64],
             )
+            if status_code is not None:
+                raise StructuredAnalysisError(
+                    "configuration_error" if status_code in (400, 401, 403, 404) else "provider_error",
+                    metadata=metadata,
+                    error_code=f"http_{status_code}",
+                    http_status=status_code,
+                ) from None
+            if isinstance(exc, (TimeoutError,)):
+                raise StructuredAnalysisError(
+                    "timeout",
+                    metadata=metadata,
+                    error_code="timeout",
+                ) from None
             raise
 
         latency_ms = round((time.perf_counter() - started) * 1000)
@@ -276,23 +293,30 @@ class AnthropicProvider(LLMProvider):
         schema_chars = len(json.dumps(schema, ensure_ascii=False, separators=(",", ":")))
         started = time.perf_counter()
         try:
-            response = client.messages.create(
-                model=requested_model,
-                max_tokens=token_budget,
-                output_config={
+            kwargs: dict[str, Any] = {
+                "model": requested_model,
+                "max_tokens": token_budget,
+                "output_config": {
                     "effort": effective_effort,
                     "format": {"type": "json_schema", "schema": schema},
                 },
-                cache_control={"type": "ephemeral"},
-                system=_cached_system_content(system_prompt),
-                messages=[{"role": "user", "content": user_text}],
-            )
+                "system": _cached_system_content(system_prompt),
+                "messages": [{"role": "user", "content": user_text}],
+            }
+            if effective_effort:
+                kwargs["thinking"] = {"type": "adaptive"}
+            # Prompt caching is already attached to the stable system content
+            # block. The old top-level cache_control argument caused 400s.
+            response = client.messages.create(**kwargs)
         except Exception as exc:
             latency_ms = round((time.perf_counter() - started) * 1000)
             kind = type(exc).__name__
             lowered = kind.lower()
+            status_code = getattr(exc, "status_code", None)
             if "timeout" in lowered:
                 safe_kind = "timeout"
+            elif status_code in (400, 401, 403, 404):
+                safe_kind = "configuration_error"
             elif "authentication" in lowered:
                 safe_kind = "configuration_error"
             else:
@@ -315,17 +339,12 @@ class AnthropicProvider(LLMProvider):
                 schema_chars=schema_chars,
                 error_kind=kind[:64],
             )
-            error_body = getattr(exc, "body", None)
-            error_code = None
-            if isinstance(error_body, dict):
-                error = error_body.get("error")
-                if isinstance(error, dict) and isinstance(error.get("type"), str):
-                    error_code = error["type"][:64]
+            status_code = getattr(exc, "status_code", None)
             raise StructuredAnalysisError(
                 safe_kind,
                 metadata=metadata,
-                error_code=error_code,
-                http_status=getattr(exc, "status_code", None),
+                error_code=(f"http_{status_code}" if status_code is not None else None),
+                http_status=status_code,
             ) from None
 
         latency_ms = round((time.perf_counter() - started) * 1000)
