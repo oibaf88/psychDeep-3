@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     openai_timeout_seconds: int = 120
     openai_chat_effort: str = "medium"
     openai_analysis_effort: str = "high"
+    openai_copilot_effort: str = "medium"
 
     # Legacy compatibility inputs plus the deployment-level runtime-switch
     # gate. False remains the fail-safe library default; production Render sets
