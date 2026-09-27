@@ -291,6 +291,8 @@ class AnthropicProvider(LLMProvider):
         effective_effort = effort or self._analysis_effort
         try:
             client = self._require_client()
+        except StructuredAnalysisError:
+            raise
         except RuntimeError:
             raise StructuredAnalysisError(
                 "configuration_error",
