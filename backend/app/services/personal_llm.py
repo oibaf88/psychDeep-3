@@ -193,11 +193,22 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
         _, endpoint = shared_gateway()
         # Only the operator's pinned local model IDs are authoritative.
         chat_model, analysis_model, copilot_model = settings.local_chat_model, settings.local_analysis_model, ""
-    fields = llm_config.validate(
-        provider=payload.provider, base_url=endpoint, chat_model=chat_model,
-        analysis_model=analysis_model, copilot_model=copilot_model,
-        max_tokens=payload.max_tokens, timeout_seconds=payload.timeout_seconds,
-    )
+    if payload.provider == "openai":
+        fields = {
+            "provider": llm_config.PROVIDER_LOCAL,
+            "base_url": endpoint,
+            "chat_model": chat_model.strip(),
+            "analysis_model": analysis_model.strip(),
+            "copilot_model": copilot_model.strip(),
+            "max_tokens": payload.max_tokens,
+            "timeout_seconds": payload.timeout_seconds,
+        }
+    else:
+        fields = llm_config.validate(
+            provider=payload.provider, base_url=endpoint, chat_model=chat_model,
+            analysis_model=analysis_model, copilot_model=copilot_model,
+            max_tokens=payload.max_tokens, timeout_seconds=payload.timeout_seconds,
+        )
     row = db.get(UserLLMPreference, user_id)
     old_ciphertext = row.lm_api_key_encrypted if row else None
     lm_ciphertext = _replace_lm_key(payload.lm_api_key, old_ciphertext)
