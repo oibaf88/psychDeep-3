@@ -1,0 +1,112 @@
+/* Single-swell urge surfing visual (overrides legacy multi-crest drift). */
+
+.wave-ride-progress {
+  margin-top: 8px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(47, 79, 158, 0.15);
+  overflow: hidden;
+}
+
+.wave-ride-progress__bar {
+  height: 100%;
+  background: #6c98f4;
+  transition: width 0.1s linear;
+}
+
+.wave-visual.wave-visual--swell {
+  height: 220px;
+}
+
+.wave-visual.wave-visual--swell .wave-svg {
+  width: 100%;
+  height: 100%;
+  margin-left: 0;
+}
+
+.wave-visual.wave-visual--swell .wave-back,
+.wave-visual.wave-visual--swell .wave-mid,
+.wave-visual.wave-visual--swell .wave-front,
+.wave-visual.wave-visual--swell .wave-foam {
+  animation: none;
+}
+
+.wave-visual.wave-visual--swell:not(.wave-visual--riding) .wave-back {
+  fill: url(#waveBackGradient);
+  animation: wave-swell-bob 7s ease-in-out infinite;
+}
+
+.wave-visual.wave-visual--swell:not(.wave-visual--riding) .wave-mid {
+  fill: url(#waveMidGradient);
+  opacity: 0.9;
+  animation: wave-swell-bob 9s ease-in-out infinite reverse;
+}
+
+.wave-visual.wave-visual--swell:not(.wave-visual--riding) .wave-front {
+  fill: url(#waveFrontGradient);
+  animation: wave-swell-bob 8s ease-in-out infinite;
+}
+
+.wave-visual.wave-visual--swell:not(.wave-visual--riding) .wave-foam {
+  fill: none;
+  stroke: rgba(214, 230, 255, 0.72);
+  stroke-width: 2.8;
+  stroke-linecap: round;
+  stroke-dasharray: 10 6;
+  animation: wave-swell-foam 5s linear infinite;
+}
+
+.wave-visual.wave-visual--swell.wave-visual--riding .wave-back {
+  fill: url(#waveBackGradient);
+  opacity: 0.75;
+}
+
+.wave-visual.wave-visual--swell.wave-visual--riding .wave-mid {
+  fill: url(#waveMidGradient);
+  opacity: 0.88;
+}
+
+.wave-visual.wave-visual--swell.wave-visual--riding .wave-front {
+  fill: url(#waveFrontGradient);
+}
+
+.wave-visual.wave-visual--swell.wave-visual--riding .wave-foam {
+  fill: none;
+  stroke: rgba(238, 249, 255, 0.95);
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-dasharray: 12 7;
+}
+
+.wave-visual.wave-visual--swell.wave-visual--storm .wave-foam {
+  stroke: rgba(238, 249, 255, 0.95);
+  stroke-width: 4.4;
+}
+
+@keyframes wave-swell-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes wave-swell-foam {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -64;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-visual.wave-visual--swell .wave-back,
+  .wave-visual.wave-visual--swell .wave-mid,
+  .wave-visual.wave-visual--swell .wave-front,
+  .wave-visual.wave-visual--swell .wave-foam {
+    animation: none;
+  }
+}
