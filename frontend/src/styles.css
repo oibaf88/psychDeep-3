@@ -349,9 +349,10 @@ button:disabled {
 }
 
 .auth-page {
-  width: min(calc(100% - 48px), 1180px);
+  width: 100%;
   min-height: calc(100vh - 124px);
-  margin: 28px auto 96px;
+  margin: 28px 0 96px;
+  padding: 0 40px;
   text-align: left;
 }
 
@@ -412,8 +413,9 @@ button:disabled {
 
 @media (max-width: 700px) {
   .auth-page {
-    width: min(calc(100% - 32px), 620px);
+    width: 100%;
     margin-top: 20px;
+    padding: 0 20px;
   }
 
   .auth-brand-lockup {
