@@ -285,7 +285,7 @@ class ProviderSelectionTests(unittest.TestCase):
         with patch.object(llm_config, "backend_runtime", return_value="local"):
             claude = llm_config.validate(
                 provider="anthropic", base_url="http://ignored.example/v1", chat_model="claude-sonnet-4-6",
-                analysis_model="claude-3-5-sonnet", max_tokens=8192, timeout_seconds=300,
+                analysis_model="claude-sonnet-4-6", max_tokens=8192, timeout_seconds=300,
             )
             self.assertIsNone(claude["base_url"])
             local = llm_config.validate(
