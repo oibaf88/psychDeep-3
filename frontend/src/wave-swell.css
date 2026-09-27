@@ -1,4 +1,8 @@
-/* Single-swell urge surfing visual (overrides legacy multi-crest drift). */
+/* Layered dynamic urge-surfing visual.
+ * The important cue is not “one wave”: it is the changing relationship
+ * between several wave fields. Intensity controls amplitude, waterline
+ * movement and speed so the same intensity still rises and falls strongly.
+ */
 
 .wave-ride-progress {
   margin-top: 8px;
@@ -15,91 +19,71 @@
 }
 
 .wave-visual.wave-visual--swell {
-  height: 220px;
+  position: relative;
+  height: 230px;
+  overflow: hidden;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 105%, rgba(108, 152, 244, 0.10), transparent 58%),
+    linear-gradient(180deg, rgba(32, 44, 61, 0.18), rgba(15, 20, 25, 0.02));
 }
 
 .wave-visual.wave-visual--swell .wave-svg {
+  display: block;
   width: 100%;
   height: 100%;
   margin-left: 0;
+  overflow: visible;
 }
 
 .wave-visual.wave-visual--swell .wave-back,
 .wave-visual.wave-visual--swell .wave-mid,
-.wave-visual.wave-visual--swell .wave-front,
+.wave-visual.wave-visual--swell .wave-front {
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+}
+
+.wave-visual.wave-visual--swell .wave-back {
+  fill: url(#waveBackGradient);
+  opacity: 0.64;
+}
+
+.wave-visual.wave-visual--swell .wave-mid {
+  fill: url(#waveMidGradient);
+  opacity: 0.78;
+}
+
+.wave-visual.wave-visual--swell .wave-front {
+  fill: url(#waveFrontGradient);
+  opacity: 0.97;
+}
+
 .wave-visual.wave-visual--swell .wave-foam {
-  animation: none;
-}
-
-.wave-visual.wave-visual--swell:not(.wave-visual--riding) .wave-back {
-  fill: url(#waveBackGradient);
-  animation: wave-swell-bob 7s ease-in-out infinite;
-}
-
-.wave-visual.wave-visual--swell:not(.wave-visual--riding) .wave-mid {
-  fill: url(#waveMidGradient);
-  opacity: 0.9;
-  animation: wave-swell-bob 9s ease-in-out infinite reverse;
-}
-
-.wave-visual.wave-visual--swell:not(.wave-visual--riding) .wave-front {
-  fill: url(#waveFrontGradient);
-  animation: wave-swell-bob 8s ease-in-out infinite;
-}
-
-.wave-visual.wave-visual--swell:not(.wave-visual--riding) .wave-foam {
   fill: none;
-  stroke: rgba(214, 230, 255, 0.72);
-  stroke-width: 2.8;
+  stroke: rgba(232, 244, 255, 0.82);
+  stroke-width: 2.6;
   stroke-linecap: round;
-  stroke-dasharray: 10 6;
-  animation: wave-swell-foam 5s linear infinite;
+  stroke-linejoin: round;
+  stroke-dasharray: 10 8;
+  opacity: 0.72;
+  vector-effect: non-scaling-stroke;
 }
 
-.wave-visual.wave-visual--swell.wave-visual--riding .wave-back {
-  fill: url(#waveBackGradient);
-  opacity: 0.75;
-}
-
-.wave-visual.wave-visual--swell.wave-visual--riding .wave-mid {
-  fill: url(#waveMidGradient);
-  opacity: 0.88;
-}
-
-.wave-visual.wave-visual--swell.wave-visual--riding .wave-front {
-  fill: url(#waveFrontGradient);
-}
-
+/* Intensity is deliberately visible in the visual weight as well as in
+   geometry: the crest line becomes sharper and more present at the peak. */
 .wave-visual.wave-visual--swell.wave-visual--riding .wave-foam {
-  fill: none;
-  stroke: rgba(238, 249, 255, 0.95);
-  stroke-width: 3.4;
-  stroke-linecap: round;
-  stroke-dasharray: 12 7;
+  stroke-width: calc(2.4px + var(--wave-intensity, 0) * 2.8px);
+  opacity: calc(0.68 + var(--wave-intensity, 0) * 0.30);
+}
+
+.wave-visual.wave-visual--swell.wave-visual--storm .wave-front {
+  opacity: 1;
 }
 
 .wave-visual.wave-visual--swell.wave-visual--storm .wave-foam {
-  stroke: rgba(238, 249, 255, 0.95);
-  stroke-width: 4.4;
-}
-
-@keyframes wave-swell-bob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-@keyframes wave-swell-foam {
-  from {
-    stroke-dashoffset: 0;
-  }
-  to {
-    stroke-dashoffset: -64;
-  }
+  stroke: rgba(245, 251, 255, 0.98);
+  stroke-width: 4.8;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -108,5 +92,6 @@
   .wave-visual.wave-visual--swell .wave-front,
   .wave-visual.wave-visual--swell .wave-foam {
     animation: none;
+    transition: none;
   }
 }
