@@ -1,16 +1,34 @@
-import { FormEvent, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { api, AssignmentOut, CheckInIn, PatientTimelineOut, formatDay } from "../api";
 
 const emptyForm: CheckInIn = { mood: 5, craving: 3, sleep_hours: 7, self_efficacy: 5, notes: "" };
 
+type SuggestedAction = {
+  title: string;
+  body: string;
+  button: string;
+  route: string;
+};
+
 export default function PatientDashboard() {
+  const navigate = useNavigate();
   const [timeline, setTimeline] = useState<PatientTimelineOut | null>(null);
   const [form, setForm] = useState<CheckInIn>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [pendingLinks, setPendingLinks] = useState<AssignmentOut[]>([]);
+  const [showSuggestedAction, setShowSuggestedAction] = useState(true);
 
   async function loadTimeline() {
     const data = await api.get<PatientTimelineOut>("/api/v1/timeline?window_days=30");
@@ -29,10 +47,12 @@ export default function PatientDashboard() {
     e.preventDefault();
     setSubmitting(true);
     setMessage(null);
+
     try {
       await api.post("/api/v1/checkins", form);
-      setMessage("Check-in registrado. Gracias por dedicarte este momento.");
+      setMessage("Check-in registrado.");
       setForm(emptyForm);
+      setShowSuggestedAction(true);
       await loadTimeline();
     } catch (err) {
       setMessage((err as Error).message);
@@ -41,22 +61,131 @@ export default function PatientDashboard() {
     }
   }
 
+  const latestPoint = timeline?.points?.length ? timeline.points[timeline.points.length - 1] : null;
+
+  const suggestedAction = useMemo<SuggestedAction>(() => {
+    if (form.craving >= 7) {
+      return {
+        title: "Regular una ola",
+        body: "Tienes una urgencia alta en este momento. Puedes probar la práctica de la ola sin necesidad de resolver nada más ahora.",
+        button: "Ir a Regular",
+        route: "/wave",
+      };
+    }
+
+    if (form.self_efficacy <= 3) {
+      return {
+        title: "Bajar el ritmo",
+        body: "Cuando la confianza está baja, una práctica breve puede ayudarte a recuperar espacio antes de decidir el siguiente paso.",
+        button: "Ir a Regular",
+        route: "/wave",
+      };
+    }
+
+    return {
+      title: "Registrar y observar",
+      body: "No necesitas hacer más ahora. Puedes dejar este registro y volver a él más tarde para observar tu propia trayectoria.",
+      button: "Ver Tendencias",
+      route: "/trends",
+    };
+  }, [form.craving, form.self_efficacy]);
+
   return (
-    <main className="page" aria-label="Panel del Paciente">
-      <h1>Tu acompañamiento</h1>
+    <main className="page" aria-label="Panel del paciente">
+      <section className="patient-home-hero">
+        <div className="patient-home-hero__copy">
+          <p className="patient-action-card__eyebrow">Hoy</p>
+          <h1>Un momento para observarte</h1>
+          <p>
+            PsychDeep recoge cómo estás ahora y lo coloca junto a tu propia trayectoria. No tienes que interpretar
+            todo de una vez: empieza por una observación breve y decide después qué necesitas.
+          </p>
+        </div>
+
+        <div className="patient-home-hero__state" aria-label="Estado del check-in actual">
+          <span className="patient-home-hero__state-label">Ahora</span>
+          <span className="patient-home-hero__state-value">{form.mood}/10</span>
+          <span className="meta">ánimo registrado en pantalla</span>
+        </div>
+      </section>
 
       {pendingLinks.length > 0 && (
         <section className="card patient-notice patient-notice--accent">
-          <h2>Solicitudes de vinculación pendientes</h2>
+          <p className="patient-action-card__eyebrow">Decisión pendiente</p>
+          <h2>Solicitudes de vinculación</h2>
           <p>
-            Tienes {pendingLinks.length} profesional(es) pidiendo acceso a tu seguimiento. Debes aceptar o rechazar
-            desde <Link to="/assignments">Vinculaciones</Link>.
+            Tienes {pendingLinks.length} profesional(es) pidiendo acceso a tu seguimiento. Puedes aceptar o rechazar
+            desde Vinculaciones.
           </p>
+          <button type="button" className="btn-secondary" onClick={() => navigate("/assignments")}>
+            Revisar vinculaciones
+          </button>
         </section>
       )}
 
-      <section className="card">
-        <h2>Check-in de hoy</h2>
+      <section className="patient-home-actions" aria-label="Siguiente paso">
+        {showSuggestedAction ? (
+          <article className="card patient-action-card">
+            <div>
+              <p className="patient-action-card__eyebrow">Una opción para ahora</p>
+              <h2 className="patient-action-card__title">{suggestedAction.title}</h2>
+              <p className="patient-action-card__body">{suggestedAction.body}</p>
+            </div>
+            <div className="patient-action-card__controls">
+              <button type="button" onClick={() => navigate(suggestedAction.route)}>
+                {suggestedAction.button}
+              </button>
+              <button
+                type="button"
+                className="btn-quiet"
+                onClick={() => setShowSuggestedAction(false)}
+                aria-label="Ocultar sugerencia por ahora"
+              >
+                No ahora
+              </button>
+            </div>
+          </article>
+        ) : (
+          <article className="card patient-action-card patient-action-card--quiet">
+            <div>
+              <p className="patient-action-card__eyebrow">Sin siguiente paso</p>
+              <h2 className="patient-action-card__title">Puedes dejarlo aquí</h2>
+              <p className="patient-action-card__body">
+                La aplicación no necesita que hagas nada más ahora. Puedes continuar cuando te resulte útil.
+              </p>
+            </div>
+            <div className="patient-action-card__controls">
+              <button type="button" className="btn-secondary" onClick={() => setShowSuggestedAction(true)}>
+                Mostrar una opción
+              </button>
+            </div>
+          </article>
+        )}
+
+        <article className="card patient-action-card patient-action-card--quiet">
+          <div>
+            <p className="patient-action-card__eyebrow">Tu trayectoria</p>
+            <h2 className="patient-action-card__title">Mira el contexto, no solo el número</h2>
+            <p className="patient-action-card__body">
+              Las tendencias se leen respecto a tu propia línea de base y no convierten por sí solas un cambio en
+              riesgo clínico.
+            </p>
+          </div>
+          <div className="patient-action-card__controls">
+            <button type="button" className="btn-secondary" onClick={() => navigate("/trends")}>
+              Abrir Tendencias
+            </button>
+          </div>
+        </article>
+      </section>
+
+      <section className="card" aria-labelledby="checkin-heading">
+        <div className="today-separator">1 · Observa</div>
+        <h2 id="checkin-heading">Check-in de hoy</h2>
+        <p className="subtitle">
+          Una lectura rápida de cuatro señales. Puedes corregirlas antes de guardar; no hay puntuación ni racha que mantener.
+        </p>
+
         <form onSubmit={onSubmit} className="checkin-form">
           <div className="range-container">
             <label htmlFor="checkin-mood">Estado de ánimo: {form.mood}</label>
@@ -98,7 +227,7 @@ export default function PatientDashboard() {
             </div>
           </div>
 
-          <div className="range-container" style={{ marginBottom: "12px" }}>
+          <div className="range-container">
             <label htmlFor="checkin-sleep">Horas de sueño anoche</label>
             <input
               id="checkin-sleep"
@@ -112,7 +241,7 @@ export default function PatientDashboard() {
           </div>
 
           <div className="range-container">
-            <label htmlFor="checkin-efficacy">Confianza en poder manejar la situación de hoy: {form.self_efficacy}</label>
+            <label htmlFor="checkin-efficacy">Confianza para manejar hoy: {form.self_efficacy}</label>
             <input
               id="checkin-efficacy"
               type="range"
@@ -123,7 +252,7 @@ export default function PatientDashboard() {
               aria-valuemin={0}
               aria-valuemax={10}
               aria-valuenow={form.self_efficacy}
-              aria-label="Escala de confianza o autoeficacia de 0 a 10"
+              aria-label="Escala de autoeficacia de 0 a 10"
             />
             <div className="range-labels" aria-hidden="true">
               <span>0 (Ninguna)</span>
@@ -131,45 +260,128 @@ export default function PatientDashboard() {
             </div>
           </div>
 
-          <div className="range-container" style={{ marginBottom: "12px" }}>
+          <div className="range-container range-container--full">
             <label htmlFor="checkin-notes">Notas (opcional)</label>
             <textarea
               id="checkin-notes"
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              placeholder="¿Algo que quieras registrar hoy?"
+              placeholder="¿Hay algo que quieras dejar registrado?"
             />
           </div>
 
-          <button type="submit" disabled={submitting} style={{ marginTop: "8px" }}>
-            {submitting ? "Guardando..." : "Guardar check-in"}
+          <button type="submit" disabled={submitting}>
+            {submitting ? "Guardando…" : "Guardar check-in"}
           </button>
         </form>
-        {message && <p className="info" role="status">{message}</p>}
-        {message && <p className="info" aria-live="polite" role="status">{message}</p>}
+
+        {message && (
+          <p className="info" aria-live="polite" role="status">
+            {message}
+          </p>
+        )}
       </section>
 
-      <section className="card">
-        <h2>Tu tendencia (últimos 30 días)</h2>
+      <section className="card" aria-labelledby="trend-heading">
+        <div className="today-separator">2 · Contexto</div>
+        <div className="trends-hero">
+          <div>
+            <h2 id="trend-heading">Tu trayectoria</h2>
+            <p className="subtitle">
+              Últimos 30 días. El gráfico es para observar patrones; la ausencia de datos no se interpreta como que todo vaya bien.
+            </p>
+          </div>
+          {latestPoint && (
+            <div className="trends-baseline" aria-label="Último registro disponible">
+              <p className="trends-baseline__title">Último registro</p>
+              <p className="trends-baseline__value">{formatDay(latestPoint.date)}</p>
+            </div>
+          )}
+        </div>
+
         {timeline && timeline.points.length > 0 ? (
           <>
-            <div aria-label="Tendencia de ánimo, craving y autoeficacia" role="region">
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={timeline.points} margin={{ top: 8, right: 8, bottom: 4, left: -16 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={formatDay} minTickGap={24} />
-                <YAxis yAxisId="left" domain={[0, 10]} tick={{ fontSize: 11 }} />
-                <YAxis yAxisId="sleep" orientation="right" domain={[0, 24]} tick={{ fontSize: 11 }} tickFormatter={(value: number) => `${value} h`} />
-                <Tooltip labelFormatter={formatDay} />
-                <Legend />
-                <Line yAxisId="left" type="monotone" dataKey="mood" name="Ánimo" stroke="#3987e5" strokeWidth={2} connectNulls={false} dot={{ r: 2 }} />
-                <Line yAxisId="left" type="monotone" dataKey="craving" name="Craving" stroke="#d95926" strokeWidth={2} connectNulls={false} dot={{ r: 2 }} />
-                <Line yAxisId="left" type="monotone" dataKey="self_efficacy" name="Autoeficacia" stroke="#c98500" strokeWidth={2} connectNulls={false} dot={{ r: 2 }} />
-                <Line yAxisId="sleep" type="monotone" dataKey="sleep_hours" name="Sueño (h)" stroke="#199e70" strokeWidth={2} strokeDasharray="5 3" connectNulls={false} dot={{ r: 2 }} />
-              </LineChart>
-            </ResponsiveContainer>
+            <div className="trend-summary" aria-label="Resumen del último registro">
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Ánimo</span>
+                <span className="trend-summary__value">{latestPoint?.mood ?? "—"}/10</span>
+              </div>
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Craving</span>
+                <span className="trend-summary__value">{latestPoint?.craving ?? "—"}/10</span>
+              </div>
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Sueño</span>
+                <span className="trend-summary__value">
+                  {latestPoint?.sleep_hours == null ? "—" : latestPoint.sleep_hours + " h"}
+                </span>
+              </div>
             </div>
-            <p className="meta">Ánimo, craving y autoeficacia: 0–10. Sueño: horas, en el eje derecho.</p>
+
+            <div className="chart-shell" aria-label="Tendencia de ánimo, craving y autoeficacia" role="region">
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={timeline.points} margin={{ top: 8, right: 8, bottom: 4, left: -16 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={formatDay} minTickGap={24} />
+                  <YAxis yAxisId="left" domain={[0, 10]} tick={{ fontSize: 11 }} />
+                  <YAxis
+                    yAxisId="sleep"
+                    orientation="right"
+                    domain={[0, 24]}
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(value: number) => value + " h"}
+                  />
+                  <Tooltip labelFormatter={formatDay} />
+                  <Legend />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="mood"
+                    name="Ánimo"
+                    stroke="#7ea8f7"
+                    strokeWidth={2.5}
+                    connectNulls={false}
+                    dot={{ r: 2.5 }}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="craving"
+                    name="Craving"
+                    stroke="#df9a73"
+                    strokeWidth={2.5}
+                    connectNulls={false}
+                    dot={{ r: 2.5 }}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="self_efficacy"
+                    name="Autoeficacia"
+                    stroke="#76cdbd"
+                    strokeWidth={2.5}
+                    connectNulls={false}
+                    dot={{ r: 2.5 }}
+                  />
+                  <Line
+                    yAxisId="sleep"
+                    type="monotone"
+                    dataKey="sleep_hours"
+                    name="Sueño (h)"
+                    stroke="#e9c982"
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
+                    connectNulls={false}
+                    dot={{ r: 2 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            <p className="chart-reading-note">
+              <strong>Cómo leerlo:</strong> busca relaciones entre variables a lo largo del tiempo. Un cambio aislado
+              no explica por sí solo por qué te encuentras como te encuentras.
+            </p>
           </>
         ) : (
           <p>Sin datos todavía.</p>
