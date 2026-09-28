@@ -232,12 +232,14 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 
 ### P1 — core product value
 
-- [ ] PM-012 Today dashboard redesign.
+- [~] PM-012 Today dashboard redesign.
+  - First vNext UI pass is now in the patient dashboard: lower-burden check-in, current-state framing, one proportionate suggested action and “No ahora”.
 - [ ] PM-013 Weekly review user experience.
 - [~] PM-014 Improved trend/baseline visualisation.
+  - Trends now foreground personal trajectory, baseline context and reading guidance.
 - [ ] PM-015 Context annotation/correction.
 - [~] PM-016 Intervention feedback (data/API foundation exists; UX loop missing).
-- [~] PM-017 Wave/urge surfing (legacy feature exists; vNext integration incomplete).
+- [~] PM-017 Wave/urge surfing (legacy feature exists; visual refresh applied; vNext integration incomplete).
 - [~] PM-018 Breathing visual (legacy feature exists; vNext integration incomplete).
 - [~] PM-019 Safety plan UX (legacy feature exists; vNext integration incomplete).
 - [ ] PM-020 Professional longitudinal view redesign.
