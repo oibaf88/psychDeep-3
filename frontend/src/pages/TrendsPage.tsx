@@ -1,5 +1,14 @@
-import { useEffect, useState } from "react";
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useEffect, useMemo, useState } from "react";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { api, formatDay, PatientTimelineOut } from "../api";
 
 interface BaselineResponse {
@@ -40,64 +49,199 @@ export default function TrendsPage() {
         }
         setTimeline(timelineData);
         setBaseline(baselineData);
-        const uniqueChanges = Array.from(new Map(changeData.map(c => [c.signal_id, c])).values());
+        const uniqueChanges = Array.from(new Map(changeData.map((c) => [c.signal_id, c])).values());
         setChanges(uniqueChanges);
       })
       .catch((err: Error) => setError(err.message));
   }, []);
 
+  const latest = useMemo(() => {
+    if (!timeline?.points?.length) return null;
+    return timeline.points[timeline.points.length - 1];
+  }, [timeline]);
+
   return (
     <div className="page">
-      <h1>Tendencias</h1>
-      <p className="subtitle">Cambios respecto a tu propia trayectoria. Un cambio no equivale por sí solo a riesgo clínico.</p>
-      {error && <p className="error">{error}</p>}
+      <section className="patient-home-hero trends-hero">
+        <div className="patient-home-hero__copy">
+          <p className="patient-action-card__eyebrow">Tendencias</p>
+          <h1>Tu trayectoria, no una puntuación aislada</h1>
+          <p>
+            Esta vista reúne tus registros recientes con tu propia línea de base. Los cambios son señales para
+            observar y contextualizar; no equivalen por sí solos a riesgo clínico.
+          </p>
+        </div>
 
-      <section className="card">
-        <h2>Últimos 30 días</h2>
+        <div className="trends-baseline">
+          <p className="trends-baseline__title">Línea de base</p>
+          <p className="trends-baseline__value">
+            {!baseline || !baseline.baseline ? "Aún insuficiente" : baseline.baseline.stability}
+          </p>
+          <span className="meta">
+            {!baseline?.baseline?.data_coverage
+              ? "Cobertura no disponible"
+              : Math.round(baseline.baseline.data_coverage * 100) + "% de cobertura"}
+          </span>
+        </div>
+      </section>
+
+      {error && (
+        <section className="card" role="alert">
+          <p className="error">{error}</p>
+        </section>
+      )}
+
+      <section className="card" aria-labelledby="timeline-heading">
+        <div className="today-separator">1 · Observar</div>
+        <h2 id="timeline-heading">Últimos 30 días</h2>
+
         {timeline?.points.length ? (
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={timeline.points} margin={{ top: 8, right: 8, bottom: 4, left: -16 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" tickFormatter={formatDay} minTickGap={24} />
-              <YAxis yAxisId="left" domain={[0, 10]} />
-              <YAxis yAxisId="sleep" orientation="right" domain={[0, 24]} />
-              <Tooltip labelFormatter={formatDay} />
-              <Legend />
-              <Line yAxisId="left" type="monotone" dataKey="mood" name="Ánimo" connectNulls={false} />
-              <Line yAxisId="left" type="monotone" dataKey="craving" name="Craving" connectNulls={false} />
-              <Line yAxisId="left" type="monotone" dataKey="self_efficacy" name="Autoeficacia" connectNulls={false} />
-              <Line yAxisId="sleep" type="monotone" dataKey="sleep_hours" name="Sueño (h)" connectNulls={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        ) : <p>Datos insuficientes para mostrar una tendencia.</p>}
-      </section>
-
-      <section className="card">
-        <h2>Baseline personal</h2>
-        {!baseline || baseline.status === "insufficient_data" || !baseline.baseline ? (
-          <p>Datos insuficientes. El sistema no interpreta la ausencia de datos como normalidad.</p>
-        ) : (
           <>
-            <p><strong>Estado:</strong> {baseline.status}</p>
-            <p><strong>Estabilidad:</strong> {baseline.baseline.stability}</p>
-            <p><strong>Cobertura:</strong> {baseline.baseline.data_coverage == null ? "sin estimar" : `${Math.round(baseline.baseline.data_coverage * 100)} %`}</p>
-            <p className="meta">Versión: {baseline.baseline.algorithm_version}</p>
+            <div className="trend-summary">
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Ánimo actual</span>
+                <span className="trend-summary__value">{latest?.mood ?? "—"}/10</span>
+              </div>
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Craving actual</span>
+                <span className="trend-summary__value">{latest?.craving ?? "—"}/10</span>
+              </div>
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Sueño</span>
+                <span className="trend-summary__value">
+                  {latest?.sleep_hours == null ? "—" : latest.sleep_hours + " h"}
+                </span>
+              </div>
+            </div>
+
+            <div className="chart-shell" aria-label="Tendencia longitudinal" role="region">
+              <ResponsiveContainer width="100%" height={340}>
+                <LineChart data={timeline.points} margin={{ top: 8, right: 12, bottom: 8, left: -10 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tickFormatter={formatDay} minTickGap={24} tick={{ fontSize: 11 }} />
+                  <YAxis yAxisId="left" domain={[0, 10]} tick={{ fontSize: 11 }} />
+                  <YAxis yAxisId="sleep" orientation="right" domain={[0, 24]} tick={{ fontSize: 11 }} />
+                  <Tooltip labelFormatter={formatDay} />
+                  <Legend />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="mood"
+                    name="Ánimo"
+                    stroke="#7ea8f7"
+                    strokeWidth={2.5}
+                    connectNulls={false}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="craving"
+                    name="Craving"
+                    stroke="#df9a73"
+                    strokeWidth={2.5}
+                    connectNulls={false}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="self_efficacy"
+                    name="Autoeficacia"
+                    stroke="#76cdbd"
+                    strokeWidth={2.5}
+                    connectNulls={false}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    yAxisId="sleep"
+                    type="monotone"
+                    dataKey="sleep_hours"
+                    name="Sueño (h)"
+                    stroke="#e9c982"
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
+                    connectNulls={false}
+                    dot={{ r: 2 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            <p className="chart-reading-note">
+              <strong>Cómo leerlo:</strong> observa tendencias y relaciones, no únicamente valores altos o bajos.
+              La falta de un registro también es información sobre cobertura, no una señal de normalidad.
+            </p>
           </>
+        ) : (
+          <p>Datos insuficientes para mostrar una tendencia.</p>
         )}
       </section>
 
-      <section className="card">
-        <h2>Señales de cambio</h2>
-        {changes.length === 0 ? <p>No hay señales de cambio canónicas disponibles.</p> : (
-          <ul>
-            {changes.map((change) => (
-              <li key={change.signal_id}>
-                <strong>{change.feature}</strong>: {change.band} <span className="meta">({change.algorithm_version})</span>
-              </li>
-            ))}
-          </ul>
+      <section className="card" aria-labelledby="baseline-heading">
+        <div className="today-separator">2 · Contextualizar</div>
+        <h2 id="baseline-heading">Tu línea de base</h2>
+
+        {!baseline || baseline.status === "insufficient_data" || !baseline.baseline ? (
+          <p>
+            Todavía no hay datos suficientes para construir una línea de base útil. El sistema no interpreta esta
+            ausencia como normalidad.
+          </p>
+        ) : (
+          <div className="trend-summary">
+            <div className="trend-summary__item">
+              <span className="trend-summary__label">Estado</span>
+              <span className="trend-summary__value">{baseline.status}</span>
+            </div>
+            <div className="trend-summary__item">
+              <span className="trend-summary__label">Estabilidad</span>
+              <span className="trend-summary__value">{baseline.baseline.stability}</span>
+            </div>
+            <div className="trend-summary__item">
+              <span className="trend-summary__label">Cobertura</span>
+              <span className="trend-summary__value">
+                {baseline.baseline.data_coverage == null
+                  ? "Sin estimar"
+                  : Math.round(baseline.baseline.data_coverage * 100) + "%"}
+              </span>
+            </div>
+          </div>
         )}
-        <p className="meta">Estas señales describen cambio. La evaluación de seguridad se calcula por separado con reglas deterministas.</p>
+
+        <p className="meta">
+          Ventana:{" "}
+          {baseline?.baseline
+            ? formatDay(baseline.baseline.window.start) + " – " + formatDay(baseline.baseline.window.end) +
+              " · versión " + baseline.baseline.algorithm_version
+            : "no disponible"}
+        </p>
+      </section>
+
+      <section className="card" aria-labelledby="signals-heading">
+        <div className="today-separator">3 · Preguntar antes de concluir</div>
+        <h2 id="signals-heading">Señales de cambio</h2>
+
+        {changes.length === 0 ? (
+          <p>No hay señales de cambio canónicas disponibles.</p>
+        ) : (
+          <div className="wave-tool-grid">
+            {changes.map((change) => (
+              <article className="card wave-tool-card" key={change.signal_id}>
+                <p className="patient-action-card__eyebrow">{change.feature}</p>
+                <h3>{change.band}</h3>
+                <p>
+                  Señal calculada con {change.algorithm_version}. Antes de interpretarla, añade el contexto que
+                  consideres relevante: qué ocurrió, qué cambió y qué podría faltar en los datos.
+                </p>
+              </article>
+            ))}
+          </div>
+        )}
+
+        <p className="chart-reading-note">
+          <strong>Importante:</strong> una señal describe cambio respecto a una referencia; la evaluación de seguridad
+          se calcula por separado con reglas deterministas.
+        </p>
       </section>
     </div>
   );
