@@ -91,8 +91,8 @@ def test_personal_settings(db: Session = Depends(get_db), user: User = Depends(g
             "non_json_response": "Respuesta no JSON. Revisa las credenciales del gateway y la ruta del servidor.",
         }
         return {"ok": False, "detail": labels.get(exc.error_code, "El proveedor ha rechazado la prueba. Revisa los registros seguros del backend.")}
-    except local_llm_access.LocalLlmAccessDenied as exc:
-        return {"ok": False, "detail": str(exc)}
+    except local_llm_access.LocalLlmAccessDenied:
+        return {"ok": False, "detail": "Acceso denegado para usar este proveedor local. Contacta con la administración si crees que es un error."}
     except (ValueError, RuntimeError):
         return {"ok": False, "detail": "La configuración de tu cuenta o del gateway está incompleta. Revisa tu API key o contacta con la administración."}
     except Exception:
