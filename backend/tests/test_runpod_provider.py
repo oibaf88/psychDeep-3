@@ -14,6 +14,7 @@ LOCAL = "https://ai.bfab.io/v1"
 
 def fake_settings(**extra):
     values = dict(
+        runpod_enabled=True,
         model_cloud_base_url=RUNPOD,
         model_cloud_api_key="cloud-only-secret",
         model_cloud_chat_model=MODEL,

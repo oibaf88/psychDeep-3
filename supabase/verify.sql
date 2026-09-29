@@ -66,6 +66,10 @@ required_columns(table_name, column_name) as (values
     ('chat_messages', 'model'),
     ('chat_messages', 'provider_base_url'),
     ('chat_messages', 'model_run_id'),
+    ('chat_messages', 'prompt_version'),
+    ('chat_messages', 'prompt_sha256'),
+    ('chat_messages', 'context_version'),
+    ('chat_messages', 'context_sha256'),
     ('observations', 'id'),
     ('observations', 'legacy_source_id'),
     ('feature_definitions', 'id'),
@@ -76,6 +80,8 @@ required_columns(table_name, column_name) as (values
     ('inferences', 'id'),
     ('intervention_events', 'id'),
     ('knowledge_items', 'id'),
+    ('knowledge_items', 'objective'),
+    ('knowledge_items', 'approved_at'),
     ('fine_tune_runs', 'id'),
     ('model_deployments', 'alias')
 ),
@@ -199,6 +205,17 @@ checks(sort_key, check_name, failures) as (
     union all
     select 16, 'SymmetricDS metadata schema removed',
            (select count(*) from pg_namespace where nspname = 'psychdeep_sync')
+
+    union all
+    select 17, 'knowledge registry enforces one active version per target',
+           (select count(*) from (select 1) as one
+             where not exists (
+                 select 1 from pg_indexes, settings
+                  where pg_indexes.schemaname = settings.target_schema
+                    and pg_indexes.tablename = 'knowledge_items'
+                    and pg_indexes.indexname = 'ux_knowledge_one_active_version'
+                    and pg_indexes.indexdef ilike '%unique%'
+                    and pg_indexes.indexdef ilike '%where (status%active%'))
 )
 select check_name,
        case when failures = 0 then 'ok' else 'FAILED' end as status,

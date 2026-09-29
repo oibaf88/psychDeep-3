@@ -10,6 +10,7 @@ from app.schemas import DiaryIn, DiaryOut
 from app.security import require_patient
 from app.services import audit, conversation, risk_engine
 from app.services.canonical_data import record_diary
+from app.services.consent import CORE_PROCESSING, require_granted
 from app.services.deterministic_safety_text import materialize_user_declaration
 
 router = APIRouter(prefix="/api/v1/diary", tags=["diary"])
@@ -22,6 +23,7 @@ class DiaryCreateResponse(BaseModel):
 
 @router.post("", response_model=DiaryCreateResponse, status_code=201)
 def create_entry(payload: DiaryIn, db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    require_granted(db, user.id, CORE_PROCESSING)
     entry = DiaryEntry(user_id=user.id, content=payload.content)
     db.add(entry)
     db.commit()

@@ -170,7 +170,9 @@ Agents must not “fix” this back to read-only model settings unless a later p
 ### G7 — Cloud fine-tuned candidate / RAG / model governance
 
 - [~] Canonical model-run/deployment metadata exists as a foundation.
-- [ ] Implement curated RAG content registry with source/version/reviewer/evidence level/contraindications/review date.
+- [~] Implement curated RAG content registry with source/version/reviewer/evidence level/contraindications/review date.
+  - Current foundation: backend-only draft/approve/retire registry, explicit reviewer and review date, one active version per target, contraindication-aware retrieval and negative role tests.
+  - Current gap: approved content is deliberately not injected into any LLM prompt; reviewer workflow, clinical validation and rollback rehearsal remain incomplete.
 - [ ] Create de-identified/reviewed dataset pipeline for tuning; never fine-tune patient memory into the model.
 - [ ] Train or adapt the approved cloud candidate for behaviour/style/schema/tool-use only, not risk calculation.
 - [ ] Add reproducible model card, dataset manifest, base/tokenizer/artifact checksums, code/container version, seed, hyperparameters and metrics.
@@ -226,7 +228,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [~] PM-006 Resource-level authorization matrix and comprehensive negative tests.
 - [x] ~~PM-007 Split consent purposes and enforce linguistic-analysis revocation.~~
 - [~] PM-008 ModelRun audit with prompt/model/policy/content versions.
-- [ ] PM-009 RAG curated knowledge registry.
+- [~] PM-009 RAG curated knowledge registry foundation (not connected to the LLM).
 - [~] PM-010 Production observability and correlation IDs end-to-end.
 - [ ] PM-011 Backup/restore and migration rehearsal.
 

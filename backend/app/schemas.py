@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated, Any, Optional
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_serializer, field_validator
@@ -47,7 +47,6 @@ class UserOut(BaseModel):
         return bool(value)
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 class Token(BaseModel):
@@ -113,7 +112,6 @@ class ConsentOut(BaseModel):
 
 
 
-
 # ------------------------------------------------------------- check-ins ---
 class CheckInIn(BaseModel):
     mood: int = Field(ge=0, le=10)
@@ -130,7 +128,6 @@ class CheckInOut(CheckInIn):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 # --------------------------------------------------------------- diary -----
 class DiaryIn(BaseModel):
     content: str = Field(min_length=1, max_length=8000)
@@ -142,7 +139,6 @@ class DiaryOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 # ---------------------------------------------------------- safety plan ---
@@ -160,7 +156,6 @@ class SafetyPlanOut(SafetyPlanIn):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 # ------------------------------------------------------------- timeline ----
@@ -228,10 +223,13 @@ class ChatMessageOut(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     provider_base_url: Optional[str] = None
+    prompt_version: Optional[str] = None
+    prompt_sha256: Optional[str] = None
+    context_version: Optional[str] = None
+    context_sha256: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 # ------------------------------------------------------------- facts -------
@@ -249,7 +247,6 @@ class FactOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 # --------------------------------------------------------- professional ---
@@ -270,7 +267,6 @@ class AssignmentOut(BaseModel):
     professional_display_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 class AlertOut(BaseModel):
@@ -300,7 +296,6 @@ class AlertOut(BaseModel):
     evidence: Optional[dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 class AlertResolveIn(BaseModel):
@@ -342,13 +337,10 @@ class RiskAssessmentOut(BaseModel):
     linguistic_signal_id_used: Optional[uuid.UUID] = None
     calculation_trace: Optional[Any] = None
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        # ``model_version`` is part of the deterministic risk-engine contract,
-        # not a Pydantic model helper. Explicitly allow that field name so
-        # production startup stays warning-free.
-        protected_namespaces=()
-    )
+    # ``model_version`` is part of the deterministic risk-engine contract,
+    # not a Pydantic model helper. Explicitly allow that field name so
+    # production startup stays warning-free.
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     @field_serializer("calculated_at")
     def serialize_calculated_at(self, value: datetime) -> str:
@@ -364,7 +356,6 @@ class SignalOut(BaseModel):
     agent2_trace_id: Optional[uuid.UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
-
 
     @field_serializer("timestamp")
     def serialize_timestamp(self, value: datetime) -> str:
@@ -431,10 +422,13 @@ class PatientChatMessageOut(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     provider_base_url: Optional[str] = None
+    prompt_version: Optional[str] = None
+    prompt_sha256: Optional[str] = None
+    context_version: Optional[str] = None
+    context_sha256: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
 
     @field_serializer("created_at")
     def serialize_created_at(self, value: datetime) -> str:
@@ -749,7 +743,6 @@ class CopilotMessageOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
     @field_serializer("created_at")
     def serialize_created_at(self, value: datetime) -> str:
         return _utc_iso(value) or ""
@@ -829,3 +822,59 @@ class LLMEndpointStatusOut(BaseModel):
     backend_runtime_label: str = "este equipo"
     local_endpoint_supported: bool = True
     ignored_override: Optional[dict[str, Any]] = None
+
+
+# ------------------------------------------------ curated knowledge/RAG ----
+class KnowledgeItemDraftIn(BaseModel):
+    topic: str = Field(min_length=1, max_length=96)
+    population: str = Field(min_length=1, max_length=96)
+    objective: str = Field(min_length=1, max_length=128)
+    locale: str = Field(default="es-ES", min_length=2, max_length=16)
+    evidence_level: str = Field(min_length=1, max_length=48)
+    contraindications: list[str] = Field(default_factory=list, max_length=32)
+    content: str = Field(min_length=20, max_length=20_000)
+    content_version: str = Field(min_length=1, max_length=64)
+    review_due: date
+    source_ref: str = Field(min_length=3, max_length=2_000)
+
+    @field_validator(
+        "topic", "population", "objective", "locale", "evidence_level",
+        "content", "content_version", "source_ref", mode="before"
+    )
+    @classmethod
+    def reject_blank_text(cls, value):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("must not be blank")
+        return value.strip()
+
+    @field_validator("contraindications", mode="after")
+    @classmethod
+    def normalize_contraindications(cls, values):
+        normalized = []
+        for value in values:
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("contraindications must not contain blank values")
+            clean = value.strip().lower()
+            if clean not in normalized:
+                normalized.append(clean)
+        return normalized
+
+
+class KnowledgeItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    topic: str
+    population: str
+    objective: str
+    locale: str
+    evidence_level: str
+    contraindications: list[str]
+    content: str
+    content_version: str
+    review_due: Optional[date]
+    source_ref: str
+    approved_by: Optional[str]
+    approved_at: Optional[datetime]
+    status: str
+    created_at: datetime

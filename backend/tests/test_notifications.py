@@ -157,7 +157,7 @@ class DispatchForAlertTests(unittest.TestCase):
         prof_inapp = [n for n in added_objects if n.recipient_type == "professional" and n.channel == "in_app"][0]
         self.assertEqual(prof_inapp.professional_id, self.professional_id)
         self.assertEqual(prof_inapp.alert_level, 3)
-        self.assertEqual(prof_inapp.template_code, "level3_professional")
+        self.assertEqual(prof_inapp.template_code, "level3_professional_v2")
         self.assertEqual(prof_inapp.title, "Level 3 Risk Alert")
         self.assertEqual(prof_inapp.status, "sent")
         self.assertEqual(prof_inapp.related_alert_id, self.alert_id)
@@ -166,7 +166,7 @@ class DispatchForAlertTests(unittest.TestCase):
         prof_email = [n for n in added_objects if n.recipient_type == "professional" and n.channel == "email"][0]
         self.assertEqual(prof_email.professional_id, self.professional_id)
         self.assertEqual(prof_email.alert_level, 3)
-        self.assertEqual(prof_email.template_code, "level3_professional_email")
+        self.assertEqual(prof_email.template_code, "level3_professional_email_v2")
         self.assertEqual(prof_email.title, "Level 3 Risk Alert")
         self.assertEqual(prof_email.status, "sent")
         self.assertEqual(prof_email.related_alert_id, self.alert_id)
@@ -175,7 +175,7 @@ class DispatchForAlertTests(unittest.TestCase):
         self.assertEqual(patient_notif.user_id, self.patient_id)
         self.assertEqual(patient_notif.channel, "in_app")
         self.assertEqual(patient_notif.alert_level, 3)
-        self.assertEqual(patient_notif.template_code, "level3_patient")
+        self.assertEqual(patient_notif.template_code, "level3_patient_v2")
         self.assertEqual(patient_notif.title, "Actualización de tu acompañamiento")
         self.assertIn("Tu profesional de referencia ha sido informado", patient_notif.body)
         self.assertEqual(patient_notif.status, "sent")
@@ -203,7 +203,7 @@ class DispatchForAlertTests(unittest.TestCase):
 
         prof_email = [n for n in added_objects if n.recipient_type == "professional" and n.channel == "email"][0]
         self.assertEqual(prof_email.status, "failed")
-        self.assertEqual(prof_email.template_code, "level4_professional_email")
+        self.assertEqual(prof_email.template_code, "level4_professional_email_v2")
 
     @patch("app.services.notifications._send_email")
     def test_dispatch_without_assignments_or_missing_patient(self, mock_send_email):

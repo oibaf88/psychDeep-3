@@ -158,6 +158,10 @@ export interface ChatMessageOut {
   provider?: string | null;
   model?: string | null;
   provider_base_url?: string | null;
+  prompt_version?: string | null;
+  prompt_sha256?: string | null;
+  context_version?: string | null;
+  context_sha256?: string | null;
   created_at: string;
 }
 
@@ -706,6 +710,10 @@ export interface PatientChatMessageOut {
   provider?: string | null;
   model?: string | null;
   provider_base_url?: string | null;
+  prompt_version?: string | null;
+  prompt_sha256?: string | null;
+  context_version?: string | null;
+  context_sha256?: string | null;
   created_at: string;
 }
 

@@ -111,8 +111,8 @@ RULE_CATALOG: dict[str, dict[str, Any]] = {
         "level": 3,
         "title": "Deterioro concurrente: revisión profesional",
         "plain": (
-            "El componente de cambio adverso supera 2.4, con rumiación mayor de 0.85 y "
-            "sueño descendente. Son umbrales operativos exploratorios: una suma estadística "
+            "El componente de cambio adverso supera 2.4 y coincide con rumiación mayor de "
+            "0.85 o con sueño descendente. Son umbrales operativos exploratorios: una suma estadística "
             "no establece por sí misma emergencia suicida ni probabilidad de recaída."
         ),
         "what_now": "Contrasta los cambios con la persona y valora conjuntamente seguridad, consumo, sueño y contexto clínico.",
@@ -163,6 +163,29 @@ RULE_CATALOG: dict[str, dict[str, Any]] = {
             "conducta mediante indagación directa y juicio clínico, aplicando el protocolo "
             "local de seguridad cuando corresponda."
         ),
+    },
+    # Compatibility-only entries. New calculations use the N3 codes above,
+    # but stored assessments keep the rule identifier and level that were
+    # true when they were produced.
+    "N4_convergencia_critica_extrema": {
+        "family": FAMILY_CONVERGENCE,
+        "level": 4,
+        "title": "Convergencia extrema histórica de estructura, rumiación y sueño",
+        "plain": (
+            "Evaluación histórica del motor anterior: score estructural menor de 0.20, "
+            "rumiación mayor de 0.85 y sueño descendente coincidieron en la misma evaluación."
+        ),
+        "what_now": "Interpreta esta fila con la versión histórica registrada; no la recalcules con las reglas actuales.",
+    },
+    "N4_convergencia_interpersonal_despedida": {
+        "family": FAMILY_CONVERGENCE,
+        "level": 4,
+        "title": "Convergencia interpersonal histórica con despedida",
+        "plain": (
+            "Evaluación histórica del motor anterior: ideación indirecta, señales interpersonales "
+            "y despedida coincidieron bajo la antigua clasificación N4."
+        ),
+        "what_now": "Conserva su interpretación histórica y revisa la evidencia original asociada.",
     },
     "N3_declaracion_crisis_consumo": {
         "family": FAMILY_CONFIRMED_FACT,
@@ -1284,7 +1307,10 @@ def evidence_for_assessments(
             continue
         code = selected_rule_code(assessment)
         family = rule_info(code)["family"]
-        if family == FAMILY_LINGUISTIC or code == "N3_convergencia_interpersonal_despedida":
+        if family == FAMILY_LINGUISTIC or code in {
+            "N3_convergencia_interpersonal_despedida",
+            "N4_convergencia_interpersonal_despedida",
+        }:
             driver_id = _as_dict(assessment.input_signals).get("safety_driver_signal_id")
             signal_id_raw = driver_id or assessment.linguistic_signal_id_used
             if signal_id_raw:
@@ -1363,7 +1389,10 @@ def evidence_for_assessment(
     code = selected_rule_code(assessment)
     family = rule_info(code)["family"]
 
-    if family == FAMILY_LINGUISTIC or code == "N3_convergencia_interpersonal_despedida":
+    if family == FAMILY_LINGUISTIC or code in {
+        "N3_convergencia_interpersonal_despedida",
+        "N4_convergencia_interpersonal_despedida",
+    }:
         # A recent safety signal can retain priority through a later neutral
         # message. Show the source that drove the rule, not that neutral text.
         driver_id = _as_dict(assessment.input_signals).get("safety_driver_signal_id")

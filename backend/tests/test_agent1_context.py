@@ -89,7 +89,7 @@ class NoRawEngineDumpTests(unittest.TestCase):
             self.assertNotIn("alert_level", block)
 
     def test_the_state_reaches_it_as_words(self):
-        self.assertIn("emergencia", _build(_Db(), level=4))
+        self.assertIn("revisión clínica urgente", _build(_Db(), level=4))
         self.assertIn("habitual", _build(_Db(), level=0))
 
 

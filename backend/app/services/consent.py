@@ -1,4 +1,5 @@
-"""Granular, revocable consent checks used by vNext processing paths."""
+"""Granular, revocable consent checks used by every processing path."""
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models import Consent
@@ -32,3 +33,18 @@ def is_granted(db: Session, user_id, purpose: str) -> bool:
         .first()
     )
     return bool(row and row.granted)
+
+
+def require_granted(db: Session, user_id, purpose: str) -> None:
+    """Stop a new purpose-bound operation after consent is revoked.
+
+    Historical rows remain untouched; this guard applies only before a new
+    write or processing operation starts.
+    """
+    if purpose not in VALID_PURPOSES:
+        raise ValueError(f"Unknown consent purpose: {purpose}")
+    if not is_granted(db, user_id, purpose):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Consent required for purpose: {purpose}",
+        )

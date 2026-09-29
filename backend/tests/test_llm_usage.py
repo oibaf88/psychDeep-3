@@ -21,7 +21,7 @@ class AnthropicUsageTests(unittest.TestCase):
         )
         return SimpleNamespace(
             id="msg_usage_test",
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             _request_id="req_usage_test",
             stop_reason="end_turn",
             usage=usage,

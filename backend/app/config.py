@@ -49,6 +49,7 @@ class Settings(BaseSettings):
 
     # Profile B: managed/private cloud tuned endpoint. Kept disabled until an
     # approved model/version is configured and promoted through evaluation.
+    runpod_enabled: bool = False
     model_cloud_base_url: str = ""
     model_cloud_api_key: str = ""
     model_cloud_chat_model: str = ""
@@ -61,9 +62,8 @@ class Settings(BaseSettings):
     # approved by MODEL_ALLOW_COMMERCIAL; vNext never silently fails over to it.
     model_allow_commercial: bool = False
     anthropic_api_key: str = ""
-    # Claude 3.5 was retired by Anthropic; use an active model by default.
-    anthropic_chat_model: str = "claude-sonnet-4-6"
-    anthropic_analysis_model: str = "claude-sonnet-4-6"
+    anthropic_chat_model: str = "claude-sonnet-5"
+    anthropic_analysis_model: str = "claude-sonnet-5"
     anthropic_copilot_model: str = ""
     anthropic_max_tokens: int = 8192
     anthropic_max_tokens_chat: int = 0

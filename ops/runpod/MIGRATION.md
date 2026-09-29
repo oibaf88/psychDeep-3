@@ -31,6 +31,7 @@ Configure **Render backend** service `psychdeep-api` Environment (not static `ps
 ```dotenv
 MODEL_CLOUD_BASE_URL=https://api.runpod.ai/v2/REPLACE_WITH_REAL_ENDPOINT_ID/openai/v1
 MODEL_CLOUD_API_KEY=<SET_SECRET_ONLY_IN_RENDER>
+RUNPOD_ENABLED=false
 MODEL_CLOUD_CHAT_MODEL=<EXACT_VERIFIED_SERVED_MODEL_ID_FROM_MODELS>
 MODEL_CLOUD_ANALYSIS_MODEL=<EXACT_VERIFIED_SERVED_MODEL_ID_FROM_MODELS>
 MODEL_CLOUD_COPILOT_MODEL=<EXACT_VERIFIED_SERVED_MODEL_ID_FROM_MODELS>
@@ -38,7 +39,7 @@ MODEL_CLOUD_TIMEOUT_SECONDS=180
 MODEL_CLOUD_MAX_TOKENS=2048
 ```
 
-Set actual model IDs to the precise `/models` response; do not use the Hugging Face repo ID if the worker advertises a different `served-model-name`. **Do not** change `MODEL_DEPLOYMENT_ALIAS=local-tunnel`, `LLM_PERSONAL_MODE`, `JWT_SECRET`, `LLM_USER_CREDENTIALS_KEY`, existing Anthropic/Cloudflare keys or live Supabase selection while staging. Never use `VITE_` / `NEXT_PUBLIC_` for the Runpod key.
+Set actual model IDs to the precise `/models` response; do not use the Hugging Face repo ID if the worker advertises a different `served-model-name`. Keep `RUNPOD_ENABLED=false`. **Do not** change `MODEL_DEPLOYMENT_ALIAS=local-tunnel`, `LLM_PERSONAL_MODE`, `JWT_SECRET`, `LLM_USER_CREDENTIALS_KEY`, existing Anthropic/Cloudflare keys or live Supabase selection while staging. Never use `VITE_` / `NEXT_PUBLIC_` for the Runpod key.
 
 ## Two inference paths and credential isolation
 

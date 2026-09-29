@@ -65,9 +65,7 @@ export default function SettingsPage() {
   function chooseProvider(provider: Provider) {
     if (!form || !status) return;
     if (provider === "anthropic") {
-      patch({ provider, chat_model: "claude-sonnet-4-6", analysis_model: "claude-sonnet-4-6", copilot_model: "claude-sonnet-4-6" });
-    } else if (provider === "openai") {
-      patch({ provider, chat_model: "gpt-5.6-luna", analysis_model: "gpt-5.6-luna", copilot_model: "gpt-5.6-luna" });
+      patch({ provider, chat_model: "claude-sonnet-5", analysis_model: "claude-sonnet-5", copilot_model: "" });
     } else {
       patch({ provider, chat_model: status.default_local_chat_model, analysis_model: status.default_local_analysis_model, copilot_model: "" });
     }
