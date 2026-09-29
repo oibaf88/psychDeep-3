@@ -1,20 +1,4 @@
-"""Resolve and audit the LLM deployment selected at runtime.
-
-PsychDeep vNext keeps clinical storage, consent, deterministic risk and audit
-independent from the generative model. The deployment supplies approved model
-endpoints and secrets, while an ``admin_clinical`` may switch between Anthropic
-and an OpenAI-compatible local/tunnel endpoint when
-``LLM_ALLOW_RUNTIME_OVERRIDE`` is enabled.
-
-Runtime changes are append-only rows in ``llm_endpoint_configs``: the previous
-row is deactivated and the new selection is recorded. Credentials are never
-stored in these rows; they remain server-side environment secrets.
-
-A selected model never silently fails over to the other provider. If the
-chosen endpoint is unavailable, model-dependent functions fail safely while
-clinical data, deterministic safety and static crisis resources continue to
-work.
-"""
+"""Resolve and audit the LLM deployment selected at runtime."""
 from __future__ import annotations
 
 import logging
@@ -37,17 +21,16 @@ PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_LOCAL = "openai_compatible"
 PROVIDERS = (PROVIDER_LOCAL, PROVIDER_ANTHROPIC)
 
+LOCAL_BRIDGE = "local-bridge"
+
 CACHE_TTL_SECONDS = 30.0
 MAX_TOKENS_MIN, MAX_TOKENS_MAX = 256, 32768
 TIMEOUT_MIN, TIMEOUT_MAX = 5, 5000
-
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal"}
 
 
 @dataclass(frozen=True)
 class ResolvedConfig:
-    """The configuration in force for one call, whatever its source."""
-
     provider: str
     chat_model: str
     analysis_model: str
@@ -58,7 +41,7 @@ class ResolvedConfig:
     max_tokens: int = 4096
     timeout_seconds: int = 120
     label: str = ""
-    source: str = "environment"  # environment | runtime
+    source: str = "environment"
     config_id: str | None = None
     updated_at: datetime | None = None
 
@@ -75,14 +58,13 @@ class ResolvedConfig:
         return not self.copilot_model_explicit.strip()
 
     def public_dict(self) -> dict:
-        """Everything the authenticated UI may see. Never serialise a key."""
         settings = get_settings()
-        if self.provider == PROVIDER_ANTHROPIC:
-            has_key = bool(settings.anthropic_api_key)
-            provider_label = "Claude / API de Anthropic"
-        else:
-            has_key = bool(settings.local_api_key)
-            provider_label = "Modelo local / API compatible con OpenAI"
+        has_key = bool(settings.anthropic_api_key if self.provider == PROVIDER_ANTHROPIC else settings.local_api_key)
+        provider_label = (
+            "Claude / API de Anthropic"
+            if self.provider == PROVIDER_ANTHROPIC
+            else ("Modelo local / puente saliente" if self.label.startswith("Modelo local") else "Modelo local / API compatible con OpenAI")
+        )
         return {
             "provider": self.provider,
             "provider_label": provider_label,
@@ -104,7 +86,7 @@ class ResolvedConfig:
 
 
 class LLMConfigError(ValueError):
-    """The submitted configuration cannot be used."""
+    pass
 
 
 def backend_runtime() -> str:
@@ -126,9 +108,7 @@ def backend_runtime_label() -> str:
 
 def _hostname_is_private(hostname: str) -> bool:
     host = (hostname or "").strip().lower().rstrip(".")
-    if not host:
-        return True
-    if host in LOOPBACK_HOSTS or host.endswith(".local") or host.endswith(".internal"):
+    if not host or host in LOOPBACK_HOSTS or host.endswith(".local") or host.endswith(".internal"):
         return True
     try:
         ip = ip_address(host)
@@ -138,7 +118,6 @@ def _hostname_is_private(hostname: str) -> bool:
 
 
 def endpoint_reachability(url: str | None) -> dict:
-    """Validate whether this FastAPI runtime can route safely to ``url``."""
     runtime = backend_runtime()
     parsed = urlparse((url or "").strip())
     host = (parsed.hostname or "").lower()
@@ -146,12 +125,7 @@ def endpoint_reachability(url: str | None) -> dict:
     if runtime == "local":
         return {"ok": True, "runtime": runtime, "private_target": private, "reason": None}
     if not url:
-        return {
-            "ok": False,
-            "runtime": runtime,
-            "private_target": True,
-            "reason": "Falta la URL del modelo.",
-        }
+        return {"ok": False, "runtime": runtime, "private_target": True, "reason": "Falta la URL del modelo."}
     if private:
         return {
             "ok": False,
@@ -159,8 +133,7 @@ def endpoint_reachability(url: str | None) -> dict:
             "private_target": True,
             "reason": (
                 f"Este backend corre en {backend_runtime_label()} y no tiene ruta a {host}. "
-                "Una IP de LAN no es alcanzable desde Render. Usa un túnel HTTPS "
-                "público y autenticado que apunte al servidor local del modelo."
+                "El despliegue debe usar el puente local saliente en lugar de una IP de LAN."
             ),
         }
     if parsed.scheme != "https":
@@ -168,15 +141,14 @@ def endpoint_reachability(url: str | None) -> dict:
             "ok": False,
             "runtime": runtime,
             "private_target": False,
-            "reason": (
-                "Desde un despliegue en la nube el endpoint del modelo tiene que ser "
-                "HTTPS público. HTTP en claro enviaría texto clínico sin cifrar."
-            ),
+            "reason": "Desde un despliegue en la nube, un endpoint LLM HTTP en claro no está permitido.",
         }
     return {"ok": True, "runtime": runtime, "private_target": False, "reason": None}
 
 
 def _is_unreachable_local(config: ResolvedConfig) -> bool:
+    if config.label.startswith("Modelo local") and config.base_url is None:
+        return False
     return bool(config.is_local and not endpoint_reachability(config.base_url)["ok"])
 
 
@@ -201,11 +173,10 @@ def _anthropic_environment(settings) -> ResolvedConfig:
         max_tokens=settings.anthropic_max_tokens,
         timeout_seconds=settings.llm_openai_compatible_timeout_seconds,
         label="Claude configurado en el despliegue",
-        source="environment",
     )
 
 
-def _local_environment(settings, *, cloud_tuned: bool = False) -> ResolvedConfig:
+def _local_environment(settings, *, cloud_tuned: bool = False, bridge: bool = False) -> ResolvedConfig:
     if cloud_tuned:
         chat_model = settings.model_cloud_chat_model.strip()
         analysis_model = settings.model_cloud_analysis_model.strip() or chat_model
@@ -221,37 +192,36 @@ def _local_environment(settings, *, cloud_tuned: bool = False) -> ResolvedConfig
             max_tokens=settings.model_cloud_max_tokens,
             timeout_seconds=settings.model_cloud_timeout_seconds,
             label="Modelo cloud privado configurado en el despliegue",
-            source="environment",
         )
+
     return ResolvedConfig(
         provider=PROVIDER_LOCAL,
         chat_model=settings.local_chat_model,
         analysis_model=settings.local_analysis_model,
         copilot_model=settings.local_copilot_model,
         copilot_model_explicit=settings.model_local_copilot_model.strip() or settings.llm_openai_compatible_copilot_model.strip(),
-        base_url=settings.local_base_url.strip() or None,
-        api_key=settings.local_api_key,
+        base_url=None if bridge else (settings.local_base_url.strip() or None),
+        api_key="" if bridge else settings.local_api_key,
         max_tokens=settings.model_local_max_tokens or settings.llm_openai_compatible_max_tokens,
         timeout_seconds=settings.model_local_timeout_seconds or settings.llm_openai_compatible_timeout_seconds,
-        label="Modelo local/túnel configurado en el despliegue",
+        label="Modelo local/puente saliente" if bridge else "Modelo local/túnel configurado en el despliegue",
         source="environment",
     )
 
 
 def environment_config() -> ResolvedConfig:
-    """Return the deployment default used when no runtime override is active."""
     settings = get_settings()
     alias = settings.model_deployment_alias.strip()
     if alias == "commercial-approved":
         return _anthropic_environment(settings)
     if alias == "cloud-tuned":
         return _local_environment(settings, cloud_tuned=True)
-    if alias == "local-tunnel":
-        return _local_environment(settings)
+    if alias in {LOCAL_BRIDGE, "local-tunnel"}:
+        return _local_environment(settings, bridge=True) if alias == LOCAL_BRIDGE else _local_environment(settings)
 
-    # Compatibility with deployments predating Model Gateway aliases.
     if settings.llm_default_provider == PROVIDER_ANTHROPIC:
         return _anthropic_environment(settings)
+
     return ResolvedConfig(
         provider=PROVIDER_LOCAL,
         chat_model=settings.llm_openai_compatible_chat_model,
@@ -288,12 +258,9 @@ def _from_row(row: LLMEndpointConfig) -> ResolvedConfig:
 
 
 def active_row(db: Session) -> LLMEndpointConfig | None:
-    return (
-        db.query(LLMEndpointConfig)
-        .filter(LLMEndpointConfig.is_active == True)  # noqa: E712
-        .order_by(LLMEndpointConfig.created_at.desc())
-        .first()
-    )
+    return db.query(LLMEndpointConfig).filter(
+        LLMEndpointConfig.is_active == True  # noqa: E712
+    ).order_by(LLMEndpointConfig.created_at.desc()).first()
 
 
 def stored_override(db: Session | None) -> ResolvedConfig | None:
@@ -307,13 +274,6 @@ def stored_override(db: Session | None) -> ResolvedConfig | None:
 
 
 def resolve(db: Session | None = None) -> ResolvedConfig:
-    """Return the model configuration currently selected for inference.
-
-    Database lookup failures fall back to the deployment default because the
-override cannot be established. A *valid stored selection*, however, is
-never silently replaced by the other provider merely because its endpoint
-is unavailable.
-    """
     global _cached
     settings = get_settings()
     if not settings.llm_allow_runtime_override:
@@ -339,8 +299,7 @@ is unavailable.
 
     if config.source == "runtime" and _is_unreachable_local(config):
         logger.warning(
-            "Selected local LLM endpoint %s is not reachable from %s; no provider fallback will be attempted",
-            config.base_url,
+            "Selected local LLM endpoint is not reachable from %s; no provider fallback will be attempted",
             backend_runtime_label(),
         )
 
@@ -354,10 +313,8 @@ def normalise_base_url(raw: str) -> str:
     if not url:
         raise LLMConfigError("Escribe la URL del servidor.")
     parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise LLMConfigError("La URL tiene que empezar por http:// o https://")
-    if not parsed.netloc:
-        raise LLMConfigError("La URL no incluye un servidor.")
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise LLMConfigError("La URL no incluye un servidor válido.")
     if url.endswith("/chat/completions"):
         url = url[: -len("/chat/completions")]
     if url.endswith("/api/v1/chat"):
@@ -428,11 +385,6 @@ def set_active(
     copilot_model: str | None = None,
     actor_id=None,
 ) -> ResolvedConfig:
-    """Insert a new active configuration and retire the previous one.
-
-    ``api_key`` is accepted for API compatibility but deliberately ignored:
-    model credentials remain server-side deployment secrets.
-    """
     fields = validate(
         provider=provider,
         base_url=base_url,
@@ -471,7 +423,6 @@ def set_active(
 
 
 def reset_to_environment(db: Session) -> ResolvedConfig:
-    """Deactivate runtime selection and return to the deployment default."""
     now = datetime.utcnow()
     for row in db.query(LLMEndpointConfig).filter(LLMEndpointConfig.is_active == True).all():  # noqa: E712
         row.is_active = False
