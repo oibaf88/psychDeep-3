@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import secrets as _secrets
+import time
 
 from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
 
@@ -32,11 +34,29 @@ async def connect_agent(websocket: WebSocket):
     token = websocket.query_params.get("token", "")
     agent_id = websocket.query_params.get("agent_id", "")
     challenge = websocket.query_params.get("challenge", "")
-    if not agent_id or len(agent_id) > 128 or not challenge or len(challenge) > 256:
+    expires_at_raw = websocket.query_params.get("expires_at", "")
+    try:
+        expires_at = int(expires_at_raw)
+    except ValueError:
+        expires_at = 0
+
+    if (
+        not agent_id
+        or len(agent_id) > 128
+        or not challenge
+        or len(challenge) > 256
+        or expires_at < int(time.time())
+        or expires_at > int(time.time()) + 120
+    ):
         await websocket.close(code=1008)
         return
 
-    expected = sign_message(secret, {"agent_id": agent_id, "challenge": challenge})
+    signed_handshake = {
+        "agent_id": agent_id,
+        "challenge": challenge,
+        "expires_at": expires_at,
+    }
+    expected = sign_message(secret, signed_handshake)
     if not _secrets.compare_digest(token, expected):
         await websocket.close(code=1008)
         return
@@ -45,13 +65,21 @@ async def connect_agent(websocket: WebSocket):
     bridge = get_local_inference_bridge()
     queue = await bridge.register(agent_id)
 
-    async def receive_result(message: dict) -> None:
-        if message.get("type") != "inference_result":
+    async def receive_message(message: dict) -> None:
+        message_type = message.get("type")
+        if message_type == "heartbeat":
+            signed = {k: v for k, v in message.items() if k != "signature"}
+            if verify_message(secret, signed, message.get("signature", "")):
+                await bridge.heartbeat(agent_id)
             return
-        signature = message.get("signature", "")
-        clean = {k: v for k, v in message.items() if k != "signature"}
-        if not verify_message(secret, clean, signature):
+
+        if message_type != "inference_result":
             return
+
+        signed = {k: v for k, v in message.items() if k != "signature"}
+        if not verify_message(secret, signed, message.get("signature", "")):
+            return
+
         request_id = message.get("request_id")
         result = message.get("result")
         if isinstance(request_id, str) and isinstance(result, dict):
@@ -65,18 +93,25 @@ async def connect_agent(websocket: WebSocket):
                 "request_id": outgoing["request_id"],
                 "payload": outgoing["payload"],
             }
-            signature = sign_message(secret, payload_for_agent)
-            await websocket.send_json({**payload_for_agent, "signature": signature})
+            await websocket.send_json(
+                {
+                    **payload_for_agent,
+                    "signature": sign_message(secret, payload_for_agent),
+                }
+            )
 
     try:
         await websocket.send_json({"type": "ready", "agent_id": agent_id})
-        sender_task = __import__("asyncio").create_task(sender())
+        sender_task = asyncio.create_task(sender())
         try:
             while True:
                 incoming = await websocket.receive_json()
-                await receive_result(incoming)
+                if isinstance(incoming, dict):
+                    await receive_message(incoming)
         finally:
             sender_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sender_task
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
