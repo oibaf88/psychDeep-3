@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import uuid
+import secrets as _secrets
 
 from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
 
@@ -23,22 +23,21 @@ def _secret() -> str:
 
 @router.websocket("/connect")
 async def connect_agent(websocket: WebSocket):
-    secret = get_settings().local_bridge_secret.strip()
-    if not get_settings().local_bridge_enabled or len(secret) < 32:
+    settings = get_settings()
+    secret = settings.local_bridge_secret.strip()
+    if not settings.local_bridge_enabled or len(secret) < 32:
         await websocket.close(code=1013)
         return
 
     token = websocket.query_params.get("token", "")
     agent_id = websocket.query_params.get("agent_id", "")
     challenge = websocket.query_params.get("challenge", "")
-    if not agent_id or len(agent_id) > 128 or not challenge:
+    if not agent_id or len(agent_id) > 128 or not challenge or len(challenge) > 256:
         await websocket.close(code=1008)
         return
 
     expected = sign_message(secret, {"agent_id": agent_id, "challenge": challenge})
-    if not verify_message(secret, {"agent_id": agent_id, "challenge": challenge}, token) if token else token != expected:
-        # Kept deliberately simple: the query token is an HMAC over a one-time
-        # challenge. No static bearer is placed in a public URL by the server.
+    if not _secrets.compare_digest(token, expected):
         await websocket.close(code=1008)
         return
 
@@ -46,8 +45,19 @@ async def connect_agent(websocket: WebSocket):
     bridge = get_local_inference_bridge()
     queue = await bridge.register(agent_id)
 
-    try:
-        await websocket.send_json({"type": "ready", "agent_id": agent_id})
+    async def receive_result(message: dict) -> None:
+        if message.get("type") != "inference_result":
+            return
+        signature = message.get("signature", "")
+        clean = {k: v for k, v in message.items() if k != "signature"}
+        if not verify_message(secret, clean, signature):
+            return
+        request_id = message.get("request_id")
+        result = message.get("result")
+        if isinstance(request_id, str) and isinstance(result, dict):
+            await bridge.resolve(request_id, result)
+
+    async def sender() -> None:
         while True:
             outgoing = await queue.get()
             payload_for_agent = {
@@ -58,23 +68,16 @@ async def connect_agent(websocket: WebSocket):
             signature = sign_message(secret, payload_for_agent)
             await websocket.send_json({**payload_for_agent, "signature": signature})
 
-            # A single socket may process multiple requests. Responses are
-            # received asynchronously while the sending loop continues.
-            async def receive_result(message: dict):
-                if message.get("type") != "inference_result":
-                    return
-                signature = message.pop("signature", "")
-                clean = {k: v for k, v in message.items() if k != "signature"}
-                if not verify_message(secret, clean, signature):
-                    return
-                await bridge.resolve(message["request_id"], message["result"])
-
-            try:
-                first = await websocket.receive_json()
-                await receive_result(first)
-            except ValueError:
-                continue
-    except WebSocketDisconnect:
+    try:
+        await websocket.send_json({"type": "ready", "agent_id": agent_id})
+        sender_task = __import__("asyncio").create_task(sender())
+        try:
+            while True:
+                incoming = await websocket.receive_json()
+                await receive_result(incoming)
+        finally:
+            sender_task.cancel()
+    except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
         await bridge.unregister(agent_id)
