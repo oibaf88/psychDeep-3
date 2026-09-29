@@ -514,7 +514,9 @@ def get_reply(
                 from app.services.local_llm_access import LocalLlmAccessDenied
                 if isinstance(exc, LocalLlmAccessDenied):
                     reply_text = (
-                        f"{exc} Tus datos y check-ins se han guardado con normalidad."
+                        "Ahora mismo no puedo generar una respuesta conversacional. "
+                        "El fallo queda registrado de forma segura y tus datos y check-ins "
+                        "se han guardado con normalidad."
                     )
                 elif isinstance(exc, RuntimeError) and str(exc) == "OPENAI_API_KEY_NOT_CONFIGURED":
                     reply_text = (
