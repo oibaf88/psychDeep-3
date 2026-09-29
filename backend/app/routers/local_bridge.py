@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import secrets as _secrets
 import time
 
@@ -40,13 +41,14 @@ async def connect_agent(websocket: WebSocket):
     except ValueError:
         expires_at = 0
 
+    now = int(time.time())
     if (
         not agent_id
         or len(agent_id) > 128
         or not challenge
         or len(challenge) > 256
-        or expires_at < int(time.time())
-        or expires_at > int(time.time()) + 120
+        or expires_at < now
+        or expires_at > now + 120
     ):
         await websocket.close(code=1008)
         return
