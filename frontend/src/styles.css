@@ -216,8 +216,10 @@ main {
 /* At 26px the master's 13 curves fill in, so the chrome takes the compact
    drawing — the same shape, read at the size it was cut for. */
 .navbar-mark {
-  width: 26px;
-  height: 26px;
+  width: 26px !important;
+  height: 26px !important;
+  max-width: 26px;
+  max-height: 26px;
   flex: none;
 }
 
@@ -349,13 +351,109 @@ button:disabled {
 }
 
 .auth-page {
-  max-width: 420px;
-  margin: 40px auto;
-  text-align: center;
+  width: 100%;
+  min-height: calc(100vh - 124px);
+  margin: 28px 0 96px;
+  padding: 0 40px;
+  text-align: left;
+}
+
+.auth-brand-lockup {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  margin: 0 0 20px;
+  text-align: left;
+}
+
+.auth-brand {
+  width: 96px;
+  height: 96px;
+  min-width: 96px;
+  min-height: 96px;
+  flex: 0 0 96px;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+
+.auth-brand::before {
+  content: "";
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(102, 199, 197, 0.08) 0%, rgba(102, 199, 197, 0.02) 48%, transparent 72%);
+  filter: blur(6px);
+  pointer-events: none;
+}
+
+.auth-brand__logo {
+  position: relative;
+  display: block;
+  width: 96px !important;
+  height: 96px !important;
+  max-width: 96px;
+  max-height: 96px;
+  object-fit: contain;
+}
+
+.auth-brand-lockup h1 {
+  min-width: 0;
+  margin: 0;
+  font-size: clamp(2rem, 4.4vw, 3.8rem);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.auth-page > .subtitle {
+  max-width: 680px;
+  margin: 14px 0 0;
+  line-height: 1.4;
+}
+
+@media (max-width: 700px) {
+  .auth-page {
+    width: 100%;
+    margin-top: 20px;
+    padding: 0 20px;
+  }
+
+  .auth-brand-lockup {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .auth-brand {
+    width: 64px;
+    height: 64px;
+    min-width: 64px;
+    min-height: 64px;
+    flex-basis: 64px;
+  }
+
+  .auth-brand__logo {
+    width: 64px !important;
+    height: 64px !important;
+    max-width: 64px;
+    max-height: 64px;
+  }
+
+  .auth-brand-lockup h1 {
+    font-size: clamp(1.55rem, 7vw, 2.25rem);
+  }
 }
 
 .auth-form {
+  width: min(100%, 620px);
+  margin: 0;
   text-align: left;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
 }
 
 .demo-hint {
@@ -834,12 +932,25 @@ button:disabled {
   text-align: left;
 }
 
+/* Clinical alert semantics: colour is reinforced by the explicit
+   level text/icon in the component, never used as the sole carrier of meaning. */
 .alert-level-4 {
   border-left: 6px solid var(--danger);
+  background: var(--danger-bg);
 }
 
 .alert-level-3 {
   border-left: 6px solid var(--warning);
+  background: var(--warning-bg);
+}
+
+.patient-notice {
+  border-left: 4px solid var(--primary);
+}
+
+.patient-notice--accent {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
 }
 
 .alert-actions {
@@ -858,6 +969,69 @@ button:disabled {
   text-align: center;
   padding: 40px;
 }
+/* --- PsychDeep brand assets and wait states -------------------------- */
+.psychdeep-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  flex: none;
+}
+
+.psychdeep-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  text-align: center;
+}
+
+.psychdeep-loader--sm { min-height: 56px; }
+.psychdeep-loader--md { min-height: 160px; }
+.psychdeep-loader--lg { min-height: 260px; }
+
+.psychdeep-loader__video,
+.psychdeep-loader__fallback {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  border-radius: 50%;
+  flex: none;
+}
+
+.psychdeep-loader--sm .psychdeep-loader__video,
+.psychdeep-loader--sm .psychdeep-loader__fallback {
+  width: 56px;
+  height: 56px;
+}
+
+.psychdeep-loader--md .psychdeep-loader__video,
+.psychdeep-loader--md .psychdeep-loader__fallback {
+  width: 108px;
+  height: 108px;
+}
+
+.psychdeep-loader--lg .psychdeep-loader__video,
+.psychdeep-loader--lg .psychdeep-loader__fallback {
+  width: 168px;
+  height: 168px;
+}
+
+.psychdeep-loader__fallback { display: none; }
+
+.psychdeep-loader__label {
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .psychdeep-loader__video { display: none; }
+  .psychdeep-loader__fallback { display: block; }
+}
+
 
 .table-wrap {
   overflow-x: auto;
@@ -2170,6 +2344,15 @@ tr.direction-peor td:first-child {
 .copilot-pending {
   color: var(--ink-muted);
   font-style: italic;
+}
+
+.copilot-pending .psychdeep-loader {
+  align-items: flex-start;
+  width: auto;
+}
+
+.copilot-pending .psychdeep-loader__label {
+  font-style: normal;
 }
 
 .copilot-meta {

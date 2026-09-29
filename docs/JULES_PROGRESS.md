@@ -22,6 +22,8 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
+- **Clinical Safety:** Updated the `profile_update` prompt in `backend/app/content/prompts.py` to prevent the AI from converting transient emotional states or acute crises into permanent traits in the patient's portrait, aligning with clinical directives. Generated clinical review finding in `docs/agentes/hallazgo_profile_update_rasgo_permanente.md`.
+- **Clinical Safety:** Corrected an outdated `N4_convergencia_interpersonal_despedida` reference in the frontend manual (`ManualPage.tsx`) to its actual `N3` level, aligning documentation with backend behavior and NICE NG225 guidelines. Generated clinical review report in `docs/agentes/hallazgo_convergencia_interpersonal.md`.
 - **Clinical Safety:** Removed obsolete `N4_convergencia_critica_extrema` references from the therapist manual and frontend component (`ClinicalTraceability.tsx`), completing the alignment of statistical convergence handling with N3 professional review requirements.
 - **Clinical Safety:** Actualizada la terminología de las alertas Nivel 4 en toda la aplicación de "Emergencia" a "Revisión clínica urgente" para cumplir con las directrices de seguridad clínica de que las señales de IA determinan prioridades de revisión, no diagnósticos de emergencia automatizados.
 - **Clinical Safety:** Convergencia interpersonal recategorizada de N4 a N3 (`N3_convergencia_interpersonal_despedida`) y eliminada entrada obsoleta de N4 en panel clínico, siguiendo CLINICAL_RISK_BASIS.md y lineamientos de NICE NG225. Agregado `N3_convergencia_interpersonal_despedida` en la trazabilidad clínica del frontend.
@@ -33,6 +35,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Fixed an absolute path bug in `backend/tests/test_llm_endpoint.py` so tests can be run regardless of the directory they're executed from.
 - Refactored `aggregate_daily_statistics` function in `backend/app/services/daily_statistics.py` by extracting logic into smaller helpers for improved readability and maintainability.
 - **Testing:** Expanded frontend component testing by adding test suites for the ConsentsPage and SharingPage components.
+- **Tech Debt:** Updated `Config` classes in Pydantic models to Pydantic V2 configuration style (`model_config = ConfigDict(from_attributes=True)`) across backend schemas and routers.
 
 ## Recommended next work
 1. **Implement RAG de Contenidos (Epic E9)**: Build the versioned, curated content library mechanism for the conversational assistant.

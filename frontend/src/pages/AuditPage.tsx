@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, AuditLogOut } from "../api";
+import PsychDeepLoader from "../components/PsychDeepLoader";
 
 interface AuditLogPageOut {
   items: AuditLogOut[];
@@ -66,7 +67,7 @@ export default function AuditPage() {
       </div>
 
       {error && <p className="error">{error}</p>}
-      {loading && <p className="meta">Cargando…</p>}
+      {loading && <PsychDeepLoader size="sm" label="Cargando auditoría…" />}
 
       <div className="table-wrap">
         <table className="table">

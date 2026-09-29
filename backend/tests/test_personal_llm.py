@@ -51,6 +51,10 @@ def settings(**overrides):
         anthropic_api_key="server-anthropic-test-key",
         anthropic_chat_model="claude-test",
         anthropic_analysis_model="claude-test",
+        openai_api_key="test-openai-key",
+        openai_chat_model="test-openai-model",
+        openai_analysis_model="test-openai-model",
+        openai_copilot_model="test-openai-model",
     )
     values.update(overrides)
     return SimpleNamespace(**values)

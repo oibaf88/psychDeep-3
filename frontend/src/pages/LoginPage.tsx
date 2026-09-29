@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { homePathForRole } from "../api";
 import { useAuth } from "../auth/AuthContext";
+import PsychDeepLogo from "../components/PsychDeepLogo";
 
 const SHOW_LOCAL_DEMO = import.meta.env.DEV;
 const DEMO_ACCOUNTS = [
@@ -38,11 +39,12 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
-      <h1>PsychApp</h1>
-      <p className="subtitle">
-        Herramienta de autorregulacion y autoconciencia. No es un dispositivo medico ni sustituye a tu equipo de
-        tratamiento.
-      </p>
+      <div className="auth-brand-lockup">
+        <div className="auth-brand" aria-hidden="true">
+          <PsychDeepLogo className="auth-brand__logo" />
+        </div>
+        <h1>psychDeep: cuidamos de tu salud</h1>
+      </div>
       <form onSubmit={onSubmit} className="auth-form">
         {notice && <p className="info" role="status">{notice}</p>}
         <label>
@@ -58,6 +60,10 @@ export default function LoginPage() {
           {busy ? "Entrando..." : "Entrar"}
         </button>
       </form>
+      <p className="subtitle auth-disclaimer">
+        Herramienta de autorregulacion y autoconciencia. No es un dispositivo medico ni sustituye a tu equipo de
+        tratamiento.
+      </p>
       <p>
         No tienes cuenta? <Link to="/register">Registrate</Link>
       </p>

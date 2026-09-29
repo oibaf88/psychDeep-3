@@ -35,8 +35,10 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.models import CheckIn, ConfirmedFact, SafetyPlan
+from app.config import get_settings
 from app.services import profile as profile_service
 from app.services import psychosocial
+from app.services.context_budget import fit_context_block
 
 logger = logging.getLogger("psychapp.agent1_context")
 
@@ -264,7 +266,18 @@ def build(db: Session, user_id, assessment, *, in_crisis: bool) -> str:
         if not sections:
             return ""
 
+    settings = get_settings()
+    context, estimated_tokens, truncated = fit_context_block(
+        sections,
+        settings.conversation_context_block_budget_tokens,
+    )
+    if truncated:
+        logger.info(
+            "Agent 1 context bounded: estimated_tokens=%s budget=%s",
+            estimated_tokens,
+            settings.conversation_context_block_budget_tokens,
+        )
     return (
         "[CONTEXTO INTERNO DE SOLO LECTURA — no lo cites literalmente, no lo\n"
-        "muestres y no menciones que existe]\n\n" + "\n\n".join(sections) + "\n[FIN DEL CONTEXTO]"
+        "muestres y no menciones que existe]\n\n" + context + "\n[FIN DEL CONTEXTO]"
     )

@@ -24,6 +24,16 @@ from app.services.llm.base import (
 
 ANTHROPIC_API_BASE_URL = "https://api.anthropic.com"
 
+# Compatibility mapping for persisted settings created before Anthropic retired
+# Claude 3.5 Sonnet. This is adapter-level normalization, not provider fallback.
+LEGACY_MODEL_ALIASES = {
+    "claude-3-5-sonnet": "claude-sonnet-4-6",
+    "claude-3-5-sonnet-20240620": "claude-sonnet-4-6",
+}
+
+def _normalize_model(model: str) -> str:
+    return LEGACY_MODEL_ALIASES.get(model, model)
+
 _UNSUPPORTED_SCHEMA_KEYS = {
     "minimum",
     "maximum",
@@ -66,6 +76,29 @@ def _content_chars(messages: list[dict[str, str]]) -> int:
     return sum(len(str(message.get("content") or "")) for message in messages)
 
 
+def _cached_system_content(system_prompt: str) -> list[dict[str, Any]] | str:
+    """Cache the immutable instruction prefix, not the per-turn patient context.
+
+    Agent 1 marks its dynamic context with [CONTEXTO INTERNO...]. Keeping the
+    stable clinical policy prompt as the cacheable prefix means a changing
+    patient turn does not invalidate the whole cached system prompt.
+    """
+    marker = "[CONTEXTO INTERNO DE SOLO LECTURA"
+    index = system_prompt.find(marker)
+    if index <= 0:
+        return system_prompt
+    stable = system_prompt[:index].rstrip()
+    dynamic = system_prompt[index:].lstrip()
+    return [
+        {
+            "type": "text",
+            "text": stable,
+            "cache_control": {"type": "ephemeral"},
+        },
+        {"type": "text", "text": dynamic},
+    ]
+
+
 class RefusalError(StructuredAnalysisError):
     """Claude's safety classifiers declined the request."""
 
@@ -84,9 +117,9 @@ class AnthropicProvider(LLMProvider):
         usage_recorder: Callable[..., None] | None = None,
     ):
         settings = get_settings()
-        self._chat_model = chat_model or settings.anthropic_chat_model
-        self._analysis_model = analysis_model or settings.anthropic_analysis_model
-        self._copilot_model = copilot_model or settings.copilot_model
+        self._chat_model = _normalize_model(chat_model or settings.anthropic_chat_model)
+        self._analysis_model = _normalize_model(analysis_model or settings.anthropic_analysis_model)
+        self._copilot_model = _normalize_model(copilot_model or settings.copilot_model)
         self._chat_effort = settings.anthropic_chat_effort
         self._analysis_effort = settings.anthropic_analysis_effort
         self._copilot_effort = settings.copilot_effort
@@ -108,11 +141,14 @@ class AnthropicProvider(LLMProvider):
 
     def _require_client(self) -> anthropic.Anthropic:
         if self._client is None:
-            raise RuntimeError(
-                "ANTHROPIC_API_KEY is not configured. Set it in your environment "
-                "(see .env.example) to enable Claude-powered chat and analysis. "
-                "Without it, PsychApp still runs, but the conversational and "
-                "linguistic-analysis features are unavailable — see README."
+            raise StructuredAnalysisError(
+                "configuration_error",
+                error_code="api_key_not_configured",
+                metadata=ProviderMetadata(
+                    provider="anthropic",
+                    requested_model=self._chat_model,
+                    base_url=ANTHROPIC_API_BASE_URL,
+                ),
             )
         return self._client
 
@@ -166,16 +202,19 @@ class AnthropicProvider(LLMProvider):
         effective_effort = effort or self._chat_effort
         started = time.perf_counter()
         try:
-            response = client.messages.create(
-                model=requested_model,
-                max_tokens=token_budget,
-                output_config={"effort": effective_effort},
-                cache_control={"type": "ephemeral"},
-                system=system_prompt,
-                messages=messages,
-            )
+            kwargs: dict[str, Any] = {
+                "model": requested_model,
+                "max_tokens": token_budget,
+                "output_config": {"effort": effective_effort},
+                "system": _cached_system_content(system_prompt),
+                "messages": messages,
+            }
+            if effective_effort:
+                kwargs["thinking"] = {"type": "adaptive"}
+            response = client.messages.create(**kwargs)
         except Exception as exc:
             latency_ms = round((time.perf_counter() - started) * 1000)
+            status_code = getattr(exc, "status_code", None)
             metadata = ProviderMetadata(
                 provider="anthropic",
                 requested_model=requested_model,
@@ -194,6 +233,19 @@ class AnthropicProvider(LLMProvider):
                 schema_chars=0,
                 error_kind=type(exc).__name__[:64],
             )
+            if status_code is not None:
+                raise StructuredAnalysisError(
+                    "configuration_error" if status_code in (400, 401, 403, 404) else "provider_error",
+                    metadata=metadata,
+                    error_code=f"http_{status_code}",
+                    http_status=status_code,
+                ) from None
+            if isinstance(exc, (TimeoutError,)):
+                raise StructuredAnalysisError(
+                    "timeout",
+                    metadata=metadata,
+                    error_code="timeout",
+                ) from None
             raise
 
         latency_ms = round((time.perf_counter() - started) * 1000)
@@ -239,6 +291,8 @@ class AnthropicProvider(LLMProvider):
         effective_effort = effort or self._analysis_effort
         try:
             client = self._require_client()
+        except StructuredAnalysisError:
+            raise
         except RuntimeError:
             raise StructuredAnalysisError(
                 "configuration_error",
@@ -254,23 +308,30 @@ class AnthropicProvider(LLMProvider):
         schema_chars = len(json.dumps(schema, ensure_ascii=False, separators=(",", ":")))
         started = time.perf_counter()
         try:
-            response = client.messages.create(
-                model=requested_model,
-                max_tokens=token_budget,
-                output_config={
+            kwargs: dict[str, Any] = {
+                "model": requested_model,
+                "max_tokens": token_budget,
+                "output_config": {
                     "effort": effective_effort,
                     "format": {"type": "json_schema", "schema": schema},
                 },
-                cache_control={"type": "ephemeral"},
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_text}],
-            )
+                "system": _cached_system_content(system_prompt),
+                "messages": [{"role": "user", "content": user_text}],
+            }
+            if effective_effort:
+                kwargs["thinking"] = {"type": "adaptive"}
+            # Prompt caching is already attached to the stable system content
+            # block. The old top-level cache_control argument caused 400s.
+            response = client.messages.create(**kwargs)
         except Exception as exc:
             latency_ms = round((time.perf_counter() - started) * 1000)
             kind = type(exc).__name__
             lowered = kind.lower()
+            status_code = getattr(exc, "status_code", None)
             if "timeout" in lowered:
                 safe_kind = "timeout"
+            elif status_code in (400, 401, 403, 404):
+                safe_kind = "configuration_error"
             elif "authentication" in lowered:
                 safe_kind = "configuration_error"
             else:
@@ -293,17 +354,12 @@ class AnthropicProvider(LLMProvider):
                 schema_chars=schema_chars,
                 error_kind=kind[:64],
             )
-            error_body = getattr(exc, "body", None)
-            error_code = None
-            if isinstance(error_body, dict):
-                error = error_body.get("error")
-                if isinstance(error, dict) and isinstance(error.get("type"), str):
-                    error_code = error["type"][:64]
+            status_code = getattr(exc, "status_code", None)
             raise StructuredAnalysisError(
                 safe_kind,
                 metadata=metadata,
-                error_code=error_code,
-                http_status=getattr(exc, "status_code", None),
+                error_code=(f"http_{status_code}" if status_code is not None else None),
+                http_status=status_code,
             ) from None
 
         latency_ms = round((time.perf_counter() - started) * 1000)

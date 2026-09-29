@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import PsychDeepLoader from "../components/PsychDeepLoader";
 
 interface DiaryEntry {
   id: string;
@@ -50,8 +51,9 @@ export default function DiaryPage() {
           placeholder="¿Cómo ha ido tu día?"
         />
         <button type="submit" disabled={busy || !content.trim()}>
-          {busy ? "Guardando..." : "Guardar entrada"}
+          {busy ? "Esperando análisis…" : "Guardar entrada"}
         </button>
+        {busy && <PsychDeepLoader size="sm" label="Analizando tu entrada…" />}
       </form>
 
       <section className="entries">

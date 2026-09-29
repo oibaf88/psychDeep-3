@@ -30,6 +30,7 @@ import CopilotPanel from "../components/CopilotPanel";
 import PatientProfilePanel from "../components/PatientProfilePanel";
 import PsychosocialPanel from "../components/PsychosocialPanel";
 import DailyStatisticsPanel from "../components/DailyStatisticsPanel";
+import PsychDeepLoader from "../components/PsychDeepLoader";
 
 type Tab =
   | "resumen"
@@ -185,7 +186,7 @@ export default function PatientDetailPage() {
     );
   }
 
-  if (!dossier) return <div className="loading">Cargando historial clínico…</div>;
+  if (!dossier) return <div className="loading"><PsychDeepLoader size="md" label="Cargando historial clínico…" /></div>;
 
   const p = dossier.patient;
   const metrics = dossier.metrics;

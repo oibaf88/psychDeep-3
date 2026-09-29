@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { api, ChatMessageOut, ChatOut } from "../api";
 import ModelStamp from "../components/ModelStamp";
+import PsychDeepLoader from "../components/PsychDeepLoader";
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessageOut[]>([]);
@@ -120,12 +121,13 @@ export default function ChatPage() {
             )}
           </div>
         ))}
+        {busy && <PsychDeepLoader size="sm" label="PsychDeep está preparando tu respuesta…" />}
         <div ref={bottomRef} />
       </div>
       <form onSubmit={onSubmit} className="chat-input-row">
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Escribe un mensaje..." disabled={busy} />
         <button type="submit" disabled={busy || !input.trim()}>
-          {busy ? "..." : "Enviar"}
+          {busy ? "Esperando…" : "Enviar"}
         </button>
       </form>
     </div>

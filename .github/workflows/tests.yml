@@ -6,7 +6,7 @@
 # knows anything about the risk engine, so it is the one that matters most
 # here.
 #
-# `feature/**` is in the branch filter on purpose. Stacked pull requests
+# `jules/**` is in the branch filter on purpose. Stacked pull requests
 # target the branch below them rather than master, and with a master-only
 # filter every PR in a stack ran no checks at all.
 name: Tests

@@ -80,6 +80,28 @@ services:
         value: "8192"
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: ANTHROPIC_CHAT_MODEL
+        value: claude-sonnet-4-6
+      - key: ANTHROPIC_ANALYSIS_MODEL
+        value: claude-sonnet-4-6
+      - key: ANTHROPIC_COPILOT_MODEL
+        value: claude-sonnet-4-6
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_CHAT_MODEL
+        value: gpt-5.6-luna
+      - key: OPENAI_ANALYSIS_MODEL
+        value: gpt-5.6-luna
+      - key: OPENAI_COPILOT_MODEL
+        value: gpt-5.6-luna
+      - key: OPENAI_MAX_TOKENS
+        value: "8192"
+      - key: OPENAI_TIMEOUT_SECONDS
+        value: "120"
+      - key: OPENAI_CHAT_EFFORT
+        value: medium
+      - key: OPENAI_ANALYSIS_EFFORT
+        value: high
       - key: LLM_DEFAULT_PROVIDER
         value: anthropic
       - key: LLM_OPENAI_COMPATIBLE_BASE_URL

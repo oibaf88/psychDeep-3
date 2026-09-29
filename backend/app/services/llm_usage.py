@@ -20,6 +20,7 @@ from sqlalchemy import text
 
 from app.database import SessionLocal
 from app.services.llm.base import ProviderMetadata
+from app.services.llm_usage_context import current_context_budget
 
 logger = logging.getLogger("psychapp.llm_usage")
 
@@ -54,6 +55,7 @@ def record_usage_safely(
     error_kind: str | None = None,
 ) -> None:
     """Persist one provider attempt, swallowing accounting-only failures."""
+    context = current_context_budget()
     values: dict[str, Any] = {
         "id": str(uuid.uuid4()),
         "call_kind": call_kind,
@@ -82,6 +84,10 @@ def record_usage_safely(
         "schema_chars": schema_chars,
         "latency_ms": metadata.latency_ms,
         "error_kind": error_kind,
+        "context_budget_tokens": context.budget_tokens if context else None,
+        "estimated_input_tokens": context.estimated_input_tokens if context else None,
+        "context_truncated": context.truncated if context else False,
+        "context_message_count": context.message_count if context else None,
         "created_at": datetime.now(timezone.utc),
     }
     statement = text(
@@ -95,7 +101,9 @@ def record_usage_safely(
             cache_creation_5m_input_tokens, cache_creation_1h_input_tokens,
             web_search_requests, web_fetch_requests,
             system_chars, message_chars, schema_chars,
-            latency_ms, error_kind, created_at
+            latency_ms, error_kind,
+            context_budget_tokens, estimated_input_tokens, context_truncated,
+            context_message_count, created_at
         ) values (
             cast(:id as uuid), :call_kind, :agent_role, :status, :provider, :provider_base_url,
             :requested_model, :response_model, :effort, :max_tokens,
@@ -105,7 +113,9 @@ def record_usage_safely(
             :cache_creation_5m_input_tokens, :cache_creation_1h_input_tokens,
             :web_search_requests, :web_fetch_requests,
             :system_chars, :message_chars, :schema_chars,
-            :latency_ms, :error_kind, :created_at
+            :latency_ms, :error_kind,
+            :context_budget_tokens, :estimated_input_tokens, :context_truncated,
+            :context_message_count, :created_at
         )
         on conflict do nothing
         """

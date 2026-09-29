@@ -16,7 +16,7 @@ class PersonalLLMSettingsIn(BaseModel):
     # Reject arbitrary endpoints, Access secrets and the cloudflared token.
     # None preserves ciphertext, an empty string revokes, nonempty rotates.
     model_config = ConfigDict(extra="forbid")
-    provider: str = Field(pattern="^(anthropic|openai_compatible)$")
+    provider: str = Field(pattern="^(anthropic|openai|openai_compatible)$")
     chat_model: str = Field(min_length=1, max_length=192)
     analysis_model: str = Field(min_length=1, max_length=192)
     copilot_model: str = Field(default="", max_length=192)

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import PsychDeepLoader from "../components/PsychDeepLoader";
 
-type Provider = "anthropic" | "openai_compatible";
+type Provider = "anthropic" | "openai" | "openai_compatible";
 interface PersonalStatus {
   configured: boolean;
   provider: Provider;
@@ -15,6 +16,7 @@ interface PersonalStatus {
   local_available: boolean;
   lm_api_key_configured: boolean;
   anthropic_allowed: boolean;
+  openai_allowed: boolean;
   local_llm_approved?: boolean;
   local_llm_usable?: boolean;
   local_llm_access?: "manager" | "approved" | "pending";
@@ -63,7 +65,9 @@ export default function SettingsPage() {
   function chooseProvider(provider: Provider) {
     if (!form || !status) return;
     if (provider === "anthropic") {
-      patch({ provider, chat_model: "claude-3-5-sonnet-20240620", analysis_model: "claude-3-5-sonnet-20240620", copilot_model: "" });
+      patch({ provider, chat_model: "claude-sonnet-4-6", analysis_model: "claude-sonnet-4-6", copilot_model: "claude-sonnet-4-6" });
+    } else if (provider === "openai") {
+      patch({ provider, chat_model: "gpt-5.6-luna", analysis_model: "gpt-5.6-luna", copilot_model: "gpt-5.6-luna" });
     } else {
       patch({ provider, chat_model: status.default_local_chat_model, analysis_model: status.default_local_analysis_model, copilot_model: "" });
     }
@@ -106,9 +110,14 @@ export default function SettingsPage() {
   }
 
   const local = form?.provider === "openai_compatible";
+  const openai = form?.provider === "openai";
   const managerApproved = status?.local_llm_usable !== false;
   const keyAvailable = Boolean((status?.lm_api_key_configured && !revokeLmKey) || lmApiKey.trim());
-  const maySave = Boolean(form && (!local || (status?.local_available && managerApproved && keyAvailable)));
+  const maySave = Boolean(form && (
+    openai
+      ? status?.openai_allowed
+      : !local || (status?.local_available && managerApproved && keyAvailable)
+  ));
   const mayTest = Boolean(status?.configured && (!local || (status?.local_available && managerApproved && status?.lm_api_key_configured)));
 
   return (
@@ -117,17 +126,21 @@ export default function SettingsPage() {
       <p className="subtitle">Cada cuenta elige su proveedor y guarda exclusivamente su propia API key de LM Studio. El modelo local exige sesión en PsychDeep y autorización del administrador clínico.</p>
       <section className="card">
         <h2>Proveedor de inferencia personal</h2>
-        {status && <p className="info">{status.configured ? `Selección actual: ${status.provider === "anthropic" ? "Anthropic" : "LM Studio"}` : "Todavía no has completado tu configuración personal."}</p>}
+        {status && <p className="info">{status.configured ? `Selección actual: ${status.provider === "anthropic" ? "Anthropic / Claude" : status.provider === "openai" ? "OpenAI / ChatGPT API" : "LM Studio"}` : "Todavía no has completado tu configuración personal."}</p>}
         {status && !status.local_available && <p className="warning" role="status">El acceso al modelo local todavía no está preparado en el servidor. Contacta con la administración.</p>}
         {status && status.local_llm_usable === false && <p className="warning" role="status">Tu cuenta está conectada, pero el administrador clínico aún no ha autorizado el uso del modelo local (LM Studio).</p>}
         {form && <>
           <label className="field"><span>Proveedor</span>
             <select value={form.provider} onChange={(event) => chooseProvider(event.target.value as Provider)}>
+              <option value="openai">OpenAI / ChatGPT API</option>
               <option value="openai_compatible">LM Studio</option>
               <option value="anthropic" disabled={!status?.anthropic_allowed}>Anthropic / Claude</option>
             </select>
           </label>
-          {local ? <>
+          {openai ? <>
+            <p className="info">ChatGPT se ejecuta mediante la API oficial de OpenAI. La API key permanece en el servidor; tu cuenta solo selecciona los modelos y parámetros.</p>
+            {!status?.openai_allowed && <p className="warning">OpenAI no está configurado en Render. Un administrador debe añadir OPENAI_API_KEY.</p>}
+          </> : local ? <>
             <p className="info">Modelos disponibles: conversación <code>{status?.default_local_chat_model || "pendiente"}</code>; análisis <code>{status?.default_local_analysis_model || "pendiente"}</code>.</p>
             <label className="field" htmlFor="personal-lm-api-key">
               <span>Tu API key de LM Studio</span>
@@ -157,6 +170,7 @@ export default function SettingsPage() {
             <button className="btn-secondary" disabled={busy !== "" || !status?.configured} onClick={remove}>Eliminar mi configuración</button>
           </div>
         </>}
+        {busy === "test" && <PsychDeepLoader size="sm" label="Probando la conexión del modelo…" />}
         {error && <p className="error" role="alert">{error}</p>}
         {message && <p className="info" role="status">{message}</p>}
         <p className="meta">La selección de tu cuenta no afecta a las demás. Si el modelo falla, no se envía información clínica automáticamente a otro proveedor.</p>

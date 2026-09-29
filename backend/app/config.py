@@ -1,9 +1,9 @@
 """PsychDeep vNext runtime configuration.
 
-Clinical state is cloud-only. The only optional local process is an
-OpenAI-compatible LLM reached through an authenticated HTTPS tunnel. Secrets
-are deployment environment variables and are never persisted in clinical DB
-configuration rows.
+Clinical data can be processed either by the cloud API or by an approved
+on-device inference runtime. Desktop local models remain available through
+an authenticated HTTPS tunnel. Secrets are deployment environment variables
+and are never persisted in clinical DB configuration rows.
 """
 from functools import lru_cache
 
@@ -61,8 +61,9 @@ class Settings(BaseSettings):
     # approved by MODEL_ALLOW_COMMERCIAL; vNext never silently fails over to it.
     model_allow_commercial: bool = False
     anthropic_api_key: str = ""
-    anthropic_chat_model: str = "claude-3-5-sonnet-20240620"
-    anthropic_analysis_model: str = "claude-3-5-sonnet-20240620"
+    # Claude 3.5 was retired by Anthropic; use an active model by default.
+    anthropic_chat_model: str = "claude-sonnet-4-6"
+    anthropic_analysis_model: str = "claude-sonnet-4-6"
     anthropic_copilot_model: str = ""
     anthropic_max_tokens: int = 8192
     anthropic_max_tokens_chat: int = 0
@@ -70,6 +71,18 @@ class Settings(BaseSettings):
     anthropic_chat_effort: str = "medium"
     anthropic_analysis_effort: str = "high"
     anthropic_copilot_effort: str = ""
+
+    # First-party OpenAI API used by the explicit /api/v1/chatgpt endpoint.
+    # Secrets stay in Render; the client never supplies or selects the key.
+    openai_api_key: str = ""
+    openai_chat_model: str = "gpt-5.6-luna"
+    openai_analysis_model: str = "gpt-5.6-luna"
+    openai_copilot_model: str = ""
+    openai_max_tokens: int = 8192
+    openai_timeout_seconds: int = 120
+    openai_chat_effort: str = "medium"
+    openai_analysis_effort: str = "high"
+    openai_copilot_effort: str = "medium"
 
     # Legacy compatibility inputs plus the deployment-level runtime-switch
     # gate. False remains the fail-safe library default; production Render sets
@@ -123,6 +136,15 @@ class Settings(BaseSettings):
     @property
     def max_tokens_analysis(self) -> int:
         return self.anthropic_max_tokens_analysis or self.anthropic_max_tokens
+
+    # --- Token-efficient conversational context --------------------------
+    # These budgets bound what reaches the model as the longitudinal history
+    # grows. They do not delete or alter stored clinical history.
+    conversation_context_budget_tokens: int = 12000
+    conversation_history_budget_tokens: int = 4000
+    conversation_context_block_budget_tokens: int = 6500
+    conversation_max_history_messages: int = 12
+    conversation_max_output_tokens: int = 1536
 
     # --- App --------------------------------------------------------------
     app_locale: str = "es-ES"
