@@ -7,13 +7,15 @@ from app.services.llm.base import (
     StructuredAnalysisResult,
 )
 from app.services.llm.cloudflare_access import CloudflareAccessOpenAICompatibleProvider
+from app.services.llm.local_bridge_provider import LocalBridgeProvider
 from app.services.llm.openai_compatible import OpenAICompatibleProvider
 from app.services.llm.openai_provider import OpenAIProvider
 
 __all__ = [
     "ChatResult", "LLMProvider", "ProviderMetadata", "StructuredAnalysisError",
-    "StructuredAnalysisResult", "AnthropicProvider", "OpenAICompatibleProvider", "OpenAIProvider",
-    "CloudflareAccessOpenAICompatibleProvider", "get_llm_provider", "build_provider",
+    "StructuredAnalysisResult", "AnthropicProvider", "OpenAICompatibleProvider",
+    "OpenAIProvider", "CloudflareAccessOpenAICompatibleProvider",
+    "LocalBridgeProvider", "get_llm_provider", "build_provider",
 ]
 
 
@@ -24,11 +26,16 @@ def build_provider(config) -> LLMProvider:
     from app.services.runpod_routing import cloud_credentials_for
 
     if config.provider == llm_config.PROVIDER_LOCAL:
-        # The new local-bridge transport is owned by ModelGateway and is not a
-        # public HTTP endpoint. Prevent legacy code from constructing a direct
-        # OpenAI-compatible provider for it.
         if getattr(config, "label", "").startswith("Modelo local/puente"):
-            raise RuntimeError("LOCAL_BRIDGE_REQUIRES_MODEL_GATEWAY")
+            settings = llm_config.get_settings()
+            return LocalBridgeProvider(
+                chat_model=config.chat_model,
+                analysis_model=config.analysis_model,
+                copilot_model=config.copilot_model,
+                max_tokens=config.max_tokens,
+                timeout_seconds=float(config.timeout_seconds),
+                agent_id=settings.local_bridge_default_agent_id,
+            )
 
         kwargs = dict(
             base_url=config.base_url or "",
@@ -48,6 +55,7 @@ def build_provider(config) -> LLMProvider:
                 access_client_secret=config.access_client_secret,
                 access_hostname=config.access_hostname,
             )
+
         settings = llm_config.get_settings()
         cloud_key = cloud_credentials_for(config, settings)
         if cloud_key is not None:
