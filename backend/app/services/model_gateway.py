@@ -14,14 +14,13 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.services.llm import AnthropicProvider, OpenAICompatibleProvider
+from app.services.llm import AnthropicProvider, LocalBridgeProvider, OpenAICompatibleProvider
 from app.services.llm.base import ChatResult, LLMProvider, StructuredAnalysisResult
-from app.services.local_inference_bridge import get_local_inference_bridge
 
 logger = logging.getLogger("psychapp.model_gateway")
 
 LOCAL_BRIDGE = "local-bridge"
-LOCAL_TUNNEL = "local-tunnel"  # legacy alias retained for old DB/audit rows
+LOCAL_TUNNEL = "local-tunnel"
 CLOUD_TUNED = "cloud-tuned"
 COMMERCIAL_APPROVED = "commercial-approved"
 APPROVED_ALIASES = {LOCAL_BRIDGE, LOCAL_TUNNEL, CLOUD_TUNED, COMMERCIAL_APPROVED, "mobile-local"}
@@ -61,15 +60,17 @@ class Deployment:
             "policy_version": self.policy_version,
             "data_handling_classification": self.data_handling_classification,
             "configured": self.configured,
-            "transport": "outbound-websocket" if self.adapter == "openai_compatible" and self.alias in {LOCAL_BRIDGE, LOCAL_TUNNEL} else "https",
+            "transport": "outbound-websocket" if self.alias == LOCAL_BRIDGE else "https",
         }
 
     @property
     def configured(self) -> bool:
         if self.alias == "mobile-local":
             return True
-        if self.alias in {LOCAL_BRIDGE, LOCAL_TUNNEL}:
+        if self.alias == LOCAL_BRIDGE:
             return bool(self.chat_model and self.analysis_model)
+        if self.alias == LOCAL_TUNNEL:
+            return bool(self.base_url and self.chat_model and self.analysis_model)
         if self.alias == COMMERCIAL_APPROVED:
             return bool(self.api_key and self.chat_model and self.analysis_model)
         return bool(self.base_url and self.chat_model and self.analysis_model)
@@ -102,7 +103,13 @@ class GatewayStructuredResult:
 
 
 def _hash_payload(payload: Any) -> str:
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -138,6 +145,8 @@ def _validate_endpoint(base_url: str, *, production: bool) -> None:
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ModelUnavailable("MODEL_ENDPOINT_INVALID")
     if production and (parsed.scheme != "https" or _is_private_host(parsed.hostname)):
+        if _is_private_host(parsed.hostname):
+            raise ModelUnavailable("MODEL_ENDPOINT_PRIVATE_FROM_CLOUD")
         raise ModelUnavailable("MODEL_ENDPOINT_REQUIRES_HTTPS")
 
 
@@ -152,7 +161,7 @@ class ModelGateway:
 
     def deployment(self) -> Deployment:
         s = self.settings
-        if self.alias in {LOCAL_BRIDGE, LOCAL_TUNNEL}:
+        if self.alias == LOCAL_BRIDGE:
             return Deployment(
                 alias=LOCAL_BRIDGE,
                 adapter="openai_compatible",
@@ -166,6 +175,20 @@ class ModelGateway:
                 policy_version=s.model_policy_version,
                 data_handling_classification="clinical_data_private_local_bridge",
                 local_agent_id=s.local_bridge_default_agent_id,
+            )
+        if self.alias == LOCAL_TUNNEL:
+            return Deployment(
+                alias=LOCAL_TUNNEL,
+                adapter="openai_compatible",
+                base_url=s.local_base_url,
+                api_key=s.local_api_key,
+                chat_model=s.local_chat_model,
+                analysis_model=s.local_analysis_model or s.local_chat_model,
+                copilot_model=s.local_copilot_model,
+                timeout_seconds=s.model_local_timeout_seconds,
+                max_tokens=s.model_local_max_tokens,
+                policy_version=s.model_policy_version,
+                data_handling_classification="clinical_data_private_local_tunnel",
             )
         if self.alias == "mobile-local":
             return Deployment(
@@ -218,7 +241,14 @@ class ModelGateway:
         if not d.configured:
             raise ModelUnavailable("MODEL_UNAVAILABLE")
         if d.alias == LOCAL_BRIDGE:
-            raise ModelUnavailable("LOCAL_BRIDGE_REQUIRES_ASYNC_TRANSPORT")
+            return LocalBridgeProvider(
+                chat_model=d.chat_model,
+                analysis_model=d.analysis_model,
+                copilot_model=d.copilot_model,
+                max_tokens=d.max_tokens,
+                timeout_seconds=float(d.timeout_seconds),
+                agent_id=d.local_agent_id or self.settings.local_bridge_default_agent_id,
+            )
         if d.alias == COMMERCIAL_APPROVED:
             from app.services.llm_usage import record_usage_safely
             return AnthropicProvider(
@@ -257,7 +287,9 @@ class ModelGateway:
             return None
         from app.models_vnext import ModelRun
         d = self.deployment()
-        model_id = d.analysis_model if model_role == "analysis" else (d.copilot_model if model_role == "copilot" else d.chat_model)
+        model_id = d.analysis_model if model_role == "analysis" else (
+            d.copilot_model if model_role == "copilot" else d.chat_model
+        )
         row = ModelRun(
             user_id=user_id,
             purpose=purpose,
@@ -278,7 +310,7 @@ class ModelGateway:
         return row
 
     @staticmethod
-    def _finish_run(db: Session | None, row, *, result=None, status: str = "succeeded", latency_ms: int | None = None) -> None:
+    def _finish_run(db: Session | None, row, *, result=None, status="succeeded", latency_ms=None) -> None:
         if db is None or row is None:
             return
         row.status = status
@@ -293,121 +325,13 @@ class ModelGateway:
         db.add(row)
         db.commit()
 
-    async def generate_local_async(self, request: GenerateRequest, *, db: Session | None = None) -> GatewayChatResult:
-        d = self.deployment()
-        if d.alias != LOCAL_BRIDGE:
-            raise ModelUnavailable("NOT_LOCAL_BRIDGE")
-        payload = {
-            "kind": "chat",
-            "model": d.copilot_model if request.model_role == "copilot" else d.chat_model,
-            "system_prompt": request.system_prompt,
-            "messages": request.messages,
-            "max_tokens": request.max_tokens or d.max_tokens,
-        }
-        return await self._submit_local(payload, request, db=db)
+    def generate_local_async(self, request: GenerateRequest, *, db: Session | None = None) -> GatewayChatResult:
+        raise ModelUnavailable("LOCAL_BRIDGE_USE_PROVIDER_PATH")
 
-    async def analyze_structured_local_async(
-        self,
-        *,
-        system_prompt: str,
-        user_text: str,
-        tool_schema: dict[str, Any],
-        purpose: str,
-        user_id: uuid.UUID | None,
-        correlation_id: uuid.UUID | None,
-        prompt_version: str,
-        schema_version: str,
-        db: Session | None = None,
-    ) -> GatewayStructuredResult:
-        d = self.deployment()
-        if d.alias != LOCAL_BRIDGE:
-            raise ModelUnavailable("NOT_LOCAL_BRIDGE")
-        payload = {
-            "kind": "structured",
-            "model": d.analysis_model,
-            "system_prompt": system_prompt,
-            "user_text": user_text,
-            "tool_schema": tool_schema,
-            "max_tokens": d.max_tokens,
-        }
-        fake_req = GenerateRequest(
-            system_prompt=system_prompt,
-            messages=[{"role": "user", "content": user_text}],
-            purpose=purpose,
-            audience="system",
-            model_role="chat",
-            user_id=user_id,
-            correlation_id=correlation_id,
-            prompt_version=prompt_version,
-            output_schema=schema_version,
-            max_tokens=d.max_tokens,
-        )
-        response = await self._submit_local(payload, fake_req, db=db, structured=True)
-        assert isinstance(response, GatewayStructuredResult)
-        return response
-
-    async def _submit_local(
-        self,
-        payload: dict[str, Any],
-        request: GenerateRequest,
-        *,
-        db: Session | None,
-        structured: bool = False,
-    ):
-        payload_hash = _hash_payload(payload)
-        run = self._start_run(
-            db,
-            user_id=request.user_id,
-            purpose=request.purpose,
-            audience=request.audience,
-            input_hash=payload_hash,
-            prompt_version=request.prompt_version,
-            output_schema=request.output_schema,
-            correlation_id=request.correlation_id,
-            model_role="analysis" if structured else request.model_role,
-        )
-        started = time.perf_counter()
-        try:
-            response = await get_local_inference_bridge().submit(
-                request=payload,
-                agent_id=self.deployment().local_agent_id or self.settings.local_bridge_default_agent_id,
-            )
-            elapsed = int((time.perf_counter() - started) * 1000)
-            if structured:
-                from app.services.llm.base import ProviderMetadata
-                metadata = ProviderMetadata(
-                    provider="openai_compatible",
-                    requested_model=payload["model"],
-                    response_model=response.get("model") or payload["model"],
-                    latency_ms=elapsed,
-                    input_tokens=response.get("usage", {}).get("prompt_tokens"),
-                    output_tokens=response.get("usage", {}).get("completion_tokens"),
-                )
-                result = StructuredAnalysisResult(value=response["value"], metadata=metadata)
-                self._finish_run(db, run, result=result, latency_ms=elapsed)
-                return GatewayStructuredResult(result=result, model_run_id=getattr(run, "id", None))
-            metadata = response.get("metadata")
-            from app.services.llm.base import ProviderMetadata
-            result = ChatResult(
-                text=response.get("text", ""),
-                metadata=ProviderMetadata(
-                    provider="openai_compatible",
-                    requested_model=payload["model"],
-                    response_model=response.get("model") or payload["model"],
-                    latency_ms=elapsed,
-                    input_tokens=(metadata or {}).get("input_tokens"),
-                    output_tokens=(metadata or {}).get("output_tokens"),
-                ),
-            )
-            self._finish_run(db, run, result=result, latency_ms=elapsed)
-            return GatewayChatResult(result=result, model_run_id=getattr(run, "id", None))
-        except Exception as exc:  # noqa: BLE001
-            elapsed = int((time.perf_counter() - started) * 1000)
-            self._finish_run(db, run, status="timeout" if "TIMEOUT" in str(exc) else "unavailable", latency_ms=elapsed)
-            raise ModelUnavailable(str(exc)) from exc
+    def analyze_structured_local_async(self, **kwargs) -> GatewayStructuredResult:
+        raise ModelUnavailable("LOCAL_BRIDGE_USE_PROVIDER_PATH")
 
     def generate(self, request: GenerateRequest, *, db: Session | None = None) -> GatewayChatResult:
-        # Preserve existing synchronous API for non-local providers.
         provider = self.provider()
         payload_hash = _hash_payload({"system": request.system_prompt, "messages": request.messages})
         run = self._start_run(
@@ -430,9 +354,14 @@ class ModelGateway:
                 max_tokens=request.max_tokens,
                 model=d.copilot_model if request.model_role == "copilot" else d.chat_model,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             elapsed = int((time.perf_counter() - started) * 1000)
-            self._finish_run(db, run, status="timeout" if "Timeout" in type(exc).__name__ else "provider_error", latency_ms=elapsed)
+            self._finish_run(
+                db,
+                run,
+                status="timeout" if "Timeout" in type(exc).__name__ else "provider_error",
+                latency_ms=elapsed,
+            )
             raise ModelUnavailable("MODEL_UNAVAILABLE") from exc
         self._finish_run(db, run, result=result, latency_ms=int((time.perf_counter() - started) * 1000))
         return GatewayChatResult(result=result, model_run_id=getattr(run, "id", None))
@@ -465,10 +394,20 @@ class ModelGateway:
         )
         started = time.perf_counter()
         try:
-            result = provider.analyze_structured(system_prompt, user_text, tool_schema, model=self.deployment().analysis_model)
-        except Exception as exc:  # noqa: BLE001
+            result = provider.analyze_structured(
+                system_prompt,
+                user_text,
+                tool_schema,
+                model=self.deployment().analysis_model,
+            )
+        except Exception as exc:
             elapsed = int((time.perf_counter() - started) * 1000)
-            self._finish_run(db, run, status="timeout" if "Timeout" in type(exc).__name__ else "provider_error", latency_ms=elapsed)
+            self._finish_run(
+                db,
+                run,
+                status="timeout" if "Timeout" in type(exc).__name__ else "provider_error",
+                latency_ms=elapsed,
+            )
             raise ModelUnavailable("MODEL_UNAVAILABLE") from exc
         self._finish_run(db, run, result=result, latency_ms=int((time.perf_counter() - started) * 1000))
         return GatewayStructuredResult(result=result, model_run_id=getattr(run, "id", None))
@@ -480,22 +419,25 @@ class ModelGateway:
         if not d.configured:
             return {**base, "status": "unavailable", "reason": "not_configured"}
         if d.alias == LOCAL_BRIDGE:
-            # The bridge status is asynchronous; the public health endpoint only
-            # exposes connectivity metadata, never payloads or credentials.
-            # Run the bridge status call from an async endpoint for live detail.
             return {**base, "status": "awaiting_agent_status"}
         if d.alias == COMMERCIAL_APPROVED:
             return {**base, "status": "configured"}
         assert d.base_url is not None
-        from app.services.llm.base import ProviderMetadata
         import httpx
         try:
             _validate_endpoint(d.base_url, production=gateway.settings.is_production)
             headers = {"Authorization": f"Bearer {d.api_key}"} if d.api_key else {}
-            with httpx.Client(timeout=min(float(d.timeout_seconds), 8.0), follow_redirects=False) as client:
+            with httpx.Client(
+                timeout=min(float(d.timeout_seconds), 8.0),
+                follow_redirects=False,
+            ) as client:
                 response = client.get(d.base_url.rstrip("/") + "/models", headers=headers)
-            return {**base, "status": "available" if response.is_success else "degraded", "http_status": response.status_code}
-        except Exception as exc:  # noqa: BLE001
+            return {
+                **base,
+                "status": "available" if response.is_success else "degraded",
+                "http_status": response.status_code,
+            }
+        except Exception as exc:
             logger.info("Model health check failed safely: %s", type(exc).__name__)
             return {**base, "status": "unavailable", "reason": type(exc).__name__}
 
