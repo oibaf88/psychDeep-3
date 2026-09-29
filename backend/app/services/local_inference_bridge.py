@@ -2,11 +2,8 @@
 
 The Windows/local agent initiates the connection to Render. Render never
 opens an inbound connection to the user's LAN. Inference payloads and results
-therefore travel over one authenticated TLS channel in both directions.
-
-The transport is intentionally independent from SSH and Cloudflare Tunnel.
-The local agent may sit behind CGNAT, NAT or a restrictive residential
-firewall as long as it can make outbound HTTPS/WebSocket connections.
+therefore travel over one authenticated TLS WebSocket channel in both
+directions.
 """
 from __future__ import annotations
 
@@ -15,7 +12,6 @@ import hashlib
 import hmac
 import json
 import logging
-import secrets
 import time
 import uuid
 from dataclasses import dataclass
@@ -69,13 +65,14 @@ def verify_message(secret: str, payload: dict[str, Any], signature: str) -> bool
 
 
 class LocalInferenceBridge:
-    """In-memory broker for an outbound local agent connection."""
+    """In-memory broker for one outbound local agent per API instance."""
 
     def __init__(self, config: LocalBridgeConfig | None = None) -> None:
         self.config = config or LocalBridgeConfig.from_settings()
         self.config.validate()
-        self._agents: dict[str, "asyncio.Queue[dict[str, Any]]"] = {}
+        self._agents: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         self._results: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._heartbeats: dict[str, float] = {}
         self._lock = asyncio.Lock()
 
     async def register(self, agent_id: str) -> asyncio.Queue[dict[str, Any]]:
@@ -84,18 +81,20 @@ class LocalInferenceBridge:
         async with self._lock:
             queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=16)
             self._agents[agent_id] = queue
+            self._heartbeats[agent_id] = time.time()
             return queue
 
     async def unregister(self, agent_id: str) -> None:
         async with self._lock:
             self._agents.pop(agent_id, None)
+            self._heartbeats.pop(agent_id, None)
 
-    async def submit(
-        self,
-        *,
-        request: dict[str, Any],
-        agent_id: str,
-    ) -> dict[str, Any]:
+    async def heartbeat(self, agent_id: str) -> None:
+        async with self._lock:
+            if agent_id in self._agents:
+                self._heartbeats[agent_id] = time.time()
+
+    async def submit(self, *, request: dict[str, Any], agent_id: str) -> dict[str, Any]:
         request_id = str(uuid.uuid4())
         message = {
             "type": "inference_request",
@@ -112,10 +111,13 @@ class LocalInferenceBridge:
             self._results[request_id] = future
         try:
             await queue.put(message)
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 future,
                 timeout=self.config.request_timeout_seconds,
             )
+            if isinstance(result, dict) and result.get("error"):
+                raise RuntimeError(str(result["error"]))
+            return result
         except asyncio.TimeoutError as exc:
             raise RuntimeError("LOCAL_INFERENCE_TIMEOUT") from exc
         finally:
@@ -130,10 +132,17 @@ class LocalInferenceBridge:
             future.set_result(result)
 
     async def status(self) -> dict[str, Any]:
+        now = time.time()
         async with self._lock:
+            live_after = max(self.config.heartbeat_seconds * 3, 60)
+            connected = [
+                agent_id
+                for agent_id, last_seen in self._heartbeats.items()
+                if now - last_seen <= live_after
+            ]
             return {
                 "enabled": self.config.enabled,
-                "connected_agents": sorted(self._agents.keys()),
+                "connected_agents": sorted(connected),
             }
 
 
