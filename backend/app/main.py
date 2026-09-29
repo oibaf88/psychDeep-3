@@ -22,6 +22,7 @@ from app.routers import (
     diary,
     facts,
     llm_settings,
+    local_bridge,
     mobile,
     notifications,
     professional,
@@ -81,8 +82,6 @@ def _wait_for_db(max_attempts: int = 30, delay_seconds: float = 2.0) -> None:
 def _verify_production_schema() -> None:
     """Fail before serving if required legacy/vNext migrations or hardening are incomplete."""
     required_columns = {
-        # Legacy longitudinal memory remains part of the supported product and
-        # must still exist after the vNext expand-and-migrate cutover.
         ("patient_profiles", "id"),
         ("agent2_analysis_traces", "id"),
         ("alfa_signals", "agent2_trace_id"),
@@ -90,7 +89,6 @@ def _verify_production_schema() -> None:
         ("risk_assessments", "calculation_trace"),
         ("risk_assessments", "rule_set_version"),
         ("users", "auth_version"),
-        # Canonical vNext model.
         ("observations", "id"),
         ("baseline_versions", "id"),
         ("change_signals", "id"),
@@ -121,8 +119,6 @@ def _verify_production_schema() -> None:
                 "WHERE table_schema = current_schema()"
             )
         ).all()
-        # Fetch the schema catalogue once and filter in Python. Avoid binding a
-        # Python list to PostgreSQL ANY(), whose adaptation varies by driver.
         hardened = conn.execute(
             text(
                 "SELECT relation.relname, owner_role.rolname, relation.relrowsecurity, relation.relforcerowsecurity "
@@ -173,8 +169,6 @@ def on_startup():
         _verify_production_schema()
         logger.info("Production vNext database migration contract verified.")
     else:
-        # Development/test convenience only. Product documentation does not
-        # support a second local clinical database or bidirectional sync.
         Base.metadata.create_all(bind=engine)
         logger.info("Development database schema ensured.")
 
@@ -227,7 +221,7 @@ def health():
         "status": "ok",
         "architecture": "hybrid-inference-vnext",
         "clinical_storage": "cloud",
-        "inference_modes": ["mobile-local", "local-tunnel", "cloud-tuned", "commercial-approved"],
+        "inference_modes": ["mobile-local", "local-bridge", "local-tunnel", "cloud-tuned", "commercial-approved"],
         "model": model,
         "risk_engine_version": RISK_ENGINE_VERSION,
         "risk_explanation_schema": "risk-explanation-v1",
@@ -250,5 +244,6 @@ app.include_router(professional.router)
 app.include_router(notifications.router)
 app.include_router(audit.router)
 app.include_router(llm_settings.router)
+app.include_router(local_bridge.router)
 app.include_router(mobile.router)
 app.include_router(vnext.router)
