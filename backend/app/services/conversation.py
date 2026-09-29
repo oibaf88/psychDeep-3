@@ -30,6 +30,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
+from app.services.context_budget import estimate_tokens, fit_recent_messages
+from app.services.llm_usage_context import record_context_budget
+
 from app.content.prompts import (
     AGENT1_CRISIS_INSTRUCTION,
     AGENT1_CONTEXT_VERSION,
@@ -103,6 +107,7 @@ def analyze_text_and_store(
     source_id: uuid.UUID,
     correlation_id: uuid.UUID,
     observed_at: datetime | None = None,
+    provider_override: str | None = None,
 ) -> AnalysisOutcome:
     """Analyse one piece of patient text, once, and persist both readings.
 
@@ -135,7 +140,7 @@ def analyze_text_and_store(
     system_prompt = ANALYZER_SYSTEM_PROMPT + profile_service.analyzer_context_block(patient_profile)
 
     try:
-        provider_result = get_llm_provider(db).analyze_structured(
+        provider_result = get_llm_provider(db, provider_override=provider_override).analyze_structured(
             system_prompt,
             text,
             ANALYZER_TOOL_SCHEMA,
@@ -280,18 +285,37 @@ def _has_active_professional(db: Session, user_id) -> bool:
 
 
 def _recent_messages(db: Session, user_id) -> list[dict[str, str]]:
+    """Return only recent turns that fit the configured token budget.
+
+    Stored history is never deleted. The LLM sees a bounded working window,
+    with the newest user turn having priority when the budget is tight.
+    """
+    settings = get_settings()
     history = (
         db.query(ChatMessage)
         .filter(ChatMessage.user_id == user_id)
         .order_by(ChatMessage.created_at.desc())
-        .limit(MAX_HISTORY_MESSAGES)
+        .limit(max(MAX_HISTORY_MESSAGES, settings.conversation_max_history_messages))
         .all()
     )
-    return [
+    messages = [
         {"role": m.role, "content": m.content}
         for m in reversed(history)
         if m.role in ("user", "assistant")
     ]
+    result = fit_recent_messages(
+        messages,
+        settings.conversation_history_budget_tokens,
+        max_messages=settings.conversation_max_history_messages,
+    )
+    if result.truncated:
+        logger.info(
+            "Conversation history bounded: estimated_tokens=%s budget=%s messages=%s",
+            result.estimated_tokens,
+            settings.conversation_history_budget_tokens,
+            len(result.messages),
+        )
+    return result.messages
 
 
 def _reply_provenance(
@@ -362,7 +386,13 @@ def _agent1_crisis_accompaniment(db: Session, user_id, system_prompt: str) -> Ch
         return None
 
 
-def get_reply(db: Session, user: User, user_message: str) -> dict:
+def get_reply(
+    db: Session,
+    user: User,
+    user_message: str,
+    *,
+    provider_override: str | None = None,
+) -> dict:
     # 1. Persist the user's message.
     correlation_id = uuid.uuid4()
     source_message = ChatMessage(user_id=user.id, role="user", content=user_message)
@@ -382,6 +412,7 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
         source_id=source_message.id,
         correlation_id=correlation_id,
         observed_at=source_message.created_at,
+        provider_override=provider_override,
     )
 
     # 3. Deterministic risk engine: the ONLY place alert_level is decided.
@@ -455,36 +486,47 @@ def get_reply(db: Session, user: User, user_message: str) -> dict:
         except Exception as exc:  # noqa: BLE001
             failed = True
             logger.warning("Agent1 chat failed safely: %s", type(exc).__name__)
-            error_type = type(exc).__name__.lower()
-            if "authentication" in error_type:
-                reply_text = (
-                    "El chat con Gemma 2 no está disponible: revisa el token de LM Studio y el endpoint configurado. "
-                    "Tus datos y check-ins se han guardado con normalidad."
+            if isinstance(exc, StructuredAnalysisError):
+                code = exc.error_code or exc.safe_kind
+                messages = {
+                    "api_key_not_configured": "La API del proveedor LLM no está configurada en el servidor.",
+                    "http_400": "El proveedor rechazó la solicitud (HTTP 400). Revisa el modelo o los parámetros configurados.",
+                    "http_401": "El proveedor rechazó la autenticación (HTTP 401). Revisa la clave API del servidor.",
+                    "http_403": "El proveedor denegó el acceso (HTTP 403). Revisa la autorización de la clave API.",
+                    "http_404": "El modelo o la ruta de la API no existe (HTTP 404). Revisa el identificador del modelo.",
+                    "timeout": "El proveedor no respondió dentro del tiempo configurado.",
+                    "network_error": "No se pudo establecer conexión con el proveedor LLM.",
+                    "empty_output": "El proveedor respondió sin contenido utilizable.",
+                }
+                reply_text = messages.get(
+                    code,
+                    "El proveedor LLM no pudo generar la respuesta. Tus datos y check-ins se han guardado con normalidad.",
                 )
-            elif "ANTHROPIC_API_KEY" in str(exc):
-                reply_text = (
-                    "El chat con Claude no está disponible: falta el secreto ANTHROPIC_API_KEY en el servidor. "
-                    "Tus datos y check-ins se han guardado con normalidad."
-                )
-            elif isinstance(exc, RuntimeError):
+                if code not in messages and isinstance(exc, RuntimeError):
+                    reply_text = (
+                        "Ahora mismo no puedo generar una respuesta conversacional. "
+                        "El fallo queda registrado de forma segura y tus datos y check-ins "
+                        "se han guardado con normalidad."
+                    )
+                if code in messages:
+                    reply_text += " Tus datos y check-ins se han guardado con normalidad."
+            else:
                 from app.services.local_llm_access import LocalLlmAccessDenied
                 if isinstance(exc, LocalLlmAccessDenied):
                     reply_text = (
-                        f"{exc} "
+                        f"{exc} Tus datos y check-ins se han guardado con normalidad."
+                    )
+                elif isinstance(exc, RuntimeError) and str(exc) == "OPENAI_API_KEY_NOT_CONFIGURED":
+                    reply_text = (
+                        "La API de OpenAI no está configurada en Render (falta OPENAI_API_KEY). "
                         "Tus datos y check-ins se han guardado con normalidad."
                     )
                 else:
                     reply_text = (
-                        "Ahora mismo no puedo generar una respuesta conversacional "
-                        "(revisa LM Studio, Gemma 2 y el token configurado en .env.local). "
-                        "Tus datos y check-ins se han guardado con normalidad."
+                        "Ahora mismo no puedo generar una respuesta conversacional. "
+                        "El fallo queda registrado de forma segura y tus datos y check-ins "
+                        "se han guardado con normalidad."
                     )
-            else:
-                reply_text = (
-                    "Ahora mismo no puedo generar una respuesta conversacional "
-                    f"(error del proveedor LLM: {type(exc).__name__}). "
-                    "Tus datos y check-ins se han guardado con normalidad."
-                )
         ui_mode = "normal"
         resources = None
         reply_from_model = not failed

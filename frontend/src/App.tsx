@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NavBar from "./components/NavBar";
+import PsychDeepLoader from "./components/PsychDeepLoader";
 import CrisisButton from "./components/CrisisButton";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -29,9 +30,12 @@ import AccountPage from "./pages/AccountPage";
 
 function Shell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const location = useLocation();
+  const isAuthPage = location.pathname === "/login" || location.pathname === "/register";
+
   return (
     <>
-      <NavBar />
+      {!isAuthPage && <NavBar />}
       <main>{children}</main>
       {user?.role === "patient" && <CrisisButton />}
     </>
@@ -40,7 +44,7 @@ function Shell({ children }: { children: ReactNode }) {
 
 function RoleHome() {
   const { user, loading } = useAuth();
-  if (loading) return <div className="loading">Cargando...</div>;
+  if (loading) return <div className="loading"><PsychDeepLoader size="md" label="Cargando PsychDeep…" /></div>;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === "patient") return <PatientDashboard />;
   return <Navigate to="/professional" replace />;

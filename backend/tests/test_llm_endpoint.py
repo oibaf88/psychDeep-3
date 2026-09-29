@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.services import llm_config
-from app.services.llm import AnthropicProvider, build_provider
+from app.services.llm import AnthropicProvider, OpenAIProvider, build_provider
 from app.services.llm.base import StructuredAnalysisError
 from app.services.llm.openai_compatible import OpenAICompatibleProvider, extract_json_object
 
@@ -95,6 +95,14 @@ def _settings(*, provider="anthropic", allow_override=False, production=False, a
         max_tokens_chat=8192,
         max_tokens_analysis=8192,
         is_production=production,
+        openai_api_key="openai-test",
+        openai_chat_model="gpt-5.6-luna",
+        openai_analysis_model="gpt-5.6-luna",
+        openai_copilot_model="gpt-5.6-luna",
+        openai_max_tokens=8192,
+        openai_timeout_seconds=120,
+        openai_chat_effort="medium",
+        openai_analysis_effort="high",
     )
 
 
@@ -152,6 +160,76 @@ class GemmaProviderTests(unittest.TestCase):
         with patch("os.environ.get", side_effect=lambda key, default="": "true" if key == "RUNNING_IN_DOCKER" else default):
             candidates = get_candidate_base_urls("http://localhost:1234/v1")
         self.assertEqual(candidates[0], "http://host.docker.internal:1234/v1")
+
+
+class OpenAIProviderTests(unittest.TestCase):
+    def test_responses_api_chat_preserves_shared_system_prompt_and_effort(self):
+        from app.services.llm.openai_provider import OPENAI_RESPONSES_URL
+
+        class Response:
+            status_code = 200
+            headers = {"x-request-id": "req-openai-test"}
+
+            def json(self):
+                return {
+                    "id": "resp-test",
+                    "model": "gpt-5.6-luna",
+                    "status": "completed",
+                    "output": [{
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "hola"}],
+                    }],
+                    "usage": {"input_tokens": 10, "output_tokens": 4},
+                }
+
+            @property
+            def is_error(self):
+                return False
+
+        client = _FakeClient([])
+
+        class OpenAIClient(_FakeClient):
+            def post(self, url, headers=None, json=None):
+                self.requests.append({"url": url, "headers": dict(headers or {}), "json": copy.deepcopy(json or {})})
+                return Response()
+
+        fake = OpenAIClient([])
+        with patch("httpx.Client", return_value=fake):
+            provider = OpenAIProvider(
+                api_key="openai-test",
+                chat_model="gpt-5.6-luna",
+                analysis_model="gpt-5.6-luna",
+                chat_effort="medium",
+                analysis_effort="high",
+            )
+            result = provider.chat(
+                "SYSTEM PROMPT",
+                [
+                    {"role": "user", "content": "hola"},
+                    {"role": "assistant", "content": "¿En qué puedo ayudarte?"},
+                    {"role": "user", "content": "Necesito ayuda"},
+                ],
+                max_tokens=1536,
+            )
+
+        self.assertEqual(result.text, "hola")
+        self.assertEqual(fake.requests[0]["url"], OPENAI_RESPONSES_URL)
+        self.assertEqual(fake.requests[0]["json"]["instructions"], "SYSTEM PROMPT")
+        self.assertEqual(fake.requests[0]["json"]["reasoning"]["effort"], "medium")
+        self.assertEqual(fake.requests[0]["json"]["max_output_tokens"], 1536)
+        self.assertFalse(fake.requests[0]["json"]["store"])
+        self.assertEqual(
+            fake.requests[0]["json"]["input"][0]["content"][0]["type"],
+            "input_text",
+        )
+        self.assertEqual(
+            fake.requests[0]["json"]["input"][1]["content"][0]["type"],
+            "output_text",
+        )
+        self.assertEqual(
+            fake.requests[0]["json"]["input"][2]["content"][0]["type"],
+            "input_text",
+        )
 
 
 class ProviderSelectionTests(unittest.TestCase):

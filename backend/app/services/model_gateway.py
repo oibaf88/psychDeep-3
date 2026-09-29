@@ -29,7 +29,7 @@ logger = logging.getLogger("psychapp.model_gateway")
 LOCAL_TUNNEL = "local-tunnel"
 CLOUD_TUNED = "cloud-tuned"
 COMMERCIAL_APPROVED = "commercial-approved"
-APPROVED_ALIASES = {LOCAL_TUNNEL, CLOUD_TUNED, COMMERCIAL_APPROVED}
+APPROVED_ALIASES = {LOCAL_TUNNEL, CLOUD_TUNED, COMMERCIAL_APPROVED, "mobile-local"}
 
 
 class ModelGatewayError(RuntimeError):
@@ -43,7 +43,7 @@ class ModelUnavailable(ModelGatewayError):
 @dataclass(frozen=True)
 class Deployment:
     alias: str
-    adapter: Literal["openai_compatible", "managed_cloud"]
+    adapter: Literal["openai_compatible", "managed_cloud", "mobile_local"]
     base_url: str | None
     api_key: str
     chat_model: str
@@ -69,6 +69,8 @@ class Deployment:
 
     @property
     def configured(self) -> bool:
+        if self.alias == "mobile-local":
+            return True
         if self.alias == COMMERCIAL_APPROVED:
             return bool(self.api_key and self.chat_model and self.analysis_model)
         return bool(self.base_url and self.chat_model and self.analysis_model)
@@ -170,6 +172,20 @@ class ModelGateway:
                 policy_version=s.model_policy_version,
                 data_handling_classification="clinical_data_private_tunnel",
             )
+        if self.alias == "mobile-local":
+            return Deployment(
+                alias="mobile-local",
+                adapter="mobile_local",
+                base_url=None,
+                api_key="",
+                chat_model="device-reported",
+                analysis_model="device-reported",
+                copilot_model="device-reported",
+                timeout_seconds=30,
+                max_tokens=8192,
+                policy_version=s.model_policy_version,
+                data_handling_classification="clinical_data_device_local",
+            )
         if self.alias == CLOUD_TUNED:
             chat = s.model_cloud_chat_model.strip()
             analysis = s.model_cloud_analysis_model.strip() or chat
@@ -203,6 +219,8 @@ class ModelGateway:
 
     def provider(self) -> LLMProvider:
         d = self.deployment()
+        if d.alias == "mobile-local":
+            raise ModelUnavailable("MOBILE_LOCAL_REQUIRES_DEVICE_INGEST")
         if not d.configured:
             raise ModelUnavailable("MODEL_UNAVAILABLE")
         if d.alias == COMMERCIAL_APPROVED:
