@@ -5,7 +5,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", protected_namespaces=("settings_",))
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        protected_namespaces=("settings_",),
+    )
 
     database_url: str = "postgresql://psychapp:psychapp@db:5432/psychapp"
     database_schema: str = "psychdeep_v12"
@@ -14,27 +18,21 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 12
 
-    # --- Provider-neutral model gateway ----------------------------------
     model_deployment_alias: str = "local-bridge"
     model_policy_version: str = "support-policy-v1"
+
     model_local_base_url: str = ""
     model_local_api_key: str = ""
+    model_local_cf_access_required: bool = False
+    model_local_cf_access_host: str = ""
+    model_local_cf_access_client_id: str = ""
+    model_local_cf_access_client_secret: str = ""
     model_local_chat_model: str = ""
     model_local_analysis_model: str = ""
     model_local_copilot_model: str = ""
     model_local_timeout_seconds: int = 120
     model_local_max_tokens: int = 8192
 
-    # Legacy Cloudflare settings are retained only for backwards-compatible
-    # parsing during migration; the new local mode does not read them.
-    model_local_cf_access_required: bool = False
-    model_local_cf_access_host: str = ""
-    model_local_cf_access_client_id: str = ""
-    model_local_cf_access_client_secret: str = ""
-
-    # Outbound local inference bridge. The local agent initiates the TLS
-    # WebSocket connection to Render, so no inbound port or cloudflared tunnel
-    # is required on the operator network.
     local_bridge_enabled: bool = False
     local_bridge_secret: str = ""
     local_bridge_heartbeat_seconds: int = 20
@@ -55,6 +53,11 @@ class Settings(BaseSettings):
     anthropic_analysis_model: str = "claude-sonnet-4-6"
     anthropic_copilot_model: str = ""
     anthropic_max_tokens: int = 8192
+    anthropic_max_tokens_chat: int = 0
+    anthropic_max_tokens_analysis: int = 0
+    anthropic_chat_effort: str = "medium"
+    anthropic_analysis_effort: str = "high"
+    anthropic_copilot_effort: str = ""
 
     openai_api_key: str = ""
     openai_chat_model: str = "gpt-5.6-luna"
@@ -64,6 +67,7 @@ class Settings(BaseSettings):
     openai_timeout_seconds: int = 120
     openai_chat_effort: str = "medium"
     openai_analysis_effort: str = "high"
+    openai_copilot_effort: str = "medium"
 
     llm_default_provider: str = "anthropic"
     llm_openai_compatible_base_url: str = ""
@@ -123,12 +127,16 @@ class Settings(BaseSettings):
         return self.anthropic_copilot_model.strip() or self.anthropic_chat_model
 
     @property
+    def copilot_effort(self) -> str:
+        return self.anthropic_copilot_effort.strip() or self.anthropic_chat_effort
+
+    @property
     def max_tokens_chat(self) -> int:
-        return self.anthropic_max_tokens
+        return self.anthropic_max_tokens_chat or self.anthropic_max_tokens
 
     @property
     def max_tokens_analysis(self) -> int:
-        return self.anthropic_max_tokens
+        return self.anthropic_max_tokens_analysis or self.anthropic_max_tokens
 
     @property
     def is_production(self) -> bool:
