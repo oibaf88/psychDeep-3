@@ -24,19 +24,27 @@ def build_provider(config) -> LLMProvider:
     from app.services.runpod_routing import cloud_credentials_for
 
     if config.provider == llm_config.PROVIDER_LOCAL:
+        # The new local-bridge transport is owned by ModelGateway and is not a
+        # public HTTP endpoint. Prevent legacy code from constructing a direct
+        # OpenAI-compatible provider for it.
+        if getattr(config, "label", "").startswith("Modelo local/puente"):
+            raise RuntimeError("LOCAL_BRIDGE_REQUIRES_MODEL_GATEWAY")
+
         kwargs = dict(
-            base_url=config.base_url or "", chat_model=config.chat_model,
-            analysis_model=config.analysis_model, copilot_model=config.copilot_model,
-            api_key=config.api_key, max_tokens=config.max_tokens,
+            base_url=config.base_url or "",
+            chat_model=config.chat_model,
+            analysis_model=config.analysis_model,
+            copilot_model=config.copilot_model,
+            api_key=config.api_key,
+            max_tokens=config.max_tokens,
             timeout_seconds=float(config.timeout_seconds),
         )
-        # Personal mode must remain bound to its own LM Studio token and
-        # Cloudflare Access; never silently promote a user's token to Runpod.
         if isinstance(config, PersonalResolvedConfig):
             if not config.api_key.strip():
                 raise RuntimeError("La autenticación de LM Studio no está configurada en Render.")
             return CloudflareAccessOpenAICompatibleProvider(
-                **kwargs, access_client_id=config.access_client_id,
+                **kwargs,
+                access_client_id=config.access_client_id,
                 access_client_secret=config.access_client_secret,
                 access_hostname=config.access_hostname,
             )
@@ -46,9 +54,6 @@ def build_provider(config) -> LLMProvider:
             kwargs["api_key"] = cloud_key
             return OpenAICompatibleProvider(**kwargs)
 
-        # Legacy tunnel: require Cloudflare Access credentials, an exact
-        # approved HTTPS hostname and the local bearer key before sending any
-        # secrets. The Runpod profile above is deliberately evaluated first.
         access = {
             "access_client_id": settings.model_local_cf_access_client_id,
             "access_client_secret": settings.model_local_cf_access_client_secret,
@@ -58,27 +63,37 @@ def build_provider(config) -> LLMProvider:
             if not all(value.strip() for value in access.values()) or not settings.model_local_cf_access_required:
                 raise RuntimeError("Cloudflare Access está configurado parcialmente en Render.")
             endpoint = urlsplit(config.base_url or "")
-            if (endpoint.scheme != "https" or endpoint.hostname != settings.model_local_cf_access_host.strip().lower()
-                    or endpoint.port not in (None, 443) or endpoint.username or endpoint.password):
+            if (
+                endpoint.scheme != "https"
+                or endpoint.hostname != settings.model_local_cf_access_host.strip().lower()
+                or endpoint.port not in (None, 443)
+                or endpoint.username
+                or endpoint.password
+            ):
                 raise RuntimeError("LOCAL_ENDPOINT_HOST_NOT_APPROVED")
             if not settings.model_local_api_key.strip():
                 raise RuntimeError("Falta MODEL_LOCAL_API_KEY en Render.")
             kwargs["api_key"] = settings.model_local_api_key
             return CloudflareAccessOpenAICompatibleProvider(**kwargs, **access)
         return OpenAICompatibleProvider(**kwargs)
+
     if config.provider == llm_config.PROVIDER_ANTHROPIC:
         from app.services.llm_usage import record_usage_safely
         return AnthropicProvider(
-            chat_model=config.chat_model, analysis_model=config.analysis_model,
-            copilot_model=config.copilot_model, max_tokens=config.explicit_max_tokens,
+            chat_model=config.chat_model,
+            analysis_model=config.analysis_model,
+            copilot_model=config.copilot_model,
+            max_tokens=config.explicit_max_tokens,
             usage_recorder=record_usage_safely,
         )
+
     if config.provider == "openai":
         from app.config import get_settings
         from app.services.llm_usage import record_usage_safely
         settings = get_settings()
         return OpenAIProvider(
-            chat_model=config.chat_model, analysis_model=config.analysis_model,
+            chat_model=config.chat_model,
+            analysis_model=config.analysis_model,
             copilot_model=config.copilot_model,
             api_key=config.api_key or settings.openai_api_key,
             max_tokens=config.max_tokens,
@@ -87,6 +102,7 @@ def build_provider(config) -> LLMProvider:
             analysis_effort=settings.openai_analysis_effort,
             usage_recorder=record_usage_safely,
         )
+
     raise RuntimeError("Proveedor LLM no admitido.")
 
 
@@ -120,6 +136,7 @@ def get_llm_provider(db=None, provider_override: str | None = None) -> LLMProvid
         if config.provider == llm_config.PROVIDER_LOCAL:
             local_llm_access.assert_can_use_local_llm(user)
         return build_provider(config)
+
     config = llm_config.resolve(db)
     if config.provider == llm_config.PROVIDER_LOCAL:
         local_llm_access.assert_can_use_local_llm(user)
