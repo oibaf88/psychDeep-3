@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import hmac
 import json
@@ -15,7 +16,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
 API_URL = os.environ.get("PSYCHDEEP_API_URL", "https://psychdeep-api.onrender.com").rstrip("/")
 SECRET = os.environ["PSYCHDEEP_LOCAL_BRIDGE_SECRET"].strip()
 AGENT_ID = os.environ.get("PSYCHDEEP_LOCAL_AGENT_ID", "primary-windows").strip()
@@ -24,6 +24,7 @@ LOCAL_API_KEY = os.environ.get("LOCAL_LLM_API_KEY", "").strip()
 CHAT_MODEL = os.environ.get("LOCAL_LLM_CHAT_MODEL", "").strip()
 ANALYSIS_MODEL = os.environ.get("LOCAL_LLM_ANALYSIS_MODEL", "").strip() or CHAT_MODEL
 VERIFY_TLS = os.environ.get("PSYCHDEEP_VERIFY_TLS", "true").strip().lower() not in {"0", "false", "no"}
+HEARTBEAT_SECONDS = max(int(os.environ.get("PSYCHDEEP_HEARTBEAT_SECONDS", "20")), 5)
 
 
 def canonical(payload: dict) -> bytes:
@@ -38,15 +39,9 @@ def auth_url() -> str:
     challenge = secrets.token_urlsafe(24)
     expires_at = int(time.time()) + 60
     signed = {"agent_id": AGENT_ID, "challenge": challenge, "expires_at": expires_at}
-    query = urlencode(
-        {
-            "agent_id": AGENT_ID,
-            "challenge": challenge,
-            "expires_at": str(expires_at),
-            "token": sign(signed),
-        }
-    )
-    return f"{API_URL.replace('https://', 'wss://').replace('http://', 'ws://')}/local-bridge/connect?{query}"
+    query = urlencode({**signed, "token": sign(signed)})
+    base = API_URL.replace("https://", "wss://").replace("http://", "ws://")
+    return f"{base}/local-bridge/connect?{query}"
 
 
 def headers() -> dict[str, str]:
@@ -82,7 +77,10 @@ async def call_local_model(payload: dict) -> dict:
                     "role": "system",
                     "content": (
                         payload["system_prompt"]
-                        + "\n\nDevuelve únicamente un objeto JSON válido que cumpla exactamente este esquema:\n"
+                        + "
+
+Devuelve únicamente un objeto JSON válido que cumpla exactamente este esquema:
+"
                         + json.dumps(schema["input_schema"], ensure_ascii=False)
                     ),
                 },
@@ -103,18 +101,13 @@ async def call_local_model(payload: dict) -> dict:
     timeout = httpx.Timeout(600, connect=10)
     async with httpx.AsyncClient(timeout=timeout, verify=VERIFY_TLS) as client:
         response = await client.post(f"{LOCAL_BASE_URL}/chat/completions", headers=headers(), json=body)
-
         if response.status_code in {400, 422} and kind == "structured":
             body.pop("response_format", None)
-            body["messages"][0]["content"] += (
-                "\nSin texto antes ni después del JSON."
-            )
             response = await client.post(
                 f"{LOCAL_BASE_URL}/chat/completions",
                 headers=headers(),
                 json=body,
             )
-
         response.raise_for_status()
         data = response.json()
 
@@ -124,18 +117,18 @@ async def call_local_model(payload: dict) -> dict:
     message = choices[0].get("message") or {}
     content = message.get("content") or ""
     if isinstance(content, list):
-        content = "\n".join(
-            part.get("text", "") for part in content if isinstance(part, dict)
-        )
+        content = "
+".join(part.get("text", "") for part in content if isinstance(part, dict))
+
+    usage = data.get("usage") or {}
 
     if kind == "chat":
         return {
             "text": str(content).strip(),
             "model": data.get("model") or model,
-            "usage": data.get("usage") or {},
             "metadata": {
-                "input_tokens": (data.get("usage") or {}).get("prompt_tokens"),
-                "output_tokens": (data.get("usage") or {}).get("completion_tokens"),
+                "input_tokens": usage.get("prompt_tokens"),
+                "output_tokens": usage.get("completion_tokens"),
             },
         }
 
@@ -155,8 +148,20 @@ async def call_local_model(payload: dict) -> dict:
     return {
         "value": value,
         "model": data.get("model") or model,
-        "usage": data.get("usage") or {},
+        "usage": usage,
     }
+
+
+async def send_heartbeat(websocket) -> None:
+    while True:
+        await asyncio.sleep(HEARTBEAT_SECONDS)
+        message = {
+            "type": "heartbeat",
+            "agent_id": AGENT_ID,
+            "timestamp": int(time.time()),
+        }
+        message["signature"] = sign(message)
+        await websocket.send(json.dumps(message, ensure_ascii=False))
 
 
 async def run() -> None:
@@ -167,51 +172,53 @@ async def run() -> None:
 
     while True:
         try:
-            url = auth_url()
             async with websockets.connect(
-                url,
+                auth_url(),
                 ping_interval=20,
                 ping_timeout=20,
                 close_timeout=5,
                 max_size=32 * 1024 * 1024,
             ) as websocket:
                 print(f"[psychDeep] agente conectado: {AGENT_ID}")
-                async for raw in websocket:
-                    message = json.loads(raw)
-                    if message.get("type") != "inference_request":
-                        continue
+                heartbeat_task = asyncio.create_task(send_heartbeat(websocket))
+                try:
+                    async for raw in websocket:
+                        message = json.loads(raw)
+                        if message.get("type") != "inference_request":
+                            continue
 
-                    request_id = message["request_id"]
-                    payload = message["payload"]
-                    signed_request = {
-                        "type": "inference_request",
-                        "request_id": request_id,
-                        "payload": payload,
-                    }
-                    if not hmac.compare_digest(
-                        sign(signed_request),
-                        message.get("signature", ""),
-                    ):
-                        print("[psychDeep] solicitud rechazada: firma no válida")
-                        continue
-
-                    started = time.perf_counter()
-                    try:
-                        result = await call_local_model(payload)
-                    except Exception as exc:  # noqa: BLE001
-                        result = {
-                            "error": "LOCAL_INFERENCE_FAILED",
-                            "error_type": type(exc).__name__,
+                        request_id = message["request_id"]
+                        payload = message["payload"]
+                        signed_request = {
+                            "type": "inference_request",
+                            "request_id": request_id,
+                            "payload": payload,
                         }
-                    result["elapsed_ms"] = round((time.perf_counter() - started) * 1000)
+                        if not hmac.compare_digest(sign(signed_request), message.get("signature", "")):
+                            print("[psychDeep] solicitud rechazada: firma no válida")
+                            continue
 
-                    response = {
-                        "type": "inference_result",
-                        "request_id": request_id,
-                        "result": result,
-                    }
-                    response["signature"] = sign(response)
-                    await websocket.send(json.dumps(response, ensure_ascii=False))
+                        started = time.perf_counter()
+                        try:
+                            result = await call_local_model(payload)
+                        except Exception as exc:  # noqa: BLE001
+                            result = {
+                                "error": "LOCAL_INFERENCE_FAILED",
+                                "error_type": type(exc).__name__,
+                            }
+                        result["elapsed_ms"] = round((time.perf_counter() - started) * 1000)
+
+                        response = {
+                            "type": "inference_result",
+                            "request_id": request_id,
+                            "result": result,
+                        }
+                        response["signature"] = sign(response)
+                        await websocket.send(json.dumps(response, ensure_ascii=False))
+                finally:
+                    heartbeat_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await heartbeat_task
         except Exception as exc:  # noqa: BLE001
             print(f"[psychDeep] desconectado: {type(exc).__name__}; reconectando en 5 s")
             await asyncio.sleep(5)
