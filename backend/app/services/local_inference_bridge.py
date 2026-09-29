@@ -1,17 +1,19 @@
 """Outbound local inference bridge.
 
-The Windows/local agent initiates the connection to Render. Render never
-opens an inbound connection to the user's LAN. Inference payloads and results
-therefore travel over one authenticated TLS WebSocket channel in both
-directions.
+The local agent initiates the connection to Render. Render never opens an
+inbound connection to the user's LAN. The existing synchronous application
+pipeline can wait on the bridge without changing every router to async.
 """
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import hashlib
 import hmac
 import json
 import logging
+import queue
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -56,93 +58,112 @@ def _canonical(payload: dict[str, Any]) -> bytes:
 
 
 def sign_message(secret: str, payload: dict[str, Any]) -> str:
-    return hmac.new(secret.encode("utf-8"), _canonical(payload), hashlib.sha256).hexdigest()
+    return hmac.new(
+        secret.encode("utf-8"),
+        _canonical(payload),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def verify_message(secret: str, payload: dict[str, Any], signature: str) -> bool:
-    expected = sign_message(secret, payload)
-    return hmac.compare_digest(expected, signature)
+    return hmac.compare_digest(sign_message(secret, payload), signature)
 
 
 class LocalInferenceBridge:
-    """In-memory broker for one outbound local agent per API instance."""
+    """Thread-safe broker shared by sync API code and async WebSocket code."""
 
     def __init__(self, config: LocalBridgeConfig | None = None) -> None:
         self.config = config or LocalBridgeConfig.from_settings()
         self.config.validate()
-        self._agents: dict[str, asyncio.Queue[dict[str, Any]]] = {}
-        self._results: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._agents: dict[str, queue.Queue[dict[str, Any]]] = {}
+        self._results: dict[str, concurrent.futures.Future[dict[str, Any]]] = {}
         self._heartbeats: dict[str, float] = {}
-        self._lock = asyncio.Lock()
+        self._lock = threading.RLock()
 
-    async def register(self, agent_id: str) -> asyncio.Queue[dict[str, Any]]:
+    def register_sync(self, agent_id: str) -> queue.Queue[dict[str, Any]]:
         if not agent_id or len(agent_id) > 128:
             raise ValueError("LOCAL_AGENT_ID_INVALID")
-        async with self._lock:
-            queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=16)
-            self._agents[agent_id] = queue
+        with self._lock:
+            q: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=16)
+            self._agents[agent_id] = q
             self._heartbeats[agent_id] = time.time()
-            return queue
+            return q
 
-    async def unregister(self, agent_id: str) -> None:
-        async with self._lock:
+    async def register(self, agent_id: str) -> queue.Queue[dict[str, Any]]:
+        return self.register_sync(agent_id)
+
+    def unregister_sync(self, agent_id: str) -> None:
+        with self._lock:
             self._agents.pop(agent_id, None)
             self._heartbeats.pop(agent_id, None)
 
-    async def heartbeat(self, agent_id: str) -> None:
-        async with self._lock:
+    async def unregister(self, agent_id: str) -> None:
+        self.unregister_sync(agent_id)
+
+    def heartbeat_sync(self, agent_id: str) -> None:
+        with self._lock:
             if agent_id in self._agents:
                 self._heartbeats[agent_id] = time.time()
 
-    async def submit(self, *, request: dict[str, Any], agent_id: str) -> dict[str, Any]:
+    async def heartbeat(self, agent_id: str) -> None:
+        self.heartbeat_sync(agent_id)
+
+    def submit_sync(self, *, request: dict[str, Any], agent_id: str) -> dict[str, Any]:
         request_id = str(uuid.uuid4())
-        message = {
-            "type": "inference_request",
-            "request_id": request_id,
-            "created_at": time.time(),
-            "payload": request,
-        }
-        async with self._lock:
-            queue = self._agents.get(agent_id)
-            if queue is None:
+        with self._lock:
+            q = self._agents.get(agent_id)
+            if q is None:
                 raise RuntimeError("LOCAL_AGENT_OFFLINE")
-            loop = asyncio.get_running_loop()
-            future: asyncio.Future[dict[str, Any]] = loop.create_future()
+            future: concurrent.futures.Future[dict[str, Any]] = concurrent.futures.Future()
             self._results[request_id] = future
-        try:
-            await queue.put(message)
-            result = await asyncio.wait_for(
-                future,
-                timeout=self.config.request_timeout_seconds,
+            q.put(
+                {
+                    "type": "inference_request",
+                    "request_id": request_id,
+                    "created_at": time.time(),
+                    "payload": request,
+                }
             )
+        try:
+            result = future.result(timeout=self.config.request_timeout_seconds)
             if isinstance(result, dict) and result.get("error"):
                 raise RuntimeError(str(result["error"]))
             return result
-        except asyncio.TimeoutError as exc:
+        except concurrent.futures.TimeoutError as exc:
             raise RuntimeError("LOCAL_INFERENCE_TIMEOUT") from exc
         finally:
-            async with self._lock:
+            with self._lock:
                 self._results.pop(request_id, None)
 
-    async def resolve(self, request_id: str, result: dict[str, Any]) -> None:
-        async with self._lock:
+    async def submit(self, *, request: dict[str, Any], agent_id: str) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.submit_sync,
+            request=request,
+            agent_id=agent_id,
+        )
+
+    def resolve_sync(self, request_id: str, result: dict[str, Any]) -> None:
+        with self._lock:
             future = self._results.get(request_id)
             if future is None or future.done():
                 return
             future.set_result(result)
 
+    async def resolve(self, request_id: str, result: dict[str, Any]) -> None:
+        self.resolve_sync(request_id, result)
+
     async def status(self) -> dict[str, Any]:
         now = time.time()
-        async with self._lock:
+        with self._lock:
             live_after = max(self.config.heartbeat_seconds * 3, 60)
-            connected = [
+            connected = sorted(
                 agent_id
-                for agent_id, last_seen in self._heartbeats.items()
-                if now - last_seen <= live_after
-            ]
+                for agent_id, heartbeat in self._heartbeats.items()
+                if now - heartbeat <= live_after
+            )
             return {
                 "enabled": self.config.enabled,
-                "connected_agents": sorted(connected),
+                "connected_agents": connected,
             }
 
 
