@@ -215,7 +215,7 @@ checks(sort_key, check_name, failures) as (
                     and pg_indexes.tablename = 'knowledge_items'
                     and pg_indexes.indexname = 'ux_knowledge_one_active_version'
                     and pg_indexes.indexdef ilike '%unique%'
-                    and pg_indexes.indexdef ilike '%where (status%active%'))
+                    and pg_indexes.indexdef ilike '%where %status%active%'))
 )
 select check_name,
        case when failures = 0 then 'ok' else 'FAILED' end as status,
