@@ -288,12 +288,12 @@ def _persistence_detail(db: Session, user_id, band: str, days_minimum: int) -> d
 
 
 def _convergencia_critica_extrema(
-    structural_score: float | None, rumination: float | None, sleep_worsening: bool
+    adverse_composite_z: float | None, rumination: float | None, sleep_worsening: bool
 ) -> bool:
-    if structural_score is None:
+    if adverse_composite_z is None:
         return False
     rumination_extreme = rumination is not None and rumination > 0.85
-    return structural_score < 0.20 and (rumination_extreme or sleep_worsening)
+    return adverse_composite_z > 2.4 and (rumination_extreme or sleep_worsening)
 
 
 def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
@@ -364,7 +364,7 @@ def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
 
     # ---------------- Nivel 3 (Alarma profesional) ----------------
     if _convergencia_critica_extrema(
-        structural.score, rumination if isinstance(rumination, (int, float)) else None, sleep_worsening
+        structural.adverse_composite_z, rumination if isinstance(rumination, (int, float)) else None, sleep_worsening
     ):
         triggering_rules.append("N3_convergencia_critica_extrema")
         return RiskDecision(

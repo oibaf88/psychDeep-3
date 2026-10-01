@@ -97,43 +97,43 @@ alter table psychdeep_v12.llm_user_preferences
 
 update psychdeep_v12.llm_user_preferences
    set chat_model = case
-           when chat_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620') then 'claude-sonnet-5'
+           when chat_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
            else chat_model
        end,
        analysis_model = case
-           when analysis_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620') then 'claude-sonnet-5'
+           when analysis_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
            else analysis_model
        end,
        copilot_model = case
-           when copilot_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620') then 'claude-sonnet-5'
+           when copilot_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
            else copilot_model
        end,
        updated_at = now()
  where provider = 'anthropic'
    and (
-       chat_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620') or
-       analysis_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620') or
-       copilot_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620')
+       chat_model = 'claude-3-5-sonnet-20240620' or
+       analysis_model = 'claude-3-5-sonnet-20240620' or
+       copilot_model = 'claude-3-5-sonnet-20240620'
    );
 
 update psychdeep_v12.llm_endpoint_configs
    set chat_model = case
-           when chat_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620') then 'claude-sonnet-5'
+           when chat_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
            else chat_model
        end,
        analysis_model = case
-           when analysis_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620') then 'claude-sonnet-5'
+           when analysis_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
            else analysis_model
        end,
        copilot_model = case
-           when copilot_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620') then 'claude-sonnet-5'
+           when copilot_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
            else copilot_model
        end
  where provider = 'anthropic'
    and (
-       chat_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620') or
-       analysis_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620') or
-       copilot_model in ('claude-opus-5', 'claude-3-5-sonnet-20240620')
+       chat_model = 'claude-3-5-sonnet-20240620' or
+       analysis_model = 'claude-3-5-sonnet-20240620' or
+       copilot_model = 'claude-3-5-sonnet-20240620'
    );
 
 -- The canonical registry stays backend-only behind FastAPI authorization.
