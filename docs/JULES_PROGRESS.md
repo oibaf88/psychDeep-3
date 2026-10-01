@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed
+- **Security:** Removed secure `dev_token` leakage from the `/password-reset-request` endpoint response in `backend/app/routers/auth.py`.
 - **Clinical Safety:** Updated `_convergencia_critica_extrema` legacy rule formulation in `risk_engine.py` to use `adverse_composite_z > 2.4` instead of the deprecated `structural_score < 0.20`, aligning it with `CLINICAL_RISK_BASIS.md` and NICE guidelines, and wrote the clinical review report for this change.
 - **Clinical Safety:** La lógica vigente usa `N3_convergencia_critica_extrema`, pero el manual histórico conserva la antigua regla N4 y la trazabilidad acepta etiquetas N4 almacenadas para no falsear evaluaciones previas.
 - **Clinical Safety:** Actualizada la terminología de las alertas Nivel 4 en toda la aplicación de "Emergencia" a "Revisión clínica urgente" para cumplir con las directrices de seguridad clínica de que las señales de IA determinan prioridades de revisión, no diagnósticos de emergencia automatizados.
