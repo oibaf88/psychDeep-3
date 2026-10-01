@@ -41,3 +41,40 @@ body {
   background: var(--pd-bg);
   color: var(--pd-text);
 }
+
+/* Compatibility aliases for legacy components during the visual migration. */
+:root {
+  --bg: var(--pd-bg);
+  --card-bg: var(--pd-surface);
+  --surface-2: var(--pd-surface-muted);
+  --border: var(--pd-border);
+  --ink: var(--pd-text);
+  --ink-soft: var(--pd-text-soft);
+  --ink-muted: var(--pd-text-muted);
+  --ink-faint: var(--pd-text-faint);
+  --primary: var(--pd-primary);
+  --primary-ink: var(--pd-primary);
+  --ink-on-accent: #fff;
+  --chrome-bg: rgba(255,255,255,.94);
+  --chrome-ink: var(--pd-text);
+  --danger: var(--pd-danger);
+  --danger-strong: #a61b12;
+  --danger-bg: var(--pd-danger-soft);
+  --danger-border: #e8b8b3;
+  --warning: var(--pd-warning);
+  --warning-bg: var(--pd-warning-soft);
+  --warning-border: #e7d39a;
+  --warning-ink: #7c4a03;
+  --success: var(--pd-success);
+  --success-ink: var(--pd-success);
+  --success-bg: var(--pd-success-soft);
+  --success-border: #b8ddc8;
+  --accent-bg: var(--pd-primary-soft);
+  --accent-border: #c9dce9;
+  --purple-bg: #f1eef8;
+  --purple-ink: #5b477f;
+  --radius-control: var(--pd-radius-sm);
+  --radius-note: 10px;
+  --radius-card: var(--pd-radius-lg);
+  --radius-pill: var(--pd-radius-pill);
+}
