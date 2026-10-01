@@ -253,7 +253,7 @@ class LinguisticBoundaryTests(unittest.TestCase):
         self.assertEqual(stored[0].provider, "openai_compatible")
         self.assertEqual(stored[0].provider_base_url, "http://localhost:1234/v1")
         self.assertEqual(stored[0].prompt_version, "agent1-prompt-2026-09-21")
-        self.assertEqual(stored[0].context_version, "agent1-context-2026-09-21")
+        self.assertEqual(stored[0].context_version, "agent1-context-2026-09-22")
         self.assertEqual(len(stored[0].prompt_sha256), 64)
         self.assertEqual(len(stored[0].context_sha256), 64)
 

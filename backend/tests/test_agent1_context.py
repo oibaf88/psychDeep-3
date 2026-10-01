@@ -252,3 +252,39 @@ class ProfilePanelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class KnowledgeBlockTests(unittest.TestCase):
+    def test_active_knowledge_is_included(self):
+        item = SimpleNamespace(
+            topic="Ansiedad",
+            objective="Reducir activación",
+            evidence_level="A",
+            content="Técnica de respiración 4-7-8."
+        )
+        with patch("app.services.agent1_context._knowledge_block", return_value="CONTENIDOS CLÍNICOS APROBADOS... Técnica de respiración 4-7-8."):
+            block = _build(_Db())
+            self.assertIn("CONTENIDOS CLÍNICOS APROBADOS", block)
+            self.assertIn("Técnica de respiración", block)
+
+    def test_no_knowledge_does_not_add_section(self):
+        with patch("app.services.agent1_context._knowledge_block", return_value=""):
+            block = _build(_Db())
+            self.assertNotIn("CONTENIDOS CLÍNICOS APROBADOS", block)
+
+    def test_knowledge_retrieval_logic(self):
+        # Using a mock session to test _knowledge_block query behavior
+        db_mock = unittest.mock.MagicMock()
+        item = SimpleNamespace(
+            topic="Ansiedad",
+            objective="Reducir activación",
+            evidence_level="A",
+            content="Técnica de respiración 4-7-8."
+        )
+        db_mock.query.return_value.filter.return_value.all.return_value = [item]
+
+        from app.services.agent1_context import _knowledge_block
+        block = _knowledge_block(db_mock)
+        self.assertIn("CONTENIDOS CLÍNICOS APROBADOS", block)
+        self.assertIn("Ansiedad", block)
+        self.assertIn("Reducir activación", block)
+        self.assertIn("Técnica de respiración 4-7-8.", block)
