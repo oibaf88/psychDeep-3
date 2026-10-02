@@ -1,7 +1,5 @@
 /* Layered dynamic urge-surfing visual.
- * The important cue is not “one wave”: it is the changing relationship
- * between several wave fields. Intensity controls amplitude, waterline
- * movement and speed so the same intensity still rises and falls strongly.
+ * Emotional cue = vertical drama: heave peak↔trough + intensity-driven speed.
  */
 
 .wave-ride-progress {
@@ -20,12 +18,12 @@
 
 .wave-visual.wave-visual--swell {
   position: relative;
-  height: 230px;
+  height: 280px;
   overflow: hidden;
   border-radius: 14px;
   background:
-    radial-gradient(circle at 50% 105%, rgba(108, 152, 244, 0.10), transparent 58%),
-    linear-gradient(180deg, rgba(32, 44, 61, 0.18), rgba(15, 20, 25, 0.02));
+    radial-gradient(circle at 50% 108%, rgba(108, 152, 244, 0.14), transparent 55%),
+    linear-gradient(180deg, rgba(32, 44, 61, 0.28), rgba(15, 20, 25, 0.04));
 }
 
 .wave-visual.wave-visual--swell .wave-svg {
@@ -34,14 +32,6 @@
   height: 100%;
   margin-left: 0;
   overflow: visible;
-}
-
-.wave-visual.wave-visual--swell .wave-back,
-.wave-visual.wave-visual--swell .wave-mid,
-.wave-visual.wave-visual--swell .wave-front {
-  vector-effect: non-scaling-stroke;
-  transform-box: fill-box;
-  transform-origin: center bottom;
 }
 
 .wave-visual.wave-visual--swell .wave-back {
@@ -61,29 +51,34 @@
 
 .wave-visual.wave-visual--swell .wave-foam {
   fill: none;
-  stroke: rgba(232, 244, 255, 0.82);
-  stroke-width: 2.6;
+  stroke: rgba(232, 244, 255, 0.88);
+  stroke-width: 2.8;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-dasharray: 10 8;
-  opacity: 0.72;
+  stroke-dasharray: 11 7;
+  opacity: 0.78;
   vector-effect: non-scaling-stroke;
 }
 
-/* Intensity is deliberately visible in the visual weight as well as in
-   geometry: the crest line becomes sharper and more present at the peak. */
 .wave-visual.wave-visual--swell.wave-visual--riding .wave-foam {
-  stroke-width: calc(2.4px + var(--wave-intensity, 0) * 2.8px);
-  opacity: calc(0.68 + var(--wave-intensity, 0) * 0.30);
+  stroke-width: calc(2.6px + var(--wave-intensity, 0) * 3.2px);
+  opacity: calc(0.7 + var(--wave-intensity, 0) * 0.28);
+}
+
+.wave-visual.wave-visual--swell.wave-visual--storm {
+  background:
+    radial-gradient(ellipse at 50% 8%, rgba(202, 233, 255, 0.28), transparent 40%),
+    linear-gradient(180deg, #253b57 0%, #172437 42%, #0f1419 100%);
 }
 
 .wave-visual.wave-visual--swell.wave-visual--storm .wave-front {
   opacity: 1;
+  filter: saturate(1.2) contrast(1.08);
 }
 
 .wave-visual.wave-visual--swell.wave-visual--storm .wave-foam {
   stroke: rgba(245, 251, 255, 0.98);
-  stroke-width: 4.8;
+  stroke-width: 5;
 }
 
 @media (prefers-reduced-motion: reduce) {
