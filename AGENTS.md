@@ -375,3 +375,16 @@ The final designation requires at minimum:
 Until then, describe the system accurately as **“PsychDeep vNext transition/foundation with progressive migration in progress.”**
 
 See `README.md`, `DEPLOY.md`, `docs/release/CHECKLIST.md`, `docs/operations/RUNBOOKS.md`, the approved master specification and accepted ADRs for implementation and operations details.
+
+## Cursor Cloud specific instructions
+
+This section is operating guidance for Cloud Agents. It does not change the product data plane: Supabase remains the only authoritative clinical store. The local PostgreSQL process below exists so agents can boot the API with `APP_ENV=local` (`create_all` plus demo seed). Do not describe that process as a supported clinical product stack, and do not apply `supabase/migrations` onto the `psychapp` database the API is using.
+
+- The image provides Python 3.12 and Node 22. CI pins Python 3.11 and Node 20. Backend pytest and frontend vitest, `tsc`, and the Vite build were verified on 3.12 and 22.
+- Backend dependencies live in `backend/.venv` (`pip install -r backend/requirements-dev.txt`). Frontend dependencies come from `npm ci` in `frontend/`.
+- On boot, PostgreSQL 16, the API (`http://127.0.0.1:8000`), and Vite (`http://127.0.0.1:5173`) are started. Vite must receive `VITE_API_BASE_URL=http://127.0.0.1:8000`.
+- The boot script forces `DATABASE_URL=postgresql://psychapp:psychapp@127.0.0.1:5432/psychapp` and `APP_ENV=local`. An injected `DATABASE_URL` secret is the cloud Supabase URL. Do not start the API with `APP_ENV=local` against that URL: startup calls `create_all` and can seed demo accounts into the cloud database.
+- Demo patient login is prefilled in Vite dev mode. The password is `DemoPass123!` in `backend/app/seed.py`. A saved check-in shows `Check-in registrado.`
+- Before `python -m pytest tests/ -q`, unset `MODEL_LOCAL_CF_ACCESS_CLIENT_ID` and `MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET` when they are present without `MODEL_LOCAL_CF_ACCESS_HOST` and `MODEL_LOCAL_CF_ACCESS_REQUIRED`. That partial pair fails `tests/test_llm_endpoint.py::ProviderSelectionTests::test_local_profile_is_selectable_and_uses_its_endpoint` because `build_provider` reads live settings. With those two variables unset, the suite matches CI.
+- Local-tunnel inference stays unconfigured until `MODEL_LOCAL_BASE_URL` and a complete Cloudflare Access set exist. Login, check-in, and deterministic safety do not need a model. Health then reports `model.configured: false` while `status` remains `ok`.
+- The migration apply/re-apply gate is `.github/workflows/tests.yml`. It needs the Supabase role model (`supabase_admin` as superuser and a non-superuser `postgres`). Do not point that job at the local `psychapp` database.
