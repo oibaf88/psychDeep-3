@@ -47,16 +47,16 @@ export default function LoginPage() {
       </div>
       <form onSubmit={onSubmit} className="auth-form">
         {notice && <p className="info" role="status">{notice}</p>}
-        <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
+        <label htmlFor="login-email">
+          Email <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+          <input id="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
         </label>
-        <label>
-          Contrasena
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
+        <label htmlFor="login-password">
+          Contraseña <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+          <input id="login-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
         </label>
         {error && <p className="error" role="alert">{error}</p>}
-        <button type="submit" disabled={busy}>
+        <button type="submit" disabled={busy} aria-busy={busy}>
           {busy ? "Entrando..." : "Entrar"}
         </button>
       </form>
