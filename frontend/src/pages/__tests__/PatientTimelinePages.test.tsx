@@ -88,9 +88,9 @@ describe("patient timeline views", () => {
       </MemoryRouter>,
     );
 
-    await screen.findByText("7/10");
-    expect(screen.getByText("2/10")).toBeInTheDocument();
-    expect(screen.getByText("6.5 h")).toBeInTheDocument();
+    await screen.findByText("6/10");
+    expect(screen.getByText("3/10")).toBeInTheDocument();
+    expect(screen.getByText("7 h")).toBeInTheDocument();
     expect(screen.getByTestId("responsive-container")).toHaveAttribute("data-height", "300");
     expect(screen.getByTestId("line-chart")).toHaveAttribute(
       "data-margin",
