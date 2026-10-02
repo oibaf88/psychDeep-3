@@ -9,8 +9,10 @@ from unittest.mock import patch
 
 from app.services import llm_config
 from app.services.llm import AnthropicProvider, OpenAIProvider, build_provider
+from app.services.llm.anthropic_provider import _to_output_schema
 from app.services.llm.base import StructuredAnalysisError
 from app.services.llm.openai_compatible import OpenAICompatibleProvider, extract_json_object
+from app.services.llm.openai_provider import _to_strict_schema
 
 
 SCHEMA = {
@@ -119,6 +121,38 @@ class JsonRecoveryTests(unittest.TestCase):
         for text in ("[1, 2]", "respuesta sin JSON"):
             with self.assertRaises(ValueError):
                 extract_json_object(text)
+
+
+class StructuredSchemaTests(unittest.TestCase):
+    def test_provider_schema_normalization_preserves_each_provider_contract(self):
+        source = {
+            "type": "object",
+            "properties": {
+                "label": {"type": "string", "default": "unknown", "minLength": 1},
+                "details": {
+                    "type": "object",
+                    "properties": {
+                        "score": {"type": "number", "minimum": 0, "maximum": 1},
+                    },
+                },
+            },
+            "required": [],
+        }
+
+        anthropic_schema = _to_output_schema(source)
+        openai_schema = _to_strict_schema(source)
+
+        for schema in (anthropic_schema, openai_schema):
+            self.assertEqual(schema["required"], ["label", "details"])
+            self.assertFalse(schema["additionalProperties"])
+            self.assertEqual(schema["properties"]["details"]["required"], ["score"])
+            self.assertFalse(schema["properties"]["details"]["additionalProperties"])
+            self.assertNotIn("minLength", schema["properties"]["label"])
+            self.assertNotIn("minimum", schema["properties"]["details"]["properties"]["score"])
+            self.assertNotIn("maximum", schema["properties"]["details"]["properties"]["score"])
+
+        self.assertEqual(anthropic_schema["properties"]["label"]["default"], "unknown")
+        self.assertNotIn("default", openai_schema["properties"]["label"])
 
 
 class GemmaProviderTests(unittest.TestCase):
@@ -261,7 +295,7 @@ class ProviderSelectionTests(unittest.TestCase):
     def test_local_profile_is_selectable_and_uses_its_endpoint(self):
         with patch.object(llm_config, "get_settings", return_value=_settings(provider="openai_compatible")):
             config = llm_config.environment_config()
-        provider = build_provider(config)
+            provider = build_provider(config)
         self.assertIsInstance(provider, OpenAICompatibleProvider)
         self.assertEqual(config.chat_model, "gemma-2-2b-it")
 
