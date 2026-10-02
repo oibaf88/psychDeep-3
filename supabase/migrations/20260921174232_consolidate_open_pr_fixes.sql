@@ -92,20 +92,20 @@ alter table psychdeep_v12.risk_assessments
 -- Replace only known retired/invalid Anthropic identifiers. User-defined
 -- compatible model selections are left untouched.
 alter table psychdeep_v12.llm_user_preferences
-    alter column chat_model set default 'claude-sonnet-5',
-    alter column analysis_model set default 'claude-sonnet-5';
+    alter column chat_model set default 'claude-3-5-sonnet-20240620',
+    alter column analysis_model set default 'claude-3-5-sonnet-20240620';
 
 update psychdeep_v12.llm_user_preferences
    set chat_model = case
-           when chat_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
+           when chat_model = 'claude-3-5-sonnet-20240620' then 'claude-3-5-sonnet-20240620'
            else chat_model
        end,
        analysis_model = case
-           when analysis_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
+           when analysis_model = 'claude-3-5-sonnet-20240620' then 'claude-3-5-sonnet-20240620'
            else analysis_model
        end,
        copilot_model = case
-           when copilot_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
+           when copilot_model = 'claude-3-5-sonnet-20240620' then 'claude-3-5-sonnet-20240620'
            else copilot_model
        end,
        updated_at = now()
@@ -118,15 +118,15 @@ update psychdeep_v12.llm_user_preferences
 
 update psychdeep_v12.llm_endpoint_configs
    set chat_model = case
-           when chat_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
+           when chat_model = 'claude-3-5-sonnet-20240620' then 'claude-3-5-sonnet-20240620'
            else chat_model
        end,
        analysis_model = case
-           when analysis_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
+           when analysis_model = 'claude-3-5-sonnet-20240620' then 'claude-3-5-sonnet-20240620'
            else analysis_model
        end,
        copilot_model = case
-           when copilot_model = 'claude-3-5-sonnet-20240620' then 'claude-sonnet-5'
+           when copilot_model = 'claude-3-5-sonnet-20240620' then 'claude-3-5-sonnet-20240620'
            else copilot_model
        end
  where provider = 'anthropic'

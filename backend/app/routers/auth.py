@@ -207,11 +207,6 @@ def password_reset_request(payload: PasswordResetRequest, db: Session = Depends(
     audit.log(db, actor_id=user.id, actor_role=user.role, action="password_reset_requested", entity_type="user", entity_id=user.id)
 
     response = {"message": "If the email exists, a reset link has been sent."}
-    # Returning the token to the caller lets anyone who knows an email
-    # address take over that account, so it is confined to local/dev where
-    # there is no mail transport to pick the token up from.
-    if not settings.is_production:
-        response["dev_token"] = token
     return response
 
 
