@@ -375,3 +375,14 @@ The final designation requires at minimum:
 Until then, describe the system accurately as **“PsychDeep vNext transition/foundation with progressive migration in progress.”**
 
 See `README.md`, `DEPLOY.md`, `docs/release/CHECKLIST.md`, `docs/operations/RUNBOOKS.md`, the approved master specification and accepted ADRs for implementation and operations details.
+
+## Cursor Cloud specific instructions
+
+Cloud Agent VMs may run a local PostgreSQL 16 so `APP_ENV=local` can call `create_all` and seed demo accounts. That database is a development convenience. It is not a product clinical data plane, it does not replace Supabase, and it does not prove production migrations, RLS, or schema verification.
+
+- Backend toolchain: Python 3.12 virtualenv at `backend/.venv`. CI pins 3.11; this image's 3.12 passed `python -m pytest tests/ -q`.
+- Frontend toolchain: Node 22 with `npm ci` in `frontend/`. Checks: `npm test` and `npm run build`.
+- On boot, the environment start script launches PostgreSQL, the API at `http://127.0.0.1:8000`, and Vite at `http://127.0.0.1:5173` with `VITE_API_BASE_URL=http://127.0.0.1:8000`.
+- Local API settings: `APP_ENV=local`, `DATABASE_URL=postgresql://psychapp:psychapp@127.0.0.1:5432/psychapp`, `SEED_DEMO_DATA=true`. The code default host `db` is the historical compose name and is not reachable here.
+- Demo password for every seeded account is `DemoPass123!`. Patient login: `patient@demo.psychapp.example.com`. The same pattern covers therapist, supervisor, and `admin@demo.psychapp.example.com`.
+- The selected model deployment can stay unconfigured. Health, check-in, deterministic risk, and the patient UI still run. Do not point local development at a production model tunnel.
