@@ -1,16 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { api, AssignmentOut, CheckInIn, PatientTimelineOut, formatDay } from "../api";
+import { PatientTrajectoryChart } from "../components/ClinicalCharts";
 
 const emptyForm: CheckInIn = { mood: 5, craving: 3, sleep_hours: 7, self_efficacy: 5, notes: "" };
 
@@ -319,63 +310,14 @@ export default function PatientDashboard() {
             </div>
 
             <div className="chart-shell" aria-label="Tendencia de ánimo, craving y autoeficacia" role="region">
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={timeline.points} margin={{ top: 8, right: 8, bottom: 4, left: -16 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={formatDay} minTickGap={24} />
-                  <YAxis yAxisId="left" domain={[0, 10]} tick={{ fontSize: 11 }} />
-                  <YAxis
-                    yAxisId="sleep"
-                    orientation="right"
-                    domain={[0, 24]}
-                    tick={{ fontSize: 11 }}
-                    tickFormatter={(value: number) => value + " h"}
-                  />
-                  <Tooltip labelFormatter={formatDay} />
-                  <Legend />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="mood"
-                    name="Ánimo"
-                    stroke="#7ea8f7"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2.5 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="craving"
-                    name="Craving"
-                    stroke="#df9a73"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2.5 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="self_efficacy"
-                    name="Autoeficacia"
-                    stroke="#76cdbd"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2.5 }}
-                  />
-                  <Line
-                    yAxisId="sleep"
-                    type="monotone"
-                    dataKey="sleep_hours"
-                    name="Sueño (h)"
-                    stroke="#e9c982"
-                    strokeWidth={2}
-                    strokeDasharray="5 3"
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <PatientTrajectoryChart
+                points={timeline.points}
+                height={300}
+                margin={{ top: 8, right: 8, bottom: 4, left: -16 }}
+                dotRadius={2.5}
+                sleepDotRadius={2}
+                formatSleepTicks
+              />
             </div>
 
             <p className="chart-reading-note">

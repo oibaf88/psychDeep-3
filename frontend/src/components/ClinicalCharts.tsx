@@ -455,6 +455,71 @@ export function PsychosocialIndexChart({ points }: { points: PsychosocialPoint[]
   );
 }
 
+type TrajectoryPoint = {
+  date: string;
+  mood?: number | null;
+  craving?: number | null;
+  sleep_hours?: number | null;
+  self_efficacy?: number | null;
+};
+
+const PATIENT_SERIES = [
+  { key: "mood", name: "Ánimo", stroke: "#7ea8f7", width: 2.5, axis: "left" },
+  { key: "craving", name: "Craving", stroke: "#df9a73", width: 2.5, axis: "left" },
+  { key: "self_efficacy", name: "Autoeficacia", stroke: "#76cdbd", width: 2.5, axis: "left" },
+  { key: "sleep_hours", name: "Sueño (h)", stroke: "#e9c982", width: 2, axis: "sleep", dash: "5 3" },
+] as const;
+
+/** Patient Hoy/Tendencias chart. Colours and axes stay those of the patient screens. */
+export function PatientTrajectoryChart({
+  points,
+  height,
+  margin,
+  dotRadius,
+  sleepDotRadius = dotRadius,
+  formatSleepTicks = false,
+}: {
+  points: TrajectoryPoint[];
+  height: number;
+  margin: { top: number; right: number; bottom: number; left: number };
+  dotRadius: number;
+  sleepDotRadius?: number;
+  formatSleepTicks?: boolean;
+}) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <LineChart data={points} margin={margin}>
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={formatDay} minTickGap={24} />
+        <YAxis yAxisId="left" domain={[0, 10]} tick={{ fontSize: 11 }} />
+        <YAxis
+          yAxisId="sleep"
+          orientation="right"
+          domain={[0, 24]}
+          tick={{ fontSize: 11 }}
+          {...(formatSleepTicks ? { tickFormatter: (value: number) => value + " h" } : {})}
+        />
+        <Tooltip labelFormatter={formatDay} />
+        <Legend />
+        {PATIENT_SERIES.map((series) => (
+          <Line
+            key={series.key}
+            yAxisId={series.axis}
+            type="monotone"
+            dataKey={series.key}
+            name={series.name}
+            stroke={series.stroke}
+            strokeWidth={series.width}
+            {...("dash" in series ? { strokeDasharray: series.dash } : {})}
+            connectNulls={false}
+            dot={{ r: series.axis === "sleep" ? sleepDotRadius : dotRadius }}
+          />
+        ))}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
 /** Alerts and confirmed facts as a readable timeline, not a chart. */
 export function EventTimeline({ events }: { events: MetricEvent[] }) {
   if (events.length === 0) {
