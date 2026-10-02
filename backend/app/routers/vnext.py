@@ -231,12 +231,10 @@ def changes(
 
 @router.post("/analytics/run")
 def run_analytics(db: Session = Depends(get_db), user: User = Depends(require_patient)):
-    """Run canonical longitudinal analytics (not clinical risk).
+    """Recompute the canonical trajectory without calculating clinical risk.
 
-    Persists Observation-derived FeatureValue, BaselineVersion and ChangeSignal.
-    ChangeSignal is deliberately separate from RiskAssessment: safety/risk stays
-    on POST /api/v1/safety/evaluate via the deterministic risk engine. The LLM
-    is never consulted here.
+    A check-in already does this. This endpoint remains for an explicit refresh.
+    ChangeSignal stays separate from RiskAssessment. The LLM is not consulted.
     """
     result = run_canonical_analytics(db, user.id)
     return result.to_response()

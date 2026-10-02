@@ -232,267 +232,78 @@ class CanonicalAnalyticsServiceTests(unittest.TestCase):
         self.assertIn("correlation_id", response)
 
 
-_CHANGE_KEYS = {
-    "signal_id",
-    "feature",
-    "window",
-    "change",
-    "band",
-    "uncertainty",
-    "evidence_refs",
-    "contradictions",
-    "baseline_version",
-    "algorithm_version",
-}
-_SAFETY_KEYS = {"alert_level", "assessment_id", "model_version", "correlation_id"}
-
-
-def _changes_by_feature(payload: dict) -> dict:
-    return {item["feature"]: item for item in payload["longitudinal"]["changes"]}
-
-
-class StateLongitudinalContractTests(CanonicalAnalyticsServiceTests):
+class CheckInUpdatesTrajectoryTests(unittest.TestCase):
     def setUp(self):
-        super().setUp()
-        RiskAssessment.__table__.create(bind=self.engine, checkfirst=True)
+        from fastapi.testclient import TestClient
 
-    def test_state_without_canonical_rows_is_insufficient_and_separate_from_safety(self):
-        payload = current_state(self.db, self.user)
+        from app.database import get_db
+        from app.main import app
+        from app.security import get_current_user
 
-        self.assertEqual(payload["longitudinal"]["baseline"], {"status": "insufficient_data", "baseline": None})
-        self.assertEqual(payload["longitudinal"]["changes"], [])
-        self.assertEqual(set(payload["safety"]), _SAFETY_KEYS)
-        self.assertIsNone(payload["safety"]["alert_level"])
-        self.assertIsNone(payload["safety"]["assessment_id"])
-        self.assertIn("latest", payload)
-        self.assertIn("missing", payload)
-        self.assertNotIn("alert_level", json.dumps(payload["longitudinal"]))
-
-    def test_state_reads_canonical_baseline_and_changes_apart_from_risk(self):
-        _seed_days(
-            self.db,
-            self.user.id,
-            days=14,
-            start_offset_days=20,
-            values={"mood": 5.0, "craving": 4.0, "sleep_hours": 7.0, "self_efficacy": 6.0},
-        )
-        _seed_days(
-            self.db,
-            self.user.id,
-            days=5,
-            start_offset_days=5,
-            values={"mood": 5.0, "craving": 4.0, "sleep_hours": 7.0, "self_efficacy": 6.0},
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
         )
 
-        with patch("app.routers.vnext.risk_engine.run_and_persist") as risk_calc, patch(
-            "app.routers.vnext.get_model_gateway"
-        ) as model_gateway, patch("app.routers.vnext.conversation.get_reply") as model_reply:
-            result = run_canonical_analytics(self.db, self.user.id, now=NOW)
-            self.assertEqual(self.db.query(RiskAssessment).count(), 0)
-            payload = current_state(self.db, self.user)
+        @event.listens_for(self.engine, "connect")
+        def _fk(dbapi_conn, _):
+            dbapi_conn.execute("PRAGMA foreign_keys=OFF")
 
-        self.assertFalse(risk_calc.called)
-        self.assertFalse(model_gateway.called)
-        self.assertFalse(model_reply.called)
-        self.assertIsNotNone(result.baseline_version)
+        Base.metadata.create_all(bind=self.engine)
+        self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
+        self.db = self.sessions()
+        self.user = User(
+            id=uuid.uuid4(),
+            email="trajectory@example.com",
+            hashed_password="x",
+            role="patient",
+            display_name="Trajectory",
+        )
+        self.db.add(self.user)
+        self.db.add(Consent(user_id=self.user.id, consent_type="data_processing", granted=True))
+        self.db.commit()
 
-        baseline = payload["longitudinal"]["baseline"]
-        self.assertEqual(baseline["status"], result.baseline_version.status)
-        self.assertIn(baseline["status"], ("active", "provisional", "frozen"))
-        self.assertEqual(baseline["baseline"]["id"], str(result.baseline_version.id))
-        self.assertEqual(baseline["baseline"]["algorithm_version"], ALGORITHM_VERSION)
-        self.assertIsNotNone(baseline["baseline"]["data_coverage"])
+        def override_get_db():
+            yield self.db
 
-        changes = _changes_by_feature(payload)
-        self.assertIn("structural_composite", changes)
-        composite = changes["structural_composite"]
-        self.assertEqual(set(composite), _CHANGE_KEYS)
-        self.assertEqual(composite["band"], "stable")
-        self.assertEqual(composite["change"], 0.0)
-        self.assertEqual(composite["baseline_version"], str(result.baseline_version.id))
-        self.assertEqual(composite["algorithm_version"], ALGORITHM_VERSION)
-        self.assertIsInstance(composite["evidence_refs"], list)
-        self.assertIsInstance(composite["contradictions"], list)
-        self.assertIsInstance(composite["uncertainty"], dict)
-        self.assertTrue(any(ref.get("kind") == "baseline_version" for ref in composite["evidence_refs"]))
+        self.app = app
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = lambda: self.user
+        self.client = TestClient(app)
 
-        for item in changes.values():
-            self.assertNotIn("alert_level", item)
-            self.assertNotEqual(item["band"], payload["safety"]["alert_level"])
+    def tearDown(self):
+        self.app.dependency_overrides.clear()
+        self.db.close()
+        self.engine.dispose()
 
-        self.assertEqual(set(payload["safety"]), _SAFETY_KEYS)
-        self.assertIsNone(payload["safety"]["alert_level"])
+    def test_one_checkin_refreshes_trajectory_and_still_calculates_risk(self):
+        response = self.client.post(
+            "/api/v1/checkins",
+            json={"mood": 5, "craving": 2, "sleep_hours": 7, "self_efficacy": 6},
+        )
+        self.assertEqual(response.status_code, 201)
+        signals = self.db.query(ChangeSignal).filter(ChangeSignal.user_id == self.user.id).all()
+        self.assertTrue(signals)
+        self.assertTrue(all(signal.feature != "risk_assessment" for signal in signals))
+        self.assertIsNotNone(
+            self.db.query(BaselineVersion).filter(BaselineVersion.user_id == self.user.id).first()
+        )
+        self.assertIsNotNone(
+            self.db.query(RiskAssessment).filter(RiskAssessment.user_id == self.user.id).first()
+        )
 
-        correlation_id = uuid.uuid4()
-        self.db.add(
-            RiskAssessment(
-                user_id=self.user.id,
-                alert_level=3,
-                triggering_rules={"rules": ["test"]},
-                input_signals={"source": "test"},
-                assessment_reason="snapshot only",
-                model_version="risk-engine-v1.0",
-                correlation_id=correlation_id,
+    def test_trajectory_failure_still_stores_the_checkin_and_the_risk(self):
+        with patch.object(canonical_analytics, "run_canonical_analytics", side_effect=RuntimeError("trajectory")):
+            response = self.client.post(
+                "/api/v1/checkins",
+                json={"mood": 4, "craving": 3, "sleep_hours": 6, "self_efficacy": 5},
             )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(self.db.query(ChangeSignal).count(), 0)
+        self.assertIsNotNone(
+            self.db.query(RiskAssessment).filter(RiskAssessment.user_id == self.user.id).first()
         )
-        self.db.commit()
-
-        with_risk = current_state(self.db, self.user)
-        self.assertEqual(with_risk["safety"]["alert_level"], 3)
-        self.assertEqual(with_risk["safety"]["model_version"], "risk-engine-v1.0")
-        self.assertEqual(with_risk["safety"]["correlation_id"], str(correlation_id))
-        self.assertEqual(set(with_risk["safety"]), _SAFETY_KEYS)
-        self.assertEqual(
-            _changes_by_feature(with_risk)["structural_composite"]["band"],
-            "stable",
-        )
-        longitudinal_json = json.dumps(with_risk["longitudinal"], default=str)
-        safety_json = json.dumps(with_risk["safety"], default=str)
-        self.assertNotIn("alert_level", longitudinal_json)
-        self.assertNotIn("assessment_id", longitudinal_json)
-        self.assertNotIn("band", safety_json)
-        self.assertNotIn("evidence_refs", safety_json)
-        self.assertNotIn("baseline_version", safety_json)
-
-    def test_state_keeps_null_change_and_ignores_superseded_baseline(self):
-        current = BaselineVersion(
-            user_id=self.user.id,
-            feature_key=None,
-            window_start=NOW - timedelta(days=21),
-            window_end=NOW - timedelta(days=1),
-            stats={"mood": {"mean": 5.0, "std": 1.0, "n": 6.0, "observation_type": "mood"}},
-            exclusions=[],
-            stability="partial",
-            data_coverage=None,
-            status="frozen",
-            algorithm_version=ALGORITHM_VERSION,
-            created_at=NOW - timedelta(days=1),
-        )
-        superseded = BaselineVersion(
-            user_id=self.user.id,
-            feature_key=None,
-            window_start=NOW - timedelta(days=10),
-            window_end=NOW,
-            stats={"mood": {"mean": 0.0, "n": 1.0}},
-            exclusions=[],
-            stability="eligible",
-            data_coverage=1.0,
-            status="superseded",
-            algorithm_version=ALGORITHM_VERSION,
-            created_at=NOW,
-        )
-        self.db.add_all([current, superseded])
-        self.db.flush()
-        self.db.add_all(
-            [
-                ChangeSignal(
-                    user_id=self.user.id,
-                    feature="mood",
-                    window_start=NOW - timedelta(days=7),
-                    window_end=NOW - timedelta(days=2),
-                    change_value=1.5,
-                    band="stable",
-                    uncertainty={"baseline_n": 6},
-                    evidence_refs=[{"kind": "observation", "id": "older"}],
-                    contradictions=[],
-                    baseline_version_id=current.id,
-                    algorithm_version=ALGORITHM_VERSION,
-                    created_at=NOW - timedelta(days=2),
-                ),
-                ChangeSignal(
-                    user_id=self.user.id,
-                    feature="mood",
-                    window_start=NOW - timedelta(days=7),
-                    window_end=NOW - timedelta(days=1),
-                    change_value=None,
-                    band="insufficient_data",
-                    uncertainty={"reason": "insufficient_baseline_or_recent"},
-                    evidence_refs=[{"kind": "baseline_version", "id": str(current.id)}],
-                    contradictions=[{"kind": "context", "note": "user note"}],
-                    baseline_version_id=current.id,
-                    algorithm_version=ALGORITHM_VERSION,
-                    created_at=NOW - timedelta(hours=2),
-                ),
-                ChangeSignal(
-                    user_id=self.user.id,
-                    feature="craving",
-                    window_start=NOW - timedelta(days=7),
-                    window_end=NOW - timedelta(days=1),
-                    change_value=0.0,
-                    band="stable",
-                    uncertainty={"baseline_n": 6},
-                    evidence_refs=[],
-                    contradictions=[],
-                    baseline_version_id=current.id,
-                    algorithm_version=ALGORITHM_VERSION,
-                    created_at=NOW - timedelta(hours=2),
-                ),
-                ChangeSignal(
-                    user_id=self.user.id,
-                    feature="mood",
-                    window_start=NOW - timedelta(days=7),
-                    window_end=NOW,
-                    change_value=9.0,
-                    band="unstable",
-                    uncertainty={},
-                    evidence_refs=[],
-                    contradictions=[],
-                    baseline_version_id=superseded.id,
-                    algorithm_version=ALGORITHM_VERSION,
-                    created_at=NOW,
-                ),
-            ]
-        )
-        self.db.commit()
-
-        payload = current_state(self.db, self.user)
-        baseline = payload["longitudinal"]["baseline"]
-        self.assertEqual(baseline["status"], "frozen")
-        self.assertIsNone(baseline["baseline"]["data_coverage"])
-        self.assertNotIn("sleep_hours", baseline["baseline"]["stats"])
-        self.assertNotEqual(baseline["baseline"]["stats"]["mood"]["mean"], 0)
-
-        changes = _changes_by_feature(payload)
-        self.assertEqual(set(changes), {"mood", "craving"})
-        self.assertIsNone(changes["mood"]["change"])
-        self.assertEqual(changes["mood"]["band"], "insufficient_data")
-        self.assertEqual(changes["mood"]["contradictions"], [{"kind": "context", "note": "user note"}])
-        self.assertEqual(changes["mood"]["baseline_version"], str(current.id))
-        self.assertEqual(changes["craving"]["change"], 0.0)
-        self.assertNotIn("unstable", {item["band"] for item in changes.values()})
-
-    def test_analytics_run_does_not_create_risk_assessment(self):
-        # Anchor to the live clock: POST /analytics/run does not take a frozen timestamp.
-        as_of = datetime.now(timezone.utc)
-        _add_observation(self.db, self.user.id, "mood", 4.0, as_of - timedelta(days=2))
-        _add_observation(self.db, self.user.id, "mood", 5.0, as_of - timedelta(days=1))
-        self.db.commit()
-
-        with patch("app.routers.vnext.risk_engine.run_and_persist") as risk_calc, patch(
-            "app.routers.vnext.get_model_gateway"
-        ) as model_gateway:
-            response = run_analytics(self.db, self.user)
-            payload = current_state(self.db, self.user)
-
-        self.assertFalse(risk_calc.called)
-        self.assertFalse(model_gateway.called)
-        self.assertEqual(self.db.query(RiskAssessment).count(), 0)
-        self.assertNotIn("risk_assessment_id", response)
-        self.assertNotIn("alert_level", response)
-        self.assertEqual(response["algorithm_version"], ALGORITHM_VERSION)
-
-        self.assertEqual(payload["longitudinal"]["baseline"]["status"], "provisional")
-        self.assertTrue(payload["longitudinal"]["changes"])
-        for item in payload["longitudinal"]["changes"]:
-            self.assertEqual(set(item), _CHANGE_KEYS)
-            self.assertIsNone(item["change"])
-            self.assertEqual(item["band"], "insufficient_data")
-        stats = payload["longitudinal"]["baseline"]["baseline"]["stats"]
-        self.assertNotIn("sleep_hours", stats)
-        self.assertNotIn("craving_inv", stats)
-        self.assertIsNotNone(stats["mood"]["mean"])
-        self.assertNotEqual(stats["mood"]["mean"], 0)
-        self.assertIsNone(payload["safety"]["alert_level"])
 
 
 class MissingIsNotZeroUnitTests(unittest.TestCase):

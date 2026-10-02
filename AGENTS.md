@@ -75,9 +75,9 @@ What this gate **does not** prove: it does not by itself make the patient experi
 - [x] ~~Introduce canonical entities for Observation, FeatureDefinition/FeatureValue, BaselineVersion, ChangeSignal, ModelRun, Inference, InterventionEvent and model deployment metadata.~~
 - [x] ~~Backfill legacy check-ins/diary/baseline/signal/model-trace data additively without destroying history.~~
 - [x] ~~Dual-write new check-ins/diary content into canonical observations while legacy compatibility remains.~~
-- [x] ~~Make the complete operational analytics path run through `Observation -> FeatureValue -> BaselineVersion -> ChangeSignal` rather than legacy calculations.~~
-  - Evidence: `POST /api/v1/analytics/run` persists FeatureValue, BaselineVersion and ChangeSignal through `backend/app/services/canonical_analytics.py` (`canonical-structural-v1`; PR #128). `GET /api/v1/state` reads that current personal baseline and the latest ChangeSignals for it under `longitudinal`, separate from `safety` (RiskAssessment only; PR #143, https://github.com/oibaf88/psychDeep-3/pull/143). Tests: `backend/tests/test_vnext_canonical_analytics.py`.
-  - Residual: product UX may still show legacy structural scores elsewhere. Personal baseline lifecycle completeness and ChangeSignal≠RiskAssessment in the UI remain `[~]` below.
+- [~] Make the complete operational analytics path run through `Observation -> FeatureValue -> BaselineVersion -> ChangeSignal` rather than legacy calculations.
+  - A check-in now refreshes that canonical trajectory in the same request. `ChangeSignal` is still not the source of Hoy, the professional score or `RiskAssessment`; those keep using the legacy baseline and risk engine.
+  - Completion criterion: canonical feature computation, baseline eligibility/versioning and change detection are the actual source for vNext state and explanations, with tests proving reproducibility.
 - [~] Make personal baseline behaviour fully conform to vNext semantics.
   - Current gap: canonical baseline records exist and can be read, but the complete lifecycle (eligibility, provisional status, exclusions, recalibration/versioning, quality/missingness) is not yet the primary end-to-end product behaviour.
 - [~] Separate `ChangeSignal` from `RiskAssessment` everywhere in API **and UI**.
