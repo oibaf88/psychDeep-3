@@ -23,7 +23,7 @@ vi.mock("recharts", () => ({
     <div
       data-testid="line-chart"
       data-first-date={data[0]?.date}
-      data-last-date={data.at(-1)?.date}
+      data-last-date={data[data.length - 1]?.date}
       data-margin={JSON.stringify(margin)}
     >
       {children}
