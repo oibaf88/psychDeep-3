@@ -491,27 +491,6 @@ export interface PsychosocialExplanationOut {
   refuted_count: number;
 }
 
-export interface PsychosocialObservationOut {
-  id: string;
-  domain: string;
-  domain_label: string;
-  category: string;
-  category_label: string;
-  valence: "risk" | "protective" | "neutral";
-  intensity: number;
-  confidence: number;
-  is_change: boolean;
-  status: "inferred" | "confirmed" | "refuted";
-  summary: string;
-  evidence_quote: string;
-  source_type: string;
-  source_label: string;
-  source_id?: string | null;
-  adjudication_note?: string | null;
-  adjudicated_at?: string | null;
-  observed_at?: string | null;
-}
-
 export interface PsychosocialPoint {
   at: string;
   date: string;
@@ -872,13 +851,6 @@ export const DRIVER_FAMILY_SHORT: Record<string, string> = {
   sin_criterios: "Sin criterios",
 };
 
-export const PSYCHOSOCIAL_BAND_LABELS: Record<string, string> = {
-  alta: "alta",
-  moderada: "moderada",
-  baja: "baja",
-  sin_datos: "sin datos",
-};
-
 export const LEVEL_SHORT_LABELS: Record<number, string> = {
   0: "Autogestión",
   1: "Autogestión / sin datos",
@@ -909,88 +881,6 @@ export const FACT_CATEGORIES = [
   { value: "planning", label: "Planificación (autodeclarada)" },
   { value: "other", label: "Otro hecho" },
 ];
-
-// ------------------------------------------------ runtime LLM endpoint ----
-// Claude is the connected-service default; Gemma 2 through an
-// OpenAI-compatible endpoint remains the local/offline alternative.
-
-export interface LLMEndpointSummary {
-  provider: "anthropic" | "openai_compatible" | string;
-  provider_label: string;
-  label: string;
-  base_url: string | null;
-  chat_model: string;
-  analysis_model: string;
-  /** Agent 3, resolved — falls back to chat_model. For display. */
-  copilot_model: string;
-  /** What was actually configured. Empty means "follows chat". For the form. */
-  copilot_model_explicit: string;
-  copilot_model_is_inherited: boolean;
-  max_tokens: number;
-  timeout_seconds: number;
-  source: "environment" | "runtime" | string;
-  config_id: string | null;
-  updated_at: string | null;
-  has_api_key: boolean;
-  uses_server_api_key?: boolean;
-  backend_runtime?: "cloud" | "local" | string;
-  backend_runtime_label?: string;
-  local_endpoint_supported?: boolean;
-}
-
-export interface LLMEndpointStatusOut {
-  active: LLMEndpointSummary;
-  environment_default: LLMEndpointSummary;
-  /** The deployment permits a runtime override at all. */
-  override_allowed: boolean;
-  /** ...and this account may perform one. Only admin_clinical may. */
-  can_edit: boolean;
-  is_local: boolean;
-  notice: string | null;
-  backend_runtime?: "cloud" | "local" | string;
-  backend_runtime_label?: string;
-  local_endpoint_supported?: boolean;
-  ignored_override?: LLMEndpointSummary | null;
-}
-
-export interface LLMEndpointConfigIn {
-  provider: "anthropic" | "openai_compatible";
-  base_url?: string | null;
-  chat_model: string;
-  analysis_model: string;
-  /** Blank means "same model as chat" — the backend applies the fallback. */
-  copilot_model?: string | null;
-  /** null keeps the stored key; "" clears it. It is never sent back out. */
-  api_key?: string | null;
-  max_tokens: number;
-  timeout_seconds: number;
-  label?: string | null;
-}
-
-export interface LLMEndpointTestIn {
-  provider: "anthropic" | "openai_compatible";
-  base_url?: string | null;
-  chat_model: string;
-  analysis_model?: string | null;
-  copilot_model?: string | null;
-  api_key?: string | null;
-  timeout_seconds: number;
-}
-
-export interface LLMEndpointTestOut {
-  ok: boolean;
-  detail: string;
-  sample?: string | null;
-  error_code?: string | null;
-  base_url?: string | null;
-}
-
-export const llmSettingsApi = {
-  read: () => api.get<LLMEndpointStatusOut>("/api/v1/settings/llm"),
-  save: (body: LLMEndpointConfigIn) => api.put<LLMEndpointStatusOut>("/api/v1/settings/llm", body),
-  reset: () => api.del<LLMEndpointStatusOut>("/api/v1/settings/llm"),
-  test: (body: LLMEndpointTestIn) => api.post<LLMEndpointTestOut>("/api/v1/settings/llm/test", body),
-};
 
 /**
  * How one stored interaction names the model behind it.
