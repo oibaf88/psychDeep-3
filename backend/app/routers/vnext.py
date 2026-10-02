@@ -57,6 +57,80 @@ def _latest_risk(db: Session, user_id) -> RiskAssessment | None:
     )
 
 
+def _current_baseline(db: Session, user_id) -> BaselineVersion | None:
+    return (
+        db.query(BaselineVersion)
+        .filter(
+            BaselineVersion.user_id == user_id,
+            BaselineVersion.status.in_(["active", "provisional", "frozen"]),
+        )
+        .order_by(BaselineVersion.created_at.desc())
+        .first()
+    )
+
+
+def _baseline_summary(row: BaselineVersion | None) -> dict[str, Any]:
+    """Personal baseline summary. No row is insufficient_data, not a zero baseline."""
+    if row is None:
+        return {"status": "insufficient_data", "baseline": None}
+    return {
+        "status": row.status,
+        "baseline": {
+            "id": str(row.id),
+            "feature": row.feature_key,
+            "window": {"start": row.window_start, "end": row.window_end},
+            "stats": row.stats,
+            "stability": row.stability,
+            "data_coverage": row.data_coverage,
+            "algorithm_version": row.algorithm_version,
+        },
+    }
+
+
+def _change_signal_summary(row: ChangeSignal) -> dict[str, Any]:
+    """ChangeSignal fields only. Unknown change stays null and is not a risk level."""
+    return {
+        "signal_id": str(row.id),
+        "feature": row.feature,
+        "window": {"start": row.window_start, "end": row.window_end},
+        "change": row.change_value,
+        "band": row.band,
+        "uncertainty": row.uncertainty,
+        "evidence_refs": row.evidence_refs,
+        "contradictions": row.contradictions,
+        "baseline_version": str(row.baseline_version_id) if row.baseline_version_id else None,
+        "algorithm_version": row.algorithm_version,
+    }
+
+
+def _latest_relevant_changes(db: Session, user_id, baseline: BaselineVersion | None) -> list[ChangeSignal]:
+    """Newest ChangeSignal per feature attached to the current baseline."""
+    if baseline is None:
+        return []
+    rows = (
+        db.query(ChangeSignal)
+        .filter(
+            ChangeSignal.user_id == user_id,
+            ChangeSignal.baseline_version_id == baseline.id,
+        )
+        .order_by(ChangeSignal.created_at.desc(), ChangeSignal.feature.asc())
+        .all()
+    )
+    latest: dict[str, ChangeSignal] = {}
+    for row in rows:
+        latest.setdefault(row.feature, row)
+    return list(latest.values())
+
+
+def _longitudinal_state(db: Session, user_id) -> dict[str, Any]:
+    """Read persisted BaselineVersion and ChangeSignal rows. Does not recompute."""
+    baseline = _current_baseline(db, user_id)
+    return {
+        "baseline": _baseline_summary(baseline),
+        "changes": [_change_signal_summary(row) for row in _latest_relevant_changes(db, user_id, baseline)],
+    }
+
+
 @router.post("/observations", status_code=201)
 def create_observation(
     payload: ObservationIn,
@@ -93,6 +167,13 @@ def create_observation(
 
 @router.get("/state")
 def current_state(db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    """Current observations, with safety and longitudinal change kept apart.
+
+    `safety` is only the latest RiskAssessment snapshot.
+    `longitudinal` is the current BaselineVersion plus the latest ChangeSignals
+    for that baseline. This read does not run analytics, calculate risk, or
+    call a model. Missing canonical rows stay insufficient_data / null.
+    """
     recent = (
         db.query(Observation)
         .filter(Observation.user_id == user.id)
@@ -122,32 +203,14 @@ def current_state(db: Session = Depends(get_db), user: User = Depends(require_pa
             "model_version": risk.model_version if risk else None,
             "correlation_id": str(risk.correlation_id) if risk and risk.correlation_id else None,
         },
+        "longitudinal": _longitudinal_state(db, user.id),
         "limits": ["La ausencia de una señal no demuestra ausencia de riesgo."],
     }
 
 
 @router.get("/baselines/current")
 def current_baseline(db: Session = Depends(get_db), user: User = Depends(require_patient)):
-    row = (
-        db.query(BaselineVersion)
-        .filter(BaselineVersion.user_id == user.id, BaselineVersion.status.in_(["active", "provisional", "frozen"]))
-        .order_by(BaselineVersion.created_at.desc())
-        .first()
-    )
-    if row is None:
-        return {"status": "insufficient_data", "baseline": None}
-    return {
-        "status": row.status,
-        "baseline": {
-            "id": str(row.id),
-            "feature": row.feature_key,
-            "window": {"start": row.window_start, "end": row.window_end},
-            "stats": row.stats,
-            "stability": row.stability,
-            "data_coverage": row.data_coverage,
-            "algorithm_version": row.algorithm_version,
-        },
-    }
+    return _baseline_summary(_current_baseline(db, user.id))
 
 
 @router.get("/changes")
@@ -163,21 +226,7 @@ def changes(
         .limit(limit)
         .all()
     )
-    return [
-        {
-            "signal_id": str(row.id),
-            "feature": row.feature,
-            "window": {"start": row.window_start, "end": row.window_end},
-            "change": row.change_value,
-            "band": row.band,
-            "uncertainty": row.uncertainty,
-            "evidence_refs": row.evidence_refs,
-            "contradictions": row.contradictions,
-            "baseline_version": str(row.baseline_version_id) if row.baseline_version_id else None,
-            "algorithm_version": row.algorithm_version,
-        }
-        for row in rows
-    ]
+    return [_change_signal_summary(row) for row in rows]
 
 
 @router.post("/analytics/run")

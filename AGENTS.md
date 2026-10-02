@@ -84,7 +84,7 @@ What this gate **does not** prove: it does not by itself make the patient experi
   - Backend distinction exists.
   - Patient/professional UX still needs richer explanation and workflow separation.
 
-Why G2 is **not complete**: schemas and backfill exist, but the full canonical longitudinal pipeline is not yet the sole operational path.
+Why G2 is **not complete**: the operational analytics path and `GET /api/v1/state` now use canonical baseline and change signals, but personal baseline lifecycle semantics are still partial and ChangeSignal is not yet fully separated from RiskAssessment in the patient and professional UI.
 
 ### G3 — Safety vNext
 
@@ -223,6 +223,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [x] ~~PM-001 Decommission product path for local frontend/backend/Postgres/SymmetricDS.~~
 - [x] ~~PM-002 Create Model Gateway and approved deployment abstraction.~~
 - [~] PM-003 Canonical Observation/Feature/Baseline/ChangeSignal schemas **and full operational pipeline**.
+  - Progress: analytics/run (PR #128) and `GET /api/v1/state` (PR #143) now use the canonical Observation → FeatureValue → BaselineVersion → ChangeSignal path. Baseline lifecycle completeness and UI separation of ChangeSignal from RiskAssessment remain open, so this item stays partial.
 - [~] PM-004 Separate change signal from RiskAssessment in API **and UI**.
 - [~] PM-005 Version safety protocols/resources and remove direct LLM dependency.
 - [~] PM-006 Resource-level authorization matrix and comprehensive negative tests.

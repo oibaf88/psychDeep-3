@@ -4,11 +4,12 @@ Engineering reproducibility tests — not clinical validation of thresholds.
 """
 from __future__ import annotations
 
+import json
 import os
 import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Import path creates the default engine; point it at sqlite before first import.
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
@@ -26,6 +27,7 @@ from app.models_vnext import (
     FeatureValue,
     Observation,
 )
+from app.routers.vnext import current_state, run_analytics
 from app.services import canonical_analytics
 from app.services.canonical_analytics import ALGORITHM_VERSION, run_canonical_analytics
 
@@ -212,6 +214,16 @@ class CanonicalAnalyticsServiceTests(unittest.TestCase):
         # Safety endpoint still owns risk.
         safety_block = source[end : end + 500]
         self.assertIn("risk_engine.run_and_persist", safety_block)
+
+        # GET /state reads canonical rows. It must not run analytics, risk, or a model.
+        state_start = source.index('@router.get("/state")')
+        state_end = source.index('@router.get("/baselines/current")')
+        state_block = source[state_start:state_end]
+        self.assertIn('"longitudinal": _longitudinal_state', state_block)
+        self.assertNotIn("run_canonical_analytics", state_block)
+        self.assertNotIn("risk_engine.run_and_persist", state_block)
+        self.assertNotIn("get_model_gateway", state_block)
+        self.assertNotIn("conversation.get_reply", state_block)
 
         # Exercise the service response contract used by the router.
         response = run_canonical_analytics(self.db, self.user.id, now=NOW).to_response()
