@@ -23,8 +23,8 @@ type RideStatus = "idle" | "riding" | "paused" | "done";
 type RidePhase = "idle" | "rising" | "crest" | "falling" | "done";
 
 const WAVE_WIDTH = 320;
-const WAVE_HEIGHT = 160;
-const WAVE_SAMPLES = 48;
+const WAVE_HEIGHT = 180;
+const WAVE_SAMPLES = 56;
 
 interface WaveLayer {
   amplitude: number;
@@ -35,15 +35,15 @@ interface WaveLayer {
 }
 
 /**
- * Three independent wave fields make the visual read as layered water rather
- * than three copies of the same curve. Intensity changes the response
- * non-linearly: high urge raises the whole body, increases crest-to-trough
- * distance and accelerates the motion.
+ * Several layered fields. The emotional cue is vertical drama:
+ * at a fixed intensity the surface heaves hard (peak ↔ trough), and
+ * raising intensity makes that heave taller, sharper and faster —
+ * anguish at the crest, settling calm in the trough.
  */
 const WAVE_LAYERS: WaveLayer[] = [
-  { amplitude: 0.62, cycles: 1.65, phaseOffset: 1.25, speed: 0.76, verticalOffset: 6 },
-  { amplitude: 0.82, cycles: 2.05, phaseOffset: -0.45, speed: 1.02, verticalOffset: 2 },
-  { amplitude: 1.0, cycles: 2.35, phaseOffset: 0, speed: 1.28, verticalOffset: 0 },
+  { amplitude: 0.58, cycles: 1.55, phaseOffset: 1.35, speed: 0.72, verticalOffset: 8 },
+  { amplitude: 0.84, cycles: 2.05, phaseOffset: -0.55, speed: 1.05, verticalOffset: 3 },
+  { amplitude: 1.0, cycles: 2.45, phaseOffset: 0.08, speed: 1.32, verticalOffset: 0 },
 ];
 
 function clamp01(value: number): number {
@@ -52,21 +52,38 @@ function clamp01(value: number): number {
 
 function waveSurface(level: number, phase: number, layer: WaveLayer): Array<{ x: number; y: number }> {
   const normalized = clamp01(level / 10);
-  const severity = Math.pow(normalized, 1.55);
-  const baseWaterline = 140 - severity * 72;
-  const swellRange = 3 + severity * 27;
-  const swell = (0.5 - 0.5 * Math.cos(phase * 0.72 + layer.phaseOffset)) * swellRange;
-  const amplitude = (2.5 + severity * 28) * layer.amplitude;
-  const travelPhase = phase * layer.speed;
+  // Keep mid intensities expressive; don't wait until 9–10 to feel motion.
+  const severity = Math.pow(normalized, 1.15);
+
+  // Body of water sits lower when calm; rises when urge is high.
+  const baseWaterline = 158 - severity * 48;
+  // Dominant emotional signal: whole surface heaves peak ↔ trough.
+  // Level ~1 ≈ gentle bob; level 10 ≈ nearly the full canvas.
+  const swellRange = 7 + severity * 72;
+  const heaveSpeed = 0.85 + severity * 1.55;
+  const swell =
+    (0.5 - 0.5 * Math.cos(phase * heaveSpeed + layer.phaseOffset * 0.22)) * swellRange;
+
+  // Traveling crests on top of the heave — also scale hard with intensity.
+  const amplitude = (5 + severity * 52) * layer.amplitude;
+  const travelPhase = phase * layer.speed * (0.85 + severity * 0.9);
+  const sharpness = 0.18 + severity * 0.72;
 
   return Array.from({ length: WAVE_SAMPLES + 1 }, (_, index) => {
     const x = (index / WAVE_SAMPLES) * WAVE_WIDTH;
     const position = index / WAVE_SAMPLES;
     const angle = position * Math.PI * 2 * layer.cycles + travelPhase + layer.phaseOffset;
-    const primary = Math.sin(angle);
-    const harmonic = 0.28 * Math.sin(angle * 1.92 - travelPhase * 0.7);
-    const y = baseWaterline - swell + layer.verticalOffset + (primary + harmonic) * amplitude * 0.5;
-    return { x, y: Math.max(14, Math.min(WAVE_HEIGHT - 2, y)) };
+    const raw = Math.sin(angle);
+    // Stretch peaks / soften troughs at high urge → jagged anxiety crests.
+    const shaped = raw >= 0 ? Math.pow(raw, 1 - severity * 0.35) * (1 + severity * 0.45) : raw * (0.7 - severity * 0.12);
+    const harmonic = sharpness * Math.sin(angle * 2.05 - travelPhase * 0.75);
+    const chop = severity * 0.16 * Math.sin(angle * 3.4 + travelPhase * 1.1);
+    const y =
+      baseWaterline -
+      swell +
+      layer.verticalOffset +
+      (shaped + harmonic + chop) * amplitude * 0.5;
+    return { x, y: Math.max(6, Math.min(WAVE_HEIGHT - 2, y)) };
   });
 }
 
@@ -107,11 +124,9 @@ function intensityAt(progress: number, start: number, peak: number): number {
   return peak * (1 - eased);
 }
 
-
 function phaseFromProgress(progress: number, start: number, peak: number): RidePhase {
   if (progress <= 0) return "idle";
   if (progress >= 1) return "done";
-  // Already at peak: skip "rising" copy even during the rise time window.
   if (start >= peak - 0.05) {
     if (progress < RISE_FRAC + CREST_FRAC) return "crest";
     return "falling";
@@ -133,7 +148,7 @@ function coachingForPhase(phase: RidePhase, paused: boolean): string {
     case "done":
       return "La ola ha bajado. Puedes volver a observar o ajustar la intensidad a mano.";
     default:
-      return "Ajusta la intensidad inicial y pulsa «Observar la ola» para verla subir, hacer pico y bajar.";
+      return "Ajusta la intensidad y mira cómo el pico y el fondo cambian. Luego pulsa «Observar la ola».";
   }
 }
 
@@ -189,14 +204,17 @@ export default function WavePage() {
       }
 
       if (rideStatus !== "paused" && !reducedMotion) {
-        const motionLevel = rideStatus === "riding"
-          ? intensityAt(elapsedRef.current / RIDE_DURATION_MS, startLevelRef.current, peakRef.current)
-          : urgeLevelRef.current;
-        const speed = 0.00115 + clamp01(motionLevel / 10) * 0.0048;
+        const motionLevel =
+          rideStatus === "riding"
+            ? intensityAt(elapsedRef.current / RIDE_DURATION_MS, startLevelRef.current, peakRef.current)
+            : urgeLevelRef.current;
+        const severity = Math.pow(clamp01(motionLevel / 10), 1.15);
+        // Low intensity: slow calm pulse. High: frantic advance.
+        const speed = 0.00085 + severity * 0.0085;
         visualPhaseRef.current += delta * speed;
 
         visualFrameAccumulatorRef.current += delta;
-        if (visualFrameAccumulatorRef.current >= 33) {
+        if (visualFrameAccumulatorRef.current >= 28) {
           visualFrameAccumulatorRef.current = 0;
           setVisualPhase(visualPhaseRef.current);
         }
@@ -226,30 +244,29 @@ export default function WavePage() {
         ? phaseFromProgress(rideProgress, startLevelRef.current, peakRef.current)
         : "idle";
 
-  const waveBack = useMemo(() => wavePath(
-    Math.max(0, urgeLevel - 1.3),
-    visualPhase,
-    WAVE_LAYERS[0],
-  ), [urgeLevel, visualPhase]);
+  const waveBack = useMemo(
+    () => wavePath(Math.max(0, urgeLevel - 1.3), visualPhase, WAVE_LAYERS[0]),
+    [urgeLevel, visualPhase],
+  );
 
-  const waveMid = useMemo(() => wavePath(
-    Math.max(0, urgeLevel - 0.5),
-    visualPhase,
-    WAVE_LAYERS[1],
-  ), [urgeLevel, visualPhase]);
+  const waveMid = useMemo(
+    () => wavePath(Math.max(0, urgeLevel - 0.5), visualPhase, WAVE_LAYERS[1]),
+    [urgeLevel, visualPhase],
+  );
 
   const waveFront = useMemo(
     () => wavePath(urgeLevel, visualPhase, WAVE_LAYERS[2]),
     [urgeLevel, visualPhase],
   );
 
-  const waveFoam = useMemo(
-    () => foamPath(urgeLevel, visualPhase),
-    [urgeLevel, visualPhase],
-  );
+  const waveFoam = useMemo(() => foamPath(urgeLevel, visualPhase), [urgeLevel, visualPhase]);
 
   const waveState =
-    ridePhase === "crest" || urgeLevel >= 8 ? "storm" : ridePhase === "rising" || urgeLevel >= 4 ? "rising" : "calm";
+    ridePhase === "crest" || urgeLevel >= 8
+      ? "storm"
+      : ridePhase === "rising" || urgeLevel >= 4
+        ? "rising"
+        : "calm";
   const waveStyle = {
     "--wave-fill": `${Math.min(100, Math.max(8, urgeLevel * 9.2))}%`,
     "--wave-intensity": String(urgeLevel / 10),
@@ -260,7 +277,6 @@ export default function WavePage() {
     const peak = peakForStart(start);
     startLevelRef.current = start;
     peakRef.current = peak;
-    // If already at the peak, skip the empty "rise" and begin at the crest window.
     const startProgress = start >= peak - 0.05 ? RISE_FRAC : 0;
     elapsedRef.current = RIDE_DURATION_MS * startProgress;
     lastTickRef.current = null;
@@ -370,7 +386,7 @@ export default function WavePage() {
           aria-hidden="true"
           data-phase={ridePhase}
         >
-          <svg className="wave-svg" viewBox="0 0 320 160" preserveAspectRatio="none">
+          <svg className="wave-svg" viewBox={`0 0 ${WAVE_WIDTH} ${WAVE_HEIGHT}`} preserveAspectRatio="none">
             <defs>
               <linearGradient id="waveFrontGradient" x1="0" x2="0" y1="0" y2="1">
                 <stop offset="0%" stopColor="#7fd8c2" />
