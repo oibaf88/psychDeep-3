@@ -563,11 +563,6 @@ PROTECTIVE_CATEGORIES: frozenset[str] = frozenset(
 )
 
 
-def domain_label(key: str) -> str:
-    domain = DOMAIN_BY_KEY.get(key)
-    return domain.label if domain else key
-
-
 def category_label(key: str) -> str:
     return CATEGORY_LABELS.get(key, key)
 

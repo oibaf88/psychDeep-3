@@ -10,6 +10,9 @@ from app.services.consent import CORE_PROCESSING, require_granted
 from app.services.deterministic_safety_text import materialize_user_declaration
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
+# Explicit first-party OpenAI variant of the same pipeline. It is a separate
+# prefix (not a query flag) so the provider choice is visible in the route.
+chatgpt_router = APIRouter(prefix="/api/v1/chatgpt", tags=["chatgpt"])
 
 
 @router.post("", response_model=ChatOut)
@@ -22,6 +25,14 @@ def send_message(payload: ChatIn, db: Session = Depends(get_db), user: User = De
     # has been revoked.
     materialize_user_declaration(db, user.id, payload.message)
     result = conversation.get_reply(db, user, payload.message)
+    return ChatOut(**result)
+
+
+@chatgpt_router.post("", response_model=ChatOut)
+def send_message_openai(payload: ChatIn, db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    """Run the normal PsychDeep clinical conversation pipeline using OpenAI."""
+    materialize_user_declaration(db, user.id, payload.message)
+    result = conversation.get_reply(db, user, payload.message, provider_override="openai")
     return ChatOut(**result)
 
 

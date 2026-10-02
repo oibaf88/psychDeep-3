@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
@@ -64,13 +63,6 @@ MAX_HISTORY_TURNS = 16
 DIARY_CHARS = 1200
 CHAT_CHARS = 700
 MAX_ANSWER_TOKENS = 2000
-
-
-@dataclass(frozen=True)
-class CopilotReply:
-    content: str
-    context_counts: dict[str, int]
-    error_kind: str | None
 
 
 def _fmt(value: datetime | None) -> str:
