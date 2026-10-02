@@ -75,16 +75,16 @@ What this gate **does not** prove: it does not by itself make the patient experi
 - [x] ~~Introduce canonical entities for Observation, FeatureDefinition/FeatureValue, BaselineVersion, ChangeSignal, ModelRun, Inference, InterventionEvent and model deployment metadata.~~
 - [x] ~~Backfill legacy check-ins/diary/baseline/signal/model-trace data additively without destroying history.~~
 - [x] ~~Dual-write new check-ins/diary content into canonical observations while legacy compatibility remains.~~
-- [~] Make the complete operational analytics path run through `Observation -> FeatureValue -> BaselineVersion -> ChangeSignal` rather than legacy calculations.
-  - Current gap: `/api/v1/analytics/run` still uses the legacy deterministic risk engine as a compatibility bridge.
-  - Completion criterion: canonical feature computation, baseline eligibility/versioning and change detection are the actual source for vNext state and explanations, with tests proving reproducibility.
+- [x] ~~Make the complete operational analytics path run through `Observation -> FeatureValue -> BaselineVersion -> ChangeSignal` rather than legacy calculations.~~
+  - Evidence: `POST /api/v1/analytics/run` persists FeatureValue, BaselineVersion and ChangeSignal through `backend/app/services/canonical_analytics.py` (`canonical-structural-v1`; PR #128). `GET /api/v1/state` reads that current personal baseline and the latest ChangeSignals for it under `longitudinal`, separate from `safety` (RiskAssessment only). Tests: `backend/tests/test_vnext_canonical_analytics.py`.
+  - Residual: product UX may still show legacy structural scores elsewhere. Personal baseline lifecycle completeness and ChangeSignal≠RiskAssessment in the UI remain `[~]` below.
 - [~] Make personal baseline behaviour fully conform to vNext semantics.
   - Current gap: canonical baseline records exist and can be read, but the complete lifecycle (eligibility, provisional status, exclusions, recalibration/versioning, quality/missingness) is not yet the primary end-to-end product behaviour.
 - [~] Separate `ChangeSignal` from `RiskAssessment` everywhere in API **and UI**.
   - Backend distinction exists.
   - Patient/professional UX still needs richer explanation and workflow separation.
 
-Why G2 is **not complete**: schemas and backfill exist, but the full canonical longitudinal pipeline is not yet the sole operational path.
+Why G2 is **not complete**: the operational analytics path and `GET /api/v1/state` now use canonical baseline and change signals, but personal baseline lifecycle semantics are still partial and ChangeSignal is not yet fully separated from RiskAssessment in the patient and professional UI.
 
 ### G3 — Safety vNext
 
@@ -223,6 +223,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [x] ~~PM-001 Decommission product path for local frontend/backend/Postgres/SymmetricDS.~~
 - [x] ~~PM-002 Create Model Gateway and approved deployment abstraction.~~
 - [~] PM-003 Canonical Observation/Feature/Baseline/ChangeSignal schemas **and full operational pipeline**.
+  - Progress: analytics/run (PR #128) and `GET /api/v1/state` now use the canonical Observation → FeatureValue → BaselineVersion → ChangeSignal path. Baseline lifecycle completeness and UI separation of ChangeSignal from RiskAssessment remain open, so this item stays partial.
 - [~] PM-004 Separate change signal from RiskAssessment in API **and UI**.
 - [~] PM-005 Version safety protocols/resources and remove direct LLM dependency.
 - [~] PM-006 Resource-level authorization matrix and comprehensive negative tests.
