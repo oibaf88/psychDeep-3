@@ -3,6 +3,46 @@ import { ROLE_LABELS, UserRole } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import PsychDeepLogo from "./PsychDeepLogo";
 
+type MenuItem = { to: string; label: string; end?: boolean };
+
+const ROLE_LINKS: Record<UserRole, MenuItem[]> = {
+  patient: [
+    { to: "/", label: "Hoy", end: true },
+    { to: "/trends", label: "Tendencias" },
+    { to: "/wave", label: "Regular" },
+    { to: "/diary", label: "Diario" },
+    { to: "/safety-plan", label: "Plan" },
+    { to: "/sharing", label: "Compartir" },
+    { to: "/chat", label: "Chat" },
+    { to: "/notifications", label: "Avisos" },
+  ],
+  therapist: [
+    { to: "/professional", label: "Pacientes" },
+    { to: "/professional/alerts", label: "Alertas" },
+    { to: "/professional/copilot", label: "Copiloto" },
+    { to: "/professional/assignments", label: "Asignaciones" },
+    { to: "/professional/manual", label: "Manual" },
+    { to: "/notifications", label: "Avisos" },
+  ],
+  supervisor: [
+    { to: "/professional", label: "Pacientes" },
+    { to: "/professional/alerts", label: "Alertas" },
+    { to: "/professional/copilot", label: "Copiloto" },
+    { to: "/professional/assignments", label: "Asignaciones" },
+    { to: "/professional/audit", label: "Auditoría" },
+    { to: "/professional/manual", label: "Manual" },
+    { to: "/notifications", label: "Avisos" },
+  ],
+  admin_clinical: [
+    { to: "/professional", label: "Roster" },
+    { to: "/professional/users", label: "Usuarios" },
+    { to: "/professional/assignments", label: "Asignaciones" },
+    { to: "/professional/audit", label: "Auditoría" },
+    { to: "/professional/manual", label: "Manual" },
+    { to: "/notifications", label: "Avisos" },
+  ],
+};
+
 function MenuLink({ to, children, end = false }: { to: string; children: React.ReactNode; end?: boolean }) {
   return (
     <NavLink
@@ -33,10 +73,6 @@ export default function NavBar() {
   }
 
   const role = user.role as UserRole;
-  const isPatient = role === "patient";
-  const isTherapist = role === "therapist";
-  const isSupervisor = role === "supervisor";
-  const isAdmin = role === "admin_clinical";
 
   return (
     <nav className="navbar" aria-label="Navegación principal">
@@ -46,52 +82,9 @@ export default function NavBar() {
       </div>
 
       <div className="navbar-links">
-        {isPatient && (
-          <>
-            <MenuLink to="/" end>Hoy</MenuLink>
-            <MenuLink to="/trends">Tendencias</MenuLink>
-            <MenuLink to="/wave">Regular</MenuLink>
-            <MenuLink to="/diary">Diario</MenuLink>
-            <MenuLink to="/safety-plan">Plan</MenuLink>
-            <MenuLink to="/sharing">Compartir</MenuLink>
-            <MenuLink to="/chat">Chat</MenuLink>
-            <MenuLink to="/notifications">Avisos</MenuLink>
-          </>
-        )}
-
-        {isTherapist && (
-          <>
-            <MenuLink to="/professional">Pacientes</MenuLink>
-            <MenuLink to="/professional/alerts">Alertas</MenuLink>
-            <MenuLink to="/professional/copilot">Copiloto</MenuLink>
-            <MenuLink to="/professional/assignments">Asignaciones</MenuLink>
-            <MenuLink to="/professional/manual">Manual</MenuLink>
-            <MenuLink to="/notifications">Avisos</MenuLink>
-          </>
-        )}
-
-        {isSupervisor && (
-          <>
-            <MenuLink to="/professional">Pacientes</MenuLink>
-            <MenuLink to="/professional/alerts">Alertas</MenuLink>
-            <MenuLink to="/professional/copilot">Copiloto</MenuLink>
-            <MenuLink to="/professional/assignments">Asignaciones</MenuLink>
-            <MenuLink to="/professional/audit">Auditoría</MenuLink>
-            <MenuLink to="/professional/manual">Manual</MenuLink>
-            <MenuLink to="/notifications">Avisos</MenuLink>
-          </>
-        )}
-
-        {isAdmin && (
-          <>
-            <MenuLink to="/professional">Roster</MenuLink>
-            <MenuLink to="/professional/users">Usuarios</MenuLink>
-            <MenuLink to="/professional/assignments">Asignaciones</MenuLink>
-            <MenuLink to="/professional/audit">Auditoría</MenuLink>
-            <MenuLink to="/professional/manual">Manual</MenuLink>
-            <MenuLink to="/notifications">Avisos</MenuLink>
-          </>
-        )}
+        {(ROLE_LINKS[role] ?? []).map((item) => (
+          <MenuLink key={item.to} to={item.to} end={item.end}>{item.label}</MenuLink>
+        ))}
 
         <MenuLink to="/account">Mi cuenta</MenuLink>
         <MenuLink to="/settings">Mis modelos</MenuLink>

@@ -1,15 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { api, formatDay, PatientTimelineOut } from "../api";
+import PatientTimelineChart, { PatientTrendSummary } from "../components/PatientTimelineChart";
 
 interface BaselineResponse {
   status: string;
@@ -97,76 +88,19 @@ export default function TrendsPage() {
 
         {timeline?.points.length ? (
           <>
-            <div className="trend-summary">
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Ánimo actual</span>
-                <span className="trend-summary__value">{latest?.mood ?? "—"}/10</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Craving actual</span>
-                <span className="trend-summary__value">{latest?.craving ?? "—"}/10</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Sueño</span>
-                <span className="trend-summary__value">
-                  {latest?.sleep_hours == null ? "—" : latest.sleep_hours + " h"}
-                </span>
-              </div>
-            </div>
+            <PatientTrendSummary
+              point={latest}
+              moodLabel="Ánimo actual"
+              cravingLabel="Craving actual"
+            />
 
-            <div className="chart-shell" aria-label="Tendencia longitudinal" role="region">
-              <ResponsiveContainer width="100%" height={340}>
-                <LineChart data={timeline.points} margin={{ top: 8, right: 12, bottom: 8, left: -10 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tickFormatter={formatDay} minTickGap={24} tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="left" domain={[0, 10]} tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="sleep" orientation="right" domain={[0, 24]} tick={{ fontSize: 11 }} />
-                  <Tooltip labelFormatter={formatDay} />
-                  <Legend />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="mood"
-                    name="Ánimo"
-                    stroke="#7ea8f7"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="craving"
-                    name="Craving"
-                    stroke="#df9a73"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="self_efficacy"
-                    name="Autoeficacia"
-                    stroke="#76cdbd"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    yAxisId="sleep"
-                    type="monotone"
-                    dataKey="sleep_hours"
-                    name="Sueño (h)"
-                    stroke="#e9c982"
-                    strokeWidth={2}
-                    strokeDasharray="5 3"
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+            <PatientTimelineChart
+              points={timeline.points}
+              height={340}
+              margin={{ top: 8, right: 12, bottom: 8, left: -10 }}
+              primaryDotRadius={2}
+              ariaLabel="Tendencia longitudinal"
+            />
 
             <p className="chart-reading-note">
               <strong>Cómo leerlo:</strong> observa tendencias y relaciones, no únicamente valores altos o bajos.

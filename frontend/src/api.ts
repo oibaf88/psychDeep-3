@@ -872,13 +872,6 @@ export const DRIVER_FAMILY_SHORT: Record<string, string> = {
   sin_criterios: "Sin criterios",
 };
 
-export const PSYCHOSOCIAL_BAND_LABELS: Record<string, string> = {
-  alta: "alta",
-  moderada: "moderada",
-  baja: "baja",
-  sin_datos: "sin datos",
-};
-
 export const LEVEL_SHORT_LABELS: Record<number, string> = {
   0: "Autogestión",
   1: "Autogestión / sin datos",

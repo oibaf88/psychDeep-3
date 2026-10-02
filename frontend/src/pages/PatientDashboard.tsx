@@ -1,16 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { api, AssignmentOut, CheckInIn, PatientTimelineOut, formatDay } from "../api";
+import PatientTimelineChart, { PatientTrendSummary } from "../components/PatientTimelineChart";
 
 const emptyForm: CheckInIn = { mood: 5, craving: 3, sleep_hours: 7, self_efficacy: 5, notes: "" };
 
@@ -301,82 +292,21 @@ export default function PatientDashboard() {
 
         {timeline && timeline.points.length > 0 ? (
           <>
-            <div className="trend-summary" aria-label="Resumen del último registro">
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Ánimo</span>
-                <span className="trend-summary__value">{latestPoint?.mood ?? "—"}/10</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Craving</span>
-                <span className="trend-summary__value">{latestPoint?.craving ?? "—"}/10</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Sueño</span>
-                <span className="trend-summary__value">
-                  {latestPoint?.sleep_hours == null ? "—" : latestPoint.sleep_hours + " h"}
-                </span>
-              </div>
-            </div>
+            <PatientTrendSummary
+              point={latestPoint}
+              moodLabel="Ánimo"
+              cravingLabel="Craving"
+              ariaLabel="Resumen del último registro"
+            />
 
-            <div className="chart-shell" aria-label="Tendencia de ánimo, craving y autoeficacia" role="region">
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={timeline.points} margin={{ top: 8, right: 8, bottom: 4, left: -16 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={formatDay} minTickGap={24} />
-                  <YAxis yAxisId="left" domain={[0, 10]} tick={{ fontSize: 11 }} />
-                  <YAxis
-                    yAxisId="sleep"
-                    orientation="right"
-                    domain={[0, 24]}
-                    tick={{ fontSize: 11 }}
-                    tickFormatter={(value: number) => value + " h"}
-                  />
-                  <Tooltip labelFormatter={formatDay} />
-                  <Legend />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="mood"
-                    name="Ánimo"
-                    stroke="#7ea8f7"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2.5 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="craving"
-                    name="Craving"
-                    stroke="#df9a73"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2.5 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="self_efficacy"
-                    name="Autoeficacia"
-                    stroke="#76cdbd"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2.5 }}
-                  />
-                  <Line
-                    yAxisId="sleep"
-                    type="monotone"
-                    dataKey="sleep_hours"
-                    name="Sueño (h)"
-                    stroke="#e9c982"
-                    strokeWidth={2}
-                    strokeDasharray="5 3"
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+            <PatientTimelineChart
+              points={timeline.points}
+              height={300}
+              margin={{ top: 8, right: 8, bottom: 4, left: -16 }}
+              primaryDotRadius={2.5}
+              sleepTicksWithUnit
+              ariaLabel="Tendencia de ánimo, craving y autoeficacia"
+            />
 
             <p className="chart-reading-note">
               <strong>Cómo leerlo:</strong> busca relaciones entre variables a lo largo del tiempo. Un cambio aislado
