@@ -13,7 +13,7 @@ describe("PsychDeepLoader", () => {
     expect(video).toHaveAttribute("loop");
     expect((video as HTMLVideoElement).muted).toBe(true);
     expect(video).toHaveAttribute("playsinline");
-    expect(source).toHaveAttribute("src", "/moving%20psychDeep%20logo.mp4");
+    expect(source).toHaveAttribute("src", "/moving%20psychdeep%20logo.mp4");
     expect(video).toHaveAttribute("poster", "/psychDeep%20logo.png");
     expect(screen.getByRole("status")).toHaveTextContent("Preparando respuesta…");
   });

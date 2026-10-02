@@ -34,7 +34,7 @@ export default function PsychDeepLoader({ size = "md", label, className }: Props
         poster="/psychDeep%20logo.png"
         aria-hidden="true"
       >
-        <source src="/moving%20psychDeep%20logo.mp4" type="video/mp4" />
+        <source src="/moving%20psychdeep%20logo.mp4" type="video/mp4" />
       </video>
       <img
         className="psychdeep-loader__fallback"
