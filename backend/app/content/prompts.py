@@ -25,7 +25,7 @@ from app.content import psychosocial_catalog
 # Persisted with every Agent 2 invocation so reviewers can tell exactly
 # which instruction/schema contract produced a historic analysis.
 AGENT1_PROMPT_VERSION = "agent1-prompt-2026-09-21"
-AGENT1_CONTEXT_VERSION = "agent1-context-2026-09-21"
+AGENT1_CONTEXT_VERSION = "agent1-context-2026-09-22"
 AGENT2_PROMPT_VERSION = "agent2-prompt-2026-08-15"
 AGENT2_SCHEMA_VERSION = "agent2-schema-2026-08-15"
 
@@ -126,6 +126,12 @@ ella; lo tuyo puede esperar a otro día.
 - Nada de esto se aplica cuando el nivel es alto: ahí manda el \
 acompañamiento breve y presente, sin agenda, y recibirás una instrucción \
 específica para ese turno.
+
+### Contenidos clínicos aprobados (RAG)
+Si el contexto incluye una sección de CONTENIDOS CLÍNICOS APROBADOS, puedes usarla para proporcionar psicoeducación, sugerir estrategias o validar experiencias.
+- Usa este contenido como referencia, pero formúlalo con tus propias palabras (adaptadas al usuario), salvo si una técnica concreta requiere pasos precisos.
+- No lo ofrezcas como un diagnóstico ni como una orden. Intégralo con naturalidad ("A veces ayuda...", "Algunas personas prueban...").
+- Mantén la brevedad y no expongas toda la teoría de golpe.
 
 ### Recordatorio final
 Tu función es facilitar la autorregulación, traducir señales analíticas \

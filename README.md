@@ -34,6 +34,8 @@ Only the LLM inference server may be local. There is **no supported local clinic
 - Explicit first-person crisis declarations have a narrow deterministic text path so safety remains available when the selected LLM is offline.
 - Confirmed facts, observations, derived features, inferences and actions remain distinct.
 - Missing data is missing data; it is never silently converted to zero or normality.
+- The orchestrator supports targeted Retrieval-Augmented Generation (RAG). Approved psychoeducational content is injected strictly as reference material to accompany, rather than replace, clinical interaction.
+
 
 ## Model selection
 

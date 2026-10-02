@@ -138,3 +138,7 @@ Archive in the PR/release record:
 - audit evidence for a runtime provider switch;
 - answers to all eight release-checklist questions;
 - rollback commit/migration reference.
+
+
+### Curated Content (RAG)
+The conversational orchestrator dynamically incorporates active psychoeducational content from the `knowledge_items` table. To enable context-aware responses, administrators must seed this registry through the professional panel or API before use.

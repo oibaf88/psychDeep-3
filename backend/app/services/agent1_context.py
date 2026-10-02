@@ -30,11 +30,14 @@ the deterministic engine, and this block never contains the number.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models import CheckIn, ConfirmedFact, SafetyPlan
+from app.models_vnext import KnowledgeItem
+
 from app.config import get_settings
 from app.services import profile as profile_service
 from app.services import psychosocial
@@ -188,6 +191,36 @@ def _direction_block(profile) -> str:
     )
 
 
+
+def _knowledge_block(db: Session) -> str:
+    """Curated knowledge items for the LLM to use if relevant."""
+    try:
+        rows = (
+            db.query(KnowledgeItem)
+            .filter(
+                KnowledgeItem.status == "active",
+                or_(KnowledgeItem.review_due.is_(None), KnowledgeItem.review_due >= date.today())
+            )
+            .all()
+        )
+        if not rows:
+            return ""
+
+        lines = []
+        for r in rows:
+            lines.append(f"Tema: {r.topic}\nObjetivo: {r.objective}\nEvidencia: {r.evidence_level}\nContenido: {r.content}")
+
+        if not lines:
+            return ""
+
+        return (
+            "CONTENIDOS CLÍNICOS APROBADOS (Base de conocimiento RAG):\n"
+            "Puedes usar esta información para psicoeducación o sugerencias si encaja con lo que dice el paciente.\n" +
+            "\n".join(lines)
+        )
+    except Exception:
+        return ""
+
 def _psychosocial_block(db: Session, user_id) -> str:
     """Give Agent 1 the person's situation, not just their scores.
 
@@ -261,6 +294,11 @@ def build(db: Session, user_id, assessment, *, in_crisis: bool) -> str:
         social = _psychosocial_block(db, user_id)
         if social:
             sections.append(social.strip())
+
+        knowledge = _knowledge_block(db)
+        if knowledge:
+            sections.append(knowledge.strip())
+
     except Exception as exc:  # noqa: BLE001
         logger.warning("Agent 1 context degraded safely: %s", type(exc).__name__)
         if not sections:

@@ -12,7 +12,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Explicaciones (E6):** DONE
 - **Plan preventivo (E7):** DONE
 - **Seguridad (E8):** DONE
-- **RAG de contenidos (E9):** PARTIAL — registro curado seguro, todavía sin conexión al LLM
+- **RAG de contenidos (E9):** DONE
 - **Panel profesional (E10):** PARTIAL
 - **Evaluación (E11):** PARTIAL
 - **Operaciones (E12):** PARTIAL
@@ -39,6 +39,5 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **RAG foundation:** Añadido registro versionado con aprobación administrativa, fuente, nivel de evidencia, fecha de revisión, segmentación y contraindicaciones. No se usa todavía para construir prompts.
 
 ## Recommended next work
-1. **Completar RAG de Contenidos (Epic E9)**: validar clínicamente el flujo de revisión y, solo después, diseñar la integración con el LLM y su rollback.
 2. **Complete Professional Panel (Epic E10)**: Finish selective sharing, professional workflows, and robust UI elements for patient-clinician linkages.
 3. **Complete Consent Verification**: Ensure granular revocation flows (E1) are fully robust and visible in the UI.
