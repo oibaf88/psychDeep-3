@@ -4,8 +4,41 @@ this interface, never directly to an SDK, so the model can be swapped later
 (see app/services/llm/__init__.py).
 """
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
+
+
+UNSUPPORTED_JSON_SCHEMA_CONSTRAINTS = frozenset({
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "multipleOf",
+    "minLength",
+    "maxLength",
+    "minItems",
+    "maxItems",
+    "pattern",
+})
+
+
+def normalize_json_schema(node: Any, unsupported_keys: Collection[str]) -> Any:
+    """Recursively adapt a schema to a provider's strict JSON subset."""
+    if isinstance(node, list):
+        return [normalize_json_schema(item, unsupported_keys) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    converted = {
+        key: normalize_json_schema(value, unsupported_keys)
+        for key, value in node.items()
+        if key not in unsupported_keys
+    }
+    if converted.get("type") == "object" and "properties" in converted:
+        converted["required"] = list(converted["properties"])
+        converted["additionalProperties"] = False
+    return converted
 
 
 @dataclass(frozen=True)

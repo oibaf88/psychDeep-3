@@ -1,16 +1,10 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Annotated, Any, Optional
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_serializer, field_validator
 
-
-def _utc_iso(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
+from app.datetime_utils import utc_iso as _utc_iso
 
 
 # ---------------------------------------------------------------- auth ----

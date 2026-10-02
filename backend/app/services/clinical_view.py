@@ -34,11 +34,12 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.datetime_utils import utc_iso as _utc_iso
 from app.models import (
     Agent2AnalysisTrace,
     AlfaSignal,
@@ -378,15 +379,6 @@ BAND_MEANING = {
     "unstable": "score < 0.35 — los últimos 7 días se alejan mucho de su línea base.",
     "insufficient_data": "no hay línea base personal todavía (mínimo 5 check-ins en 21 días).",
 }
-
-
-def _utc_iso(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
-
 
 def _excerpt(text: str | None, limit: int = EXCERPT_CHARS) -> str:
     if not text:

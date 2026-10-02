@@ -8,7 +8,6 @@ caller's structured/static fallback and never moves PHI to another provider.
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import json
 import logging
 import time
@@ -23,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.services.llm import AnthropicProvider, OpenAICompatibleProvider
 from app.services.llm.base import ChatResult, LLMProvider, StructuredAnalysisResult
+from app.services.llm_config import hostname_is_private, normalise_openai_base_url
 
 logger = logging.getLogger("psychapp.model_gateway")
 
@@ -107,35 +107,6 @@ def _hash_payload(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _is_private_host(host: str) -> bool:
-    normalized = (host or "").strip().lower().rstrip(".")
-    if normalized in {"localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal"}:
-        return True
-    if normalized.endswith((".local", ".internal")):
-        return True
-    try:
-        ip = ipaddress.ip_address(normalized)
-    except ValueError:
-        return False
-    return bool(ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast)
-
-
-def _normalise_openai_base_url(raw: str) -> str:
-    url = (raw or "").strip().rstrip("/")
-    if not url:
-        return ""
-    if url.endswith("/chat/completions"):
-        url = url[: -len("/chat/completions")]
-    if url.endswith("/api/v1/chat"):
-        url = url[: -len("/api/v1/chat")] + "/v1"
-    elif url.endswith("/api/v1"):
-        url = url[: -len("/api/v1")] + "/v1"
-    parsed = urlparse(url)
-    if not parsed.path.rstrip("/"):
-        url = f"{url}/v1"
-    return url
-
-
 def _validate_endpoint(base_url: str, *, production: bool) -> None:
     parsed = urlparse(base_url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
@@ -143,7 +114,7 @@ def _validate_endpoint(base_url: str, *, production: bool) -> None:
     if production:
         if parsed.scheme != "https":
             raise ModelUnavailable("MODEL_ENDPOINT_REQUIRES_HTTPS")
-        if _is_private_host(parsed.hostname):
+        if hostname_is_private(parsed.hostname):
             raise ModelUnavailable("MODEL_ENDPOINT_PRIVATE_FROM_CLOUD")
 
 
@@ -162,7 +133,7 @@ class ModelGateway:
             return Deployment(
                 alias=LOCAL_TUNNEL,
                 adapter="openai_compatible",
-                base_url=_normalise_openai_base_url(s.local_base_url),
+                base_url=normalise_openai_base_url(s.local_base_url),
                 api_key=s.local_api_key,
                 chat_model=s.local_chat_model,
                 analysis_model=s.local_analysis_model,
@@ -193,7 +164,7 @@ class ModelGateway:
             return Deployment(
                 alias=CLOUD_TUNED,
                 adapter="managed_cloud",
-                base_url=_normalise_openai_base_url(s.model_cloud_base_url),
+                base_url=normalise_openai_base_url(s.model_cloud_base_url),
                 api_key=s.model_cloud_api_key,
                 chat_model=chat,
                 analysis_model=analysis,

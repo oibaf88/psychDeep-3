@@ -124,7 +124,7 @@ def backend_runtime_label() -> str:
     return "este equipo (proceso local de FastAPI)"
 
 
-def _hostname_is_private(hostname: str) -> bool:
+def hostname_is_private(hostname: str) -> bool:
     host = (hostname or "").strip().lower().rstrip(".")
     if not host:
         return True
@@ -142,7 +142,7 @@ def endpoint_reachability(url: str | None) -> dict:
     runtime = backend_runtime()
     parsed = urlparse((url or "").strip())
     host = (parsed.hostname or "").lower()
-    private = _hostname_is_private(host)
+    private = hostname_is_private(host)
     if runtime == "local":
         return {"ok": True, "runtime": runtime, "private_target": private, "reason": None}
     if not url:
@@ -349,15 +349,10 @@ is unavailable.
     return config
 
 
-def normalise_base_url(raw: str) -> str:
+def normalise_openai_base_url(raw: str) -> str:
     url = (raw or "").strip().rstrip("/")
     if not url:
-        raise LLMConfigError("Escribe la URL del servidor.")
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise LLMConfigError("La URL tiene que empezar por http:// o https://")
-    if not parsed.netloc:
-        raise LLMConfigError("La URL no incluye un servidor.")
+        return ""
     if url.endswith("/chat/completions"):
         url = url[: -len("/chat/completions")]
     if url.endswith("/api/v1/chat"):
@@ -367,6 +362,18 @@ def normalise_base_url(raw: str) -> str:
     if not urlparse(url).path.rstrip("/"):
         url = f"{url}/v1"
     return url
+
+
+def normalise_base_url(raw: str) -> str:
+    url = (raw or "").strip().rstrip("/")
+    if not url:
+        raise LLMConfigError("Escribe la URL del servidor.")
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise LLMConfigError("La URL tiene que empezar por http:// o https://")
+    if not parsed.netloc:
+        raise LLMConfigError("La URL no incluye un servidor.")
+    return normalise_openai_base_url(url)
 
 
 def validate(

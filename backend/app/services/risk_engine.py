@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from app.datetime_utils import utc_iso as _utc_iso
 from app.models import AlfaSignal, ConfirmedFact, ProfessionalAlert, RiskAssessment
 from app.services import baseline as baseline_service
 from app.services import notifications as notification_service
@@ -72,14 +73,6 @@ SUBTLE_NEGATIVE_VALENCE_MIN = 0.70
 PERSONAL_DEVIATION_SIGMA = 1.5
 # Do not spam professionals with duplicate open alerts at the same level.
 ALERT_DEDUPE_HOURS = 24
-
-
-def _utc_iso(value: datetime) -> str:
-    """Serialize legacy naive database timestamps explicitly as UTC."""
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
-
 
 @dataclass
 class RiskDecision:
