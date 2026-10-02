@@ -156,8 +156,18 @@ def reject_assignment(assignment_id: uuid.UUID, db: Session = Depends(get_db), u
     return _enrich(db, assignment)
 
 
-@router.post("/{assignment_id}/pause", response_model=AssignmentOut)
-def pause_assignment(assignment_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def _transition_assignment(
+    db: Session,
+    user: User,
+    assignment_id: uuid.UUID,
+    *,
+    to_status: str,
+    from_status: str | None,
+    action: str,
+    verb: str,
+    invalid_detail: str | None,
+) -> AssignmentOut:
+    """Shared pause/resume/end flow: ownership check, status guard, audit."""
     assignment = db.get(PatientProfessionalAssignment, assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
@@ -167,55 +177,40 @@ def pause_assignment(assignment_id: uuid.UUID, db: Session = Depends(get_db), us
         or user.role in ("supervisor", "admin_clinical")
     )
     if not allowed:
-        raise HTTPException(status_code=403, detail="Not allowed to pause this assignment")
-    if assignment.status != "active":
-        raise HTTPException(status_code=400, detail="Only active assignments can be paused")
-    assignment.status = "paused"
+        raise HTTPException(status_code=403, detail=f"Not allowed to {verb} this assignment")
+    if from_status is not None and assignment.status != from_status:
+        raise HTTPException(status_code=400, detail=invalid_detail)
+    assignment.status = to_status
     assignment.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(assignment)
-    audit.log(db, actor_id=user.id, actor_role=user.role, action="assignment_paused", entity_type="assignment", entity_id=assignment.id)
+    audit.log(db, actor_id=user.id, actor_role=user.role, action=action, entity_type="assignment", entity_id=assignment.id)
     return _enrich(db, assignment)
+
+
+@router.post("/{assignment_id}/pause", response_model=AssignmentOut)
+def pause_assignment(assignment_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return _transition_assignment(
+        db, user, assignment_id,
+        to_status="paused", from_status="active", action="assignment_paused",
+        verb="pause", invalid_detail="Only active assignments can be paused",
+    )
 
 
 @router.post("/{assignment_id}/resume", response_model=AssignmentOut)
 def resume_assignment(assignment_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Patient re-activates a paused link (or therapist/supervisor for operational continuity)."""
-    assignment = db.get(PatientProfessionalAssignment, assignment_id)
-    if not assignment:
-        raise HTTPException(status_code=404, detail="Assignment not found")
-    allowed = (
-        (user.role == "patient" and assignment.patient_id == user.id)
-        or (user.role == "therapist" and assignment.professional_id == user.id)
-        or user.role in ("supervisor", "admin_clinical")
+    return _transition_assignment(
+        db, user, assignment_id,
+        to_status="active", from_status="paused", action="assignment_resumed",
+        verb="resume", invalid_detail="Only paused assignments can be resumed",
     )
-    if not allowed:
-        raise HTTPException(status_code=403, detail="Not allowed to resume this assignment")
-    if assignment.status != "paused":
-        raise HTTPException(status_code=400, detail="Only paused assignments can be resumed")
-    assignment.status = "active"
-    assignment.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(assignment)
-    audit.log(db, actor_id=user.id, actor_role=user.role, action="assignment_resumed", entity_type="assignment", entity_id=assignment.id)
-    return _enrich(db, assignment)
 
 
 @router.post("/{assignment_id}/end", response_model=AssignmentOut)
 def end_assignment(assignment_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    assignment = db.get(PatientProfessionalAssignment, assignment_id)
-    if not assignment:
-        raise HTTPException(status_code=404, detail="Assignment not found")
-    allowed = (
-        (user.role == "patient" and assignment.patient_id == user.id)
-        or (user.role == "therapist" and assignment.professional_id == user.id)
-        or user.role in ("supervisor", "admin_clinical")
+    return _transition_assignment(
+        db, user, assignment_id,
+        to_status="ended", from_status=None, action="assignment_ended",
+        verb="end", invalid_detail=None,
     )
-    if not allowed:
-        raise HTTPException(status_code=403, detail="Not allowed to end this assignment")
-    assignment.status = "ended"
-    assignment.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(assignment)
-    audit.log(db, actor_id=user.id, actor_role=user.role, action="assignment_ended", entity_type="assignment", entity_id=assignment.id)
-    return _enrich(db, assignment)

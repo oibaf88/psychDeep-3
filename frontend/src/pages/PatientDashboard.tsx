@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api, AssignmentOut, CheckInIn, PatientTimelineOut, formatDay } from "../api";
+import { api, AssignmentOut, CheckInIn, PatientTimelineOut, TRAJECTORY_SERIES, formatDay } from "../api";
 
 const emptyForm: CheckInIn = { mood: 5, craving: 3, sleep_hours: 7, self_efficacy: 5, notes: "" };
 
@@ -333,47 +333,20 @@ export default function PatientDashboard() {
                   />
                   <Tooltip labelFormatter={formatDay} />
                   <Legend />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="mood"
-                    name="Ánimo"
-                    stroke="#7ea8f7"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2.5 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="craving"
-                    name="Craving"
-                    stroke="#df9a73"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2.5 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="self_efficacy"
-                    name="Autoeficacia"
-                    stroke="#76cdbd"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2.5 }}
-                  />
-                  <Line
-                    yAxisId="sleep"
-                    type="monotone"
-                    dataKey="sleep_hours"
-                    name="Sueño (h)"
-                    stroke="#e9c982"
-                    strokeWidth={2}
-                    strokeDasharray="5 3"
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
+                  {TRAJECTORY_SERIES.map((series) => (
+                    <Line
+                      key={series.dataKey}
+                      yAxisId={series.yAxisId}
+                      type="monotone"
+                      dataKey={series.dataKey}
+                      name={series.name}
+                      stroke={series.stroke}
+                      strokeWidth={series.strokeWidth}
+                      strokeDasharray={series.strokeDasharray}
+                      connectNulls={false}
+                      dot={{ r: series.dataKey === "sleep_hours" ? 2 : 2.5 }}
+                    />
+                  ))}
                 </LineChart>
               </ResponsiveContainer>
             </div>

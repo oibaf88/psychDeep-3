@@ -5,7 +5,6 @@ frontend migrates, so no historical data is reinterpreted or made unreadable.
 """
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,7 +19,6 @@ from app.security import get_current_user, require_patient
 from app.services import conversation, risk_engine
 from app.services.canonical_analytics import run_canonical_analytics
 from app.services.consent import CORE_PROCESSING, is_granted
-from app.services.deterministic_safety_text import materialize_user_declaration
 from app.services.model_gateway import APPROVED_ALIASES, ModelUnavailable, get_model_gateway
 from app.services.timeline import build_patient_timeline
 
@@ -208,8 +206,7 @@ def evaluate_safety(db: Session = Depends(get_db), user: User = Depends(require_
 
 @router.post("/support/respond")
 def support_respond(payload: SupportIn, db: Session = Depends(get_db), user: User = Depends(require_patient)):
-    materialize_user_declaration(db, user.id, payload.message)
-    result = conversation.get_reply(db, user, payload.message)
+    result = conversation.get_reply_with_safety(db, user, payload.message)
     return {
         "mode": result["ui_mode"],
         "summary": result["reply"],

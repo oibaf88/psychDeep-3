@@ -296,6 +296,15 @@ def test_llm_endpoint(
     )
 
 
+_TEST_FAILURE_DETAILS = {
+    "local_endpoint_timeout": "El servidor no respondió a tiempo. Revisa la carga del modelo o aumenta el tiempo de espera.",
+    "api_key_not_configured": "El endpoint requiere autenticación y no hay un token configurado en el servidor.",
+    "http_404": "El servidor respondió 404. Revisa el sufijo /v1 y el identificador del modelo.",
+    "http_401": "El servidor rechazó la autenticación. Revisa el token del endpoint.",
+    "http_403": "El servidor rechazó la autenticación. Revisa el token del endpoint.",
+}
+
+
 def _test_failure_detail(safe_kind: str, error_code: str | None) -> str:
     if error_code == "local_endpoint_unreachable":
         if llm_config.backend_runtime() == "cloud":
@@ -307,14 +316,8 @@ def _test_failure_detail(safe_kind: str, error_code: str | None) -> str:
             "No se llegó al servidor del modelo. Comprueba que el servidor local está "
             "arrancado y que la URI coincide con la que está escuchando."
         )
-    if error_code == "local_endpoint_timeout":
-        return "El servidor no respondió a tiempo. Revisa la carga del modelo o aumenta el tiempo de espera."
-    if error_code == "api_key_not_configured":
-        return "El endpoint requiere autenticación y no hay un token configurado en el servidor."
-    if error_code == "http_404":
-        return "El servidor respondió 404. Revisa el sufijo /v1 y el identificador del modelo."
-    if error_code in ("http_401", "http_403"):
-        return "El servidor rechazó la autenticación. Revisa el token del endpoint."
+    if error_code in _TEST_FAILURE_DETAILS:
+        return _TEST_FAILURE_DETAILS[error_code]
     if safe_kind == "configuration_error":
         return "Configuración rechazada por el servidor. Revisa URL, autenticación y nombre del modelo."
     return f"El endpoint devolvió un error ({error_code or safe_kind})."

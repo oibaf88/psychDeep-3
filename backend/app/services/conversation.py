@@ -31,8 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.services.context_budget import estimate_tokens, fit_recent_messages
-from app.services.llm_usage_context import record_context_budget
+from app.services.context_budget import fit_recent_messages
 
 from app.content.prompts import (
     AGENT1_CRISIS_INSTRUCTION,
@@ -47,16 +46,56 @@ from app.content.safety_resources import (
     LEVEL3_PATIENT_MESSAGE,
     LEVEL3_PATIENT_MESSAGE_WITH_PROFESSIONAL,
     LEVEL4_PATIENT_MESSAGE,
-    LEVEL4_PATIENT_MESSAGE_SECONDARY,
 )
 from app.models import AlfaSignal, ChatMessage, PatientProfessionalAssignment, User
 from app.services import agent1_context, llm_config, profile as profile_service, psychosocial, risk_engine
 from app.services import agent2_trace
+from app.services.deterministic_safety_text import materialize_user_declaration
 from app.services.llm import ChatResult, ProviderMetadata, StructuredAnalysisError, get_llm_provider
 
 logger = logging.getLogger("psychapp.conversation")
 
 MAX_HISTORY_MESSAGES = 12
+
+# Static fallback copy when Agent 1 cannot answer. Deterministic and model-free:
+# the provider-specific sentence names the failure, and every branch reassures
+# that stored clinical data is unaffected.
+_AGENT1_PROVIDER_ERROR_TEXT = {
+    "api_key_not_configured": "La API del proveedor LLM no está configurada en el servidor.",
+    "http_400": "El proveedor rechazó la solicitud (HTTP 400). Revisa el modelo o los parámetros configurados.",
+    "http_401": "El proveedor rechazó la autenticación (HTTP 401). Revisa la clave API del servidor.",
+    "http_403": "El proveedor denegó el acceso (HTTP 403). Revisa la autorización de la clave API.",
+    "http_404": "El modelo o la ruta de la API no existe (HTTP 404). Revisa el identificador del modelo.",
+    "timeout": "El proveedor no respondió dentro del tiempo configurado.",
+    "network_error": "No se pudo establecer conexión con el proveedor LLM.",
+    "empty_output": "El proveedor respondió sin contenido utilizable.",
+}
+_AGENT1_DATA_SAVED_SUFFIX = " Tus datos y check-ins se han guardado con normalidad."
+_AGENT1_GENERIC_FALLBACK = (
+    "Ahora mismo no puedo generar una respuesta conversacional. "
+    "El fallo queda registrado de forma segura y tus datos y check-ins "
+    "se han guardado con normalidad."
+)
+_AGENT1_OPENAI_KEY_FALLBACK = (
+    "La API de OpenAI no está configurada en Render (falta OPENAI_API_KEY)."
+    + _AGENT1_DATA_SAVED_SUFFIX
+)
+
+
+def _agent1_fallback_text(exc: Exception) -> str:
+    """Select the static reply for a failed Agent 1 turn, without calling any model."""
+    if isinstance(exc, StructuredAnalysisError):
+        code = exc.error_code or exc.safe_kind
+        if code in _AGENT1_PROVIDER_ERROR_TEXT:
+            return _AGENT1_PROVIDER_ERROR_TEXT[code] + _AGENT1_DATA_SAVED_SUFFIX
+        return _AGENT1_GENERIC_FALLBACK
+    from app.services.local_llm_access import LocalLlmAccessDenied
+
+    if isinstance(exc, LocalLlmAccessDenied):
+        return _AGENT1_GENERIC_FALLBACK
+    if isinstance(exc, RuntimeError) and str(exc) == "OPENAI_API_KEY_NOT_CONFIGURED":
+        return _AGENT1_OPENAI_KEY_FALLBACK
+    return _AGENT1_GENERIC_FALLBACK
 
 
 class LinguisticAnalysis(BaseModel):
@@ -386,6 +425,24 @@ def _agent1_crisis_accompaniment(db: Session, user_id, system_prompt: str) -> Ch
         return None
 
 
+def get_reply_with_safety(
+    db: Session,
+    user: User,
+    user_message: str,
+    *,
+    provider_override: str | None = None,
+) -> dict:
+    """Materialize explicit safety declarations, then run the normal reply pipeline.
+
+    Safety is evaluated independently of generative availability: explicit
+    first-person crisis declarations become user-originated facts before any
+    LLM call, so the deterministic risk engine still sees them when the
+    selected model/tunnel is unavailable or analysis consent is revoked.
+    """
+    materialize_user_declaration(db, user.id, user_message)
+    return get_reply(db, user, user_message, provider_override=provider_override)
+
+
 def get_reply(
     db: Session,
     user: User,
@@ -453,22 +510,19 @@ def get_reply(
     # records what answered rather than what the resolver would say now.
     reply_metadata: ProviderMetadata | None = None
 
-    if level == 4:
-        accompaniment = _agent1_crisis_accompaniment(db, user.id, agent1_system_prompt)
-        prose = accompaniment.text.strip() if accompaniment else ""
-        reply_text = (prose + "\n\n" if prose else "") + LEVEL4_PATIENT_MESSAGE
-        ui_mode = "crisis"
-        resources = CRISIS_RESOURCES
-        reply_from_model = accompaniment is not None
-        reply_metadata = accompaniment.metadata if accompaniment else None
-    elif level == 3:
-        has_prof = _has_active_professional(db, user.id)
-        fixed = LEVEL3_PATIENT_MESSAGE_WITH_PROFESSIONAL if has_prof else LEVEL3_PATIENT_MESSAGE
+    if level in (3, 4):
+        if level == 4:
+            fixed = LEVEL4_PATIENT_MESSAGE
+            ui_mode = "crisis"
+            resources = CRISIS_RESOURCES
+        else:
+            has_prof = _has_active_professional(db, user.id)
+            fixed = LEVEL3_PATIENT_MESSAGE_WITH_PROFESSIONAL if has_prof else LEVEL3_PATIENT_MESSAGE
+            ui_mode = "support"
+            resources = None
         accompaniment = _agent1_crisis_accompaniment(db, user.id, agent1_system_prompt)
         prose = accompaniment.text.strip() if accompaniment else ""
         reply_text = (prose + "\n\n" if prose else "") + fixed
-        ui_mode = "support"
-        resources = None
         reply_from_model = accompaniment is not None
         reply_metadata = accompaniment.metadata if accompaniment else None
     else:
@@ -486,49 +540,7 @@ def get_reply(
         except Exception as exc:  # noqa: BLE001
             failed = True
             logger.warning("Agent1 chat failed safely: %s", type(exc).__name__)
-            if isinstance(exc, StructuredAnalysisError):
-                code = exc.error_code or exc.safe_kind
-                messages = {
-                    "api_key_not_configured": "La API del proveedor LLM no está configurada en el servidor.",
-                    "http_400": "El proveedor rechazó la solicitud (HTTP 400). Revisa el modelo o los parámetros configurados.",
-                    "http_401": "El proveedor rechazó la autenticación (HTTP 401). Revisa la clave API del servidor.",
-                    "http_403": "El proveedor denegó el acceso (HTTP 403). Revisa la autorización de la clave API.",
-                    "http_404": "El modelo o la ruta de la API no existe (HTTP 404). Revisa el identificador del modelo.",
-                    "timeout": "El proveedor no respondió dentro del tiempo configurado.",
-                    "network_error": "No se pudo establecer conexión con el proveedor LLM.",
-                    "empty_output": "El proveedor respondió sin contenido utilizable.",
-                }
-                reply_text = messages.get(
-                    code,
-                    "El proveedor LLM no pudo generar la respuesta. Tus datos y check-ins se han guardado con normalidad.",
-                )
-                if code not in messages and isinstance(exc, RuntimeError):
-                    reply_text = (
-                        "Ahora mismo no puedo generar una respuesta conversacional. "
-                        "El fallo queda registrado de forma segura y tus datos y check-ins "
-                        "se han guardado con normalidad."
-                    )
-                if code in messages:
-                    reply_text += " Tus datos y check-ins se han guardado con normalidad."
-            else:
-                from app.services.local_llm_access import LocalLlmAccessDenied
-                if isinstance(exc, LocalLlmAccessDenied):
-                    reply_text = (
-                        "Ahora mismo no puedo generar una respuesta conversacional. "
-                        "El fallo queda registrado de forma segura y tus datos y check-ins "
-                        "se han guardado con normalidad."
-                    )
-                elif isinstance(exc, RuntimeError) and str(exc) == "OPENAI_API_KEY_NOT_CONFIGURED":
-                    reply_text = (
-                        "La API de OpenAI no está configurada en Render (falta OPENAI_API_KEY). "
-                        "Tus datos y check-ins se han guardado con normalidad."
-                    )
-                else:
-                    reply_text = (
-                        "Ahora mismo no puedo generar una respuesta conversacional. "
-                        "El fallo queda registrado de forma segura y tus datos y check-ins "
-                        "se han guardado con normalidad."
-                    )
+            reply_text = _agent1_fallback_text(exc)
         ui_mode = "normal"
         resources = None
         reply_from_model = not failed

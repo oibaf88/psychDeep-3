@@ -116,6 +116,13 @@ def _active_admin_count(db: Session) -> int:
     )
 
 
+def _get_user_or_404(db: Session, user_id: uuid.UUID) -> User:
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    return target
+
+
 def _permission_document(db: Session, target: User, acting_admin: User) -> AdminUserPermissionsOut:
     can_change_other = target.id != acting_admin.id
     is_last_active_admin = (
@@ -196,9 +203,7 @@ def change_user_role(
     admin: User = Depends(require_admin),
 ):
     """Promote or demote an existing user while preserving their stored data."""
-    target = db.get(User, user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+    target = _get_user_or_404(db, user_id)
 
     if target.id == admin.id and target.role != payload.role:
         # Prevent an administrator from accidentally locking themselves out of
@@ -249,9 +254,7 @@ def get_user_permissions(
     admin: User = Depends(require_admin),
 ):
     """Return only the selected user's account/permission document."""
-    target = db.get(User, user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+    target = _get_user_or_404(db, user_id)
     audit.log(
         db,
         actor_id=admin.id,
@@ -270,9 +273,7 @@ def print_user_permissions(
     admin: User = Depends(require_admin),
 ):
     """Audit a browser-side Print-to-PDF request; never persist a sensitive PDF."""
-    target = db.get(User, user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+    target = _get_user_or_404(db, user_id)
     audit.log(
         db,
         actor_id=admin.id,
@@ -290,9 +291,7 @@ def revoke_user_access(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    target = db.get(User, user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+    target = _get_user_or_404(db, user_id)
     if target.id == admin.id:
         raise HTTPException(status_code=400, detail="No puedes revocar tu propio acceso administrativo.")
     if not target.is_active:
@@ -323,9 +322,7 @@ def restore_user_access(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    target = db.get(User, user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+    target = _get_user_or_404(db, user_id)
     if target.id == admin.id:
         raise HTTPException(status_code=400, detail="Tu cuenta administrativa no se restaura desde esta pantalla.")
     if target.is_active:
@@ -356,9 +353,7 @@ def set_local_llm_access(
     admin: User = Depends(require_admin),
 ):
     """Grant or withdraw the selected account's use of the local LM Studio model."""
-    target = db.get(User, user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+    target = _get_user_or_404(db, user_id)
     if target.role == "admin_clinical":
         raise HTTPException(
             status_code=400,

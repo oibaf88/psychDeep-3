@@ -910,6 +910,25 @@ export const FACT_CATEGORIES = [
   { value: "other", label: "Otro hecho" },
 ];
 
+/** Shared patient trajectory series: the same four check-in variables on
+ *  every patient-facing longitudinal chart (Hoy and Tendencias). Dot size
+ *  stays per-page since each chart tunes it to its own height. */
+export interface TrajectorySeriesDef {
+  yAxisId: "left" | "sleep";
+  dataKey: "mood" | "craving" | "self_efficacy" | "sleep_hours";
+  name: string;
+  stroke: string;
+  strokeWidth: number;
+  strokeDasharray?: string;
+}
+
+export const TRAJECTORY_SERIES: TrajectorySeriesDef[] = [
+  { yAxisId: "left", dataKey: "mood", name: "Ánimo", stroke: "#7ea8f7", strokeWidth: 2.5 },
+  { yAxisId: "left", dataKey: "craving", name: "Craving", stroke: "#df9a73", strokeWidth: 2.5 },
+  { yAxisId: "left", dataKey: "self_efficacy", name: "Autoeficacia", stroke: "#76cdbd", strokeWidth: 2.5 },
+  { yAxisId: "sleep", dataKey: "sleep_hours", name: "Sueño (h)", stroke: "#e9c982", strokeWidth: 2, strokeDasharray: "5 3" },
+];
+
 // ------------------------------------------------ runtime LLM endpoint ----
 // Claude is the connected-service default; Gemma 2 through an
 // OpenAI-compatible endpoint remains the local/offline alternative.

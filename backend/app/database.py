@@ -1,7 +1,15 @@
+import uuid
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import mapped_column, sessionmaker, DeclarativeBase
 
 from app.config import get_settings
+
+
+def uuid_pk():
+    """Primary-key column factory shared by legacy and vNext models."""
+    return mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
 settings = get_settings()
 

@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api, formatDay, PatientTimelineOut } from "../api";
+import { api, formatDay, PatientTimelineOut, TRAJECTORY_SERIES } from "../api";
 
 interface BaselineResponse {
   status: string;
@@ -123,47 +123,20 @@ export default function TrendsPage() {
                   <YAxis yAxisId="sleep" orientation="right" domain={[0, 24]} tick={{ fontSize: 11 }} />
                   <Tooltip labelFormatter={formatDay} />
                   <Legend />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="mood"
-                    name="Ánimo"
-                    stroke="#7ea8f7"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="craving"
-                    name="Craving"
-                    stroke="#df9a73"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="self_efficacy"
-                    name="Autoeficacia"
-                    stroke="#76cdbd"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    yAxisId="sleep"
-                    type="monotone"
-                    dataKey="sleep_hours"
-                    name="Sueño (h)"
-                    stroke="#e9c982"
-                    strokeWidth={2}
-                    strokeDasharray="5 3"
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
+                  {TRAJECTORY_SERIES.map((series) => (
+                    <Line
+                      key={series.dataKey}
+                      yAxisId={series.yAxisId}
+                      type="monotone"
+                      dataKey={series.dataKey}
+                      name={series.name}
+                      stroke={series.stroke}
+                      strokeWidth={series.strokeWidth}
+                      strokeDasharray={series.strokeDasharray}
+                      connectNulls={false}
+                      dot={{ r: 2 }}
+                    />
+                  ))}
                 </LineChart>
               </ResponsiveContainer>
             </div>

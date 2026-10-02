@@ -37,21 +37,12 @@ def _invalidate_password_reset_tokens(db: Session, user_id: uuid.UUID) -> None:
     ).update({PasswordResetToken.is_used: True}, synchronize_session="fetch")
 
 
-@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
-def register(payload: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(func.lower(User.email) == payload.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    try:
-        validate_new_password(payload.password)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
-
+def _create_user_with_defaults(db: Session, *, email: str, display_name: str, hashed_password: str) -> User:
+    """Provision a public-signup patient with baseline consent and safety plan."""
     user = User(
-        email=payload.email,
-        hashed_password=hash_password(payload.password),
-        display_name=payload.display_name,
+        email=email,
+        hashed_password=hashed_password,
+        display_name=display_name,
         role=PUBLIC_SIGNUP_ROLE,
     )
     db.add(user)
@@ -64,6 +55,26 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
     if user.role == "patient":
         db.add(SafetyPlan(user_id=user.id))
     db.commit()
+    return user
+
+
+@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
+def register(payload: UserCreate, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(func.lower(User.email) == payload.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    try:
+        validate_new_password(payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    user = _create_user_with_defaults(
+        db,
+        email=payload.email,
+        display_name=payload.display_name,
+        hashed_password=hash_password(payload.password),
+    )
 
     audit.log(db, actor_id=user.id, actor_role=user.role, action="register", entity_type="user", entity_id=user.id)
 
@@ -240,16 +251,6 @@ def password_reset_confirm(payload: PasswordResetConfirm, db: Session = Depends(
 
 @router.post("/google-login", response_model=Token)
 def google_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
-    # In a real app you'd verify the token with Google using something like google-auth
-    # from google.oauth2 import id_token
-    # from google.auth.transport import requests
-    # try:
-    #     idinfo = id_token.verify_oauth2_token(payload.id_token, requests.Request(), GOOGLE_CLIENT_ID)
-    # except ValueError:
-    #     raise HTTPException(status_code=401, detail="Invalid token")
-    # email = idinfo['email']
-    # display_name = idinfo.get('name', email)
-
     # This handler does NOT verify the token with Google — it treats the
     # client-supplied id_token as the user's email, so enabling it lets
     # anyone obtain a session for any account. It stays disabled until
@@ -274,21 +275,13 @@ def google_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(func.lower(User.email) == email).first()
 
     if not user:
-        user = User(
+        # Generate a random password since they login with google
+        user = _create_user_with_defaults(
+            db,
             email=email,
-            # Generate a random password since they login with google
-            hashed_password=hash_password(str(uuid.uuid4())),
             display_name=display_name,
-            role=PUBLIC_SIGNUP_ROLE,
+            hashed_password=hash_password(str(uuid.uuid4())),
         )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
-        db.add(Consent(user_id=user.id, consent_type="data_processing", granted=True))
-        if user.role == "patient":
-            db.add(SafetyPlan(user_id=user.id))
-        db.commit()
         audit.log(db, actor_id=user.id, actor_role=user.role, action="register_google", entity_type="user", entity_id=user.id)
     else:
         if not user.is_active:

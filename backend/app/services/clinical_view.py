@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -1420,7 +1420,6 @@ def evidence_for_assessment(
             trace = None
 
         if trace and trace.user_id == assessment.user_id:
-            source_model = ChatMessage if trace.source_type == "chat_message" else DiaryEntry
             source_id = trace.chat_message_id or trace.diary_entry_id
             if source_id:
                 if trace.source_type == "chat_message":

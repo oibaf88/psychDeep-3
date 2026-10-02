@@ -407,28 +407,18 @@ class Agent2AnalysisTraceOut(BaseModel):
 
 
 # ------------------------------------------------- clinical explanations ---
-class PatientChatMessageOut(BaseModel):
+class PatientChatMessageOut(ChatMessageOut):
     """A turn of the patient's own conversation with Agent 1.
 
     Exposed to the assigned professional because chat, like the diary, is a
     source the risk pipeline reads: a therapist cannot audit an alert raised
     from a chat message without being able to read that message.
+
+    Same stored shape as the patient's own history view; only the timestamp
+    serialization differs so legacy naive datetimes render explicitly as UTC.
     """
 
-    id: uuid.UUID
-    role: str
-    content: str
     ui_mode: Optional[str] = None
-    provider: Optional[str] = None
-    model: Optional[str] = None
-    provider_base_url: Optional[str] = None
-    prompt_version: Optional[str] = None
-    prompt_sha256: Optional[str] = None
-    context_version: Optional[str] = None
-    context_sha256: Optional[str] = None
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
 
     @field_serializer("created_at")
     def serialize_created_at(self, value: datetime) -> str:

@@ -6,13 +6,9 @@ from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, SmallIn
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.database import Base, uuid_pk
 
 JSON_DOC = JSON().with_variant(JSONB, "postgresql")
-
-
-def uuid_pk():
-    return mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
 
 class Observation(Base):
