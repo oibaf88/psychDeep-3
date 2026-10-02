@@ -6,7 +6,6 @@ Risk/safety remains on /api/v1/safety/evaluate via the risk engine.
 """
 from __future__ import annotations
 
-import math
 import statistics
 import uuid
 from dataclasses import dataclass, field
@@ -22,6 +21,7 @@ from app.models_vnext import (
     FeatureValue,
     Observation,
 )
+from app.services.baseline import _deviation_band, _finite_number, _mean_std
 
 ALGORITHM_VERSION = "canonical-structural-v1"
 FEATURE_VERSION = "v1"
@@ -45,8 +45,6 @@ TYPE_FOR_AXIS = {v: k for k, v in AXIS_FOR_TYPE.items()}
 AXES = ("mood", "craving_inv", "sleep_hours", "self_efficacy")
 
 STD_FLOORS = {"mood": 1.0, "craving_inv": 1.0, "sleep_hours": 0.5, "self_efficacy": 1.0}
-STABLE_MAX_COMPOSITE_Z = 1.2
-TRANSITION_MAX_COMPOSITE_Z = 1.95
 
 
 @dataclass
@@ -123,13 +121,6 @@ def _now_utc(now: datetime | None) -> datetime:
     return _utc(now)  # type: ignore[return-value]
 
 
-def _finite_number(value: Any) -> float | None:
-    """Unknown, malformed, and non-finite values are not observations of zero."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value) if math.isfinite(value) else None
-
-
 def _extract_raw(observation: Observation) -> float | None:
     payload = observation.value if isinstance(observation.value, dict) else {}
     raw = _finite_number(payload.get("value"))
@@ -146,22 +137,6 @@ def _to_axis_value(obs_type: str, raw: float) -> float:
     if obs_type == "craving":
         return 10.0 - raw
     return raw
-
-
-def _mean_std(values: list[float]) -> tuple[float, float]:
-    if not values:
-        return 0.0, 0.0
-    mean = statistics.fmean(values)
-    std = statistics.pstdev(values) if len(values) > 1 else 0.0
-    return mean, std
-
-
-def _deviation_band(composite_z: float) -> str:
-    if composite_z <= STABLE_MAX_COMPOSITE_Z:
-        return "stable"
-    if composite_z <= TRANSITION_MAX_COMPOSITE_Z:
-        return "transition"
-    return "unstable"
 
 
 def _ensure_feature_definitions(db: Session) -> dict[str, FeatureDefinition]:

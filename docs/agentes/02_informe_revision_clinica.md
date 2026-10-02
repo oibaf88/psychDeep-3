@@ -1,5 +1,7 @@
 # Revisión Científica y Clínica - Corrección de Convergencia Estadística
 
+La cascada pre-trazado ya no está en el runtime. La regla vigente evalúa `adverse_composite_z > 2.4` junto con rumiación extrema o empeoramiento del sueño, y selecciona `N3_convergencia_critica_extrema` en `calculate_risk_level`.
+
 ## A. Alcance
 - **Función:** Motor de riesgo clínico (`backend/app/services/risk_engine.py`), específicamente la función `_convergencia_critica_extrema` utilizada en el cálculo legacy (`_calculate_risk_level_legacy`).
 - **Versión/diff:** Reemplazo de la variable y umbral desaprobado (`structural_score < 0.20`) por la métrica corregida y alineada a los estándares de la versión actual (`adverse_composite_z > 2.4`).

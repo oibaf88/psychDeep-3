@@ -1,5 +1,7 @@
 # Hallazgo: Convergencia crítica extrema clasificada erróneamente como emergencia automática (N4)
 
+La cascada pre-trazado (`_calculate_risk_level_legacy`) ya no está en el runtime: ningún flujo la llamaba. La regla vigente es `N3_convergencia_critica_extrema` dentro de `calculate_risk_level`.
+
 ## A. Alcance
 - **Función:** Motor de riesgo clínico (`backend/app/services/risk_engine.py`) en su versión legacy (`_calculate_risk_level_legacy`).
 - **Versión/diff:** Corrección aplicada en la ruta del motor legacy para igualarlo con la versión trazada (`calculate_risk_level`).
