@@ -36,7 +36,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Fixed an absolute path bug in `backend/tests/test_llm_endpoint.py` so tests can be run regardless of the directory they're executed from.
 - Refactored `aggregate_daily_statistics` function in `backend/app/services/daily_statistics.py` by extracting logic into smaller helpers for improved readability and maintainability.
 - **Testing:** Expanded frontend component testing by adding test suites for the ConsentsPage and SharingPage components.
-- **RAG foundation:** Añadido registro versionado con aprobación administrativa, fuente, nivel de evidencia, fecha de revisión, segmentación y contraindicaciones. No se usa todavía para construir prompts.
+- **RAG foundation:** Registro versionado con aprobación administrativa, fuente, nivel de evidencia, fecha de revisión y contraindicaciones. Los ítems `active` con `review_due` nulo o vigente se copian al contexto de Agent 1. Ese camino no recupera por turno, no aplica contraindicaciones y no guarda `content_version` en `ModelRun`.
 
 ## Recommended next work
 2. **Complete Professional Panel (Epic E10)**: Finish selective sharing, professional workflows, and robust UI elements for patient-clinician linkages.

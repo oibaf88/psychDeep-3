@@ -140,7 +140,7 @@ class InterventionEvent(Base):
 
 
 class KnowledgeItem(Base):
-    """Versioned, curated content registry; not yet wired into model prompts."""
+    """Versioned curated content. Active, unexpired rows are copied into Agent 1 context."""
 
     __tablename__ = "knowledge_items"
 

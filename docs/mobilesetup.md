@@ -128,11 +128,14 @@ pregunta → retrieval → contexto → LLM → respuesta
 El retrieval puede usar búsqueda textual, embeddings/vector search o una combinación híbrida.
 
 ## Qué hay ahora en PsychDeep
-El repositorio ya tiene psychdeep_v12.knowledge_items con topic, population, locale, evidence_level, contraindications, content, content_version, review_due, source_ref, approved_by y status.
+La tabla `knowledge_items` guarda topic, population, locale, evidence_level, contraindications, content, content_version, review_due, source_ref, approved_by y status.
 
-Eso es un registro de conocimiento curado, no un RAG operativo.
+Hay dos usos distintos:
 
-El propio repositorio marca RAG de contenidos como NOT STARTED. La búsqueda del código revisado no encontró embeddings, pgvector ni un pipeline de retrieval implementado.
+- `GET /api/v1/knowledge/retrieve` busca por population, objective, topic y locale, descarta contraindicaciones solapadas y no llama al modelo.
+- Agent 1 (`agent1_context._knowledge_block`) copia al prompt todos los ítems `active` con `review_due` nulo o todavía vigente. No filtra por relevancia, población, locale ni contraindicaciones.
+
+No hay embeddings, pgvector ni retrieval híbrido. Copiar el registro entero al contexto no es el pipeline de la fase 4.
 
 ## Qué aportaría un RAG real
 KnowledgeItem → versionado → chunking → embedding → índice vectorial → retrieval → filtros/reranking → contexto autorizado → LLM.
