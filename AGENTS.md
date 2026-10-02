@@ -76,7 +76,7 @@ What this gate **does not** prove: it does not by itself make the patient experi
 - [x] ~~Backfill legacy check-ins/diary/baseline/signal/model-trace data additively without destroying history.~~
 - [x] ~~Dual-write new check-ins/diary content into canonical observations while legacy compatibility remains.~~
 - [~] Make the complete operational analytics path run through `Observation -> FeatureValue -> BaselineVersion -> ChangeSignal` rather than legacy calculations.
-  - Current gap: `/api/v1/analytics/run` still uses the legacy deterministic risk engine as a compatibility bridge.
+  - A check-in now refreshes that canonical trajectory in the same request. `ChangeSignal` is still not the source of Hoy, the professional score or `RiskAssessment`; those keep using the legacy baseline and risk engine.
   - Completion criterion: canonical feature computation, baseline eligibility/versioning and change detection are the actual source for vNext state and explanations, with tests proving reproducibility.
 - [~] Make personal baseline behaviour fully conform to vNext semantics.
   - Current gap: canonical baseline records exist and can be read, but the complete lifecycle (eligibility, provisional status, exclusions, recalibration/versioning, quality/missingness) is not yet the primary end-to-end product behaviour.

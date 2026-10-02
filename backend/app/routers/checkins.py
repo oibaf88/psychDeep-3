@@ -6,6 +6,7 @@ from app.models import CheckIn, User
 from app.schemas import CheckInIn, CheckInOut
 from app.security import require_patient
 from app.services import audit, risk_engine
+from app.services.canonical_analytics import refresh_trajectory
 from app.services.canonical_data import record_checkin
 from app.services.consent import CORE_PROCESSING, require_granted
 
@@ -20,13 +21,14 @@ def create_checkin(payload: CheckInIn, db: Session = Depends(get_db), user: User
     db.commit()
     db.refresh(checkin)
 
-    # Expand-and-migrate compatibility: keep the established row readable and
-    # mirror the same self-report into the canonical vNext Observation stream.
+    # One self-report updates both longitudinal views. The canonical trajectory
+    # explains change against the personal baseline. The risk engine decides
+    # safety separately and still runs if that refresh fails.
     record_checkin(db, checkin)
+    refresh_trajectory(db, user.id)
 
     audit.log(db, actor_id=user.id, actor_role=user.role, action="checkin_created", entity_type="check_in", entity_id=checkin.id)
 
-    # Safety remains deterministic and independent of the model deployment.
     risk_engine.run_and_persist(db, user.id)
 
     return checkin

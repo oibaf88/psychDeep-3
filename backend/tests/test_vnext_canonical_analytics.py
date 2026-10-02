@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.models import User, Consent
+from app.models import Consent, RiskAssessment, User
 from app.models_vnext import (
     BaselineVersion,
     ChangeSignal,
@@ -218,6 +218,80 @@ class CanonicalAnalyticsServiceTests(unittest.TestCase):
         self.assertNotIn("risk_assessment_id", response)
         self.assertEqual(response["algorithm_version"], ALGORITHM_VERSION)
         self.assertIn("correlation_id", response)
+
+
+class CheckInUpdatesTrajectoryTests(unittest.TestCase):
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        from app.database import get_db
+        from app.main import app
+        from app.security import get_current_user
+
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+
+        @event.listens_for(self.engine, "connect")
+        def _fk(dbapi_conn, _):
+            dbapi_conn.execute("PRAGMA foreign_keys=OFF")
+
+        Base.metadata.create_all(bind=self.engine)
+        self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
+        self.db = self.sessions()
+        self.user = User(
+            id=uuid.uuid4(),
+            email="trajectory@example.com",
+            hashed_password="x",
+            role="patient",
+            display_name="Trajectory",
+        )
+        self.db.add(self.user)
+        self.db.add(Consent(user_id=self.user.id, consent_type="data_processing", granted=True))
+        self.db.commit()
+
+        def override_get_db():
+            yield self.db
+
+        self.app = app
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = lambda: self.user
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        self.app.dependency_overrides.clear()
+        self.db.close()
+        self.engine.dispose()
+
+    def test_one_checkin_refreshes_trajectory_and_still_calculates_risk(self):
+        response = self.client.post(
+            "/api/v1/checkins",
+            json={"mood": 5, "craving": 2, "sleep_hours": 7, "self_efficacy": 6},
+        )
+        self.assertEqual(response.status_code, 201)
+        signals = self.db.query(ChangeSignal).filter(ChangeSignal.user_id == self.user.id).all()
+        self.assertTrue(signals)
+        self.assertTrue(all(signal.feature != "risk_assessment" for signal in signals))
+        self.assertIsNotNone(
+            self.db.query(BaselineVersion).filter(BaselineVersion.user_id == self.user.id).first()
+        )
+        self.assertIsNotNone(
+            self.db.query(RiskAssessment).filter(RiskAssessment.user_id == self.user.id).first()
+        )
+
+    def test_trajectory_failure_still_stores_the_checkin_and_the_risk(self):
+        with patch.object(canonical_analytics, "run_canonical_analytics", side_effect=RuntimeError("trajectory")):
+            response = self.client.post(
+                "/api/v1/checkins",
+                json={"mood": 4, "craving": 3, "sleep_hours": 6, "self_efficacy": 5},
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(self.db.query(ChangeSignal).count(), 0)
+        self.assertIsNotNone(
+            self.db.query(RiskAssessment).filter(RiskAssessment.user_id == self.user.id).first()
+        )
 
 
 class MissingIsNotZeroUnitTests(unittest.TestCase):
