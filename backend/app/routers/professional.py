@@ -10,7 +10,7 @@ as a single-tenant MVP reasonably can:
                      alert-management rights.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
@@ -66,6 +66,7 @@ from app.schemas import (
     SignalOut,
     StructuralExplanationOut,
     TimelineOut,
+    _utc_iso,
 )
 from app.security import require_professional
 from app.services import agent2_trace, audit, clinical_copilot, clinical_view, psychosocial, risk_engine
@@ -74,15 +75,6 @@ from app.services import signals as signals_service
 from app.services.timeline import build_timeline
 
 router = APIRouter(prefix="/api/v1/professional", tags=["professional"])
-
-
-def _iso(value: datetime | None) -> str | None:
-    """Serialize legacy naive database timestamps explicitly as UTC."""
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
 
 
 def _agent2_trace_out(
@@ -341,6 +333,16 @@ def _alert_out(db: Session, alert: ProfessionalAlert, *, with_evidence: bool = T
     )
 
 
+def _recent_for_patient(db: Session, model, patient_id, order_column, limit: int, cap: int):
+    return (
+        db.query(model)
+        .filter(model.user_id == patient_id)
+        .order_by(order_column.desc())
+        .limit(min(limit, cap))
+        .all()
+    )
+
+
 def _latest_assessment(db: Session, patient_id) -> RiskAssessment | None:
     return (
         db.query(RiskAssessment)
@@ -505,7 +507,13 @@ def list_patients(db: Session = Depends(get_db), professional: User = Depends(re
             )
             .all()
         )
-        patients = [(db.get(User, a.patient_id), a.status) for a in assignments]
+        patient_ids = [assignment.patient_id for assignment in assignments]
+        users = (
+            {user.id: user for user in db.query(User).filter(User.id.in_(patient_ids)).all()}
+            if patient_ids
+            else {}
+        )
+        patients = [(users.get(assignment.patient_id), assignment.status) for assignment in assignments]
     else:
         patients = [(u, "roster") for u in db.query(User).filter(User.role == "patient").all()]
 
@@ -609,13 +617,7 @@ def patient_checkins(
     professional: User = Depends(require_professional),
 ):
     _require_clinical_read(db, professional, patient_id)
-    return (
-        db.query(CheckIn)
-        .filter(CheckIn.user_id == patient_id)
-        .order_by(CheckIn.created_at.desc())
-        .limit(min(limit, 200))
-        .all()
-    )
+    return _recent_for_patient(db, CheckIn, patient_id, CheckIn.created_at, limit, 200)
 
 
 @router.get("/patients/{patient_id}/diary", response_model=list[DiaryOut])
@@ -626,13 +628,7 @@ def patient_diary(
     professional: User = Depends(require_professional),
 ):
     _require_clinical_read(db, professional, patient_id)
-    return (
-        db.query(DiaryEntry)
-        .filter(DiaryEntry.user_id == patient_id)
-        .order_by(DiaryEntry.created_at.desc())
-        .limit(min(limit, 100))
-        .all()
-    )
+    return _recent_for_patient(db, DiaryEntry, patient_id, DiaryEntry.created_at, limit, 100)
 
 
 @router.get("/patients/{patient_id}/assessments", response_model=list[RiskAssessmentOut])
@@ -662,13 +658,7 @@ def patient_signals(
     professional: User = Depends(require_professional),
 ):
     _require_clinical_read(db, professional, patient_id)
-    return (
-        db.query(AlfaSignal)
-        .filter(AlfaSignal.user_id == patient_id)
-        .order_by(AlfaSignal.timestamp.desc())
-        .limit(min(limit, 100))
-        .all()
-    )
+    return _recent_for_patient(db, AlfaSignal, patient_id, AlfaSignal.timestamp, limit, 100)
 
 
 @router.get("/patients/{patient_id}/profile", response_model=PatientProfileOut)
@@ -1082,8 +1072,8 @@ def _psychosocial_observation_out(row: PsychosocialObservation) -> PsychosocialO
         source_label="Chat" if row.source_type == "chat_message" else "Diario",
         source_id=row.chat_message_id or row.diary_entry_id,
         adjudication_note=row.adjudication_note,
-        adjudicated_at=_iso(row.adjudicated_at),
-        observed_at=_iso(row.observed_at),
+        adjudicated_at=_utc_iso(row.adjudicated_at),
+        observed_at=_utc_iso(row.observed_at),
     )
 
 
