@@ -345,6 +345,121 @@ def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
     )
 
 
+def patient_change_reading(db: Session, user_id, now: datetime | None = None) -> dict:
+    """Compare the same daily check-ins the patient chart draws.
+
+    The chart is the record. This reading is the comparison of the last 7
+    local days with the last 21, and it does not write a signal or a risk
+    level. A missing day stays missing; it is not treated as zero.
+    """
+    from app.services.daily_statistics import local_day, window_bounds
+
+    current = now or datetime.utcnow()
+    baseline_start, baseline_end = window_bounds(BASELINE_WINDOW_DAYS, current)
+    recent_start, _ = window_bounds(RECENT_WINDOW_DAYS, current)
+    rows = (
+        db.query(CheckIn)
+        .filter(CheckIn.user_id == user_id, CheckIn.created_at >= baseline_start, CheckIn.created_at <= baseline_end)
+        .order_by(CheckIn.created_at.asc(), CheckIn.id.asc())
+        .all()
+    )
+    by_day: dict[str, CheckIn] = {}
+    for row in rows:
+        by_day[local_day(row.created_at)] = row
+    recent_day = local_day(recent_start)
+    baseline_days = list(by_day.values())
+    recent_days = [row for day, row in by_day.items() if day >= recent_day]
+
+    def original(row: CheckIn, key: str) -> float | None:
+        raw = _finite_number(getattr(row, key))
+        upper = 24.0 if key == "sleep_hours" else 10.0
+        if raw is None or not 0.0 <= raw <= upper:
+            return None
+        return raw
+
+    axes = (
+        ("mood", "mood"),
+        ("craving", "craving_inv"),
+        ("sleep_hours", "sleep_hours"),
+        ("self_efficacy", "self_efficacy"),
+    )
+    changes = []
+    compared = 0
+    for feature, axis in axes:
+        base_values = [value for row in baseline_days if (value := original(row, feature)) is not None]
+        recent_values = [value for row in recent_days if (value := original(row, feature)) is not None]
+        scored_base = [10.0 - value if axis == "craving_inv" else value for value in base_values]
+        scored_recent = [10.0 - value if axis == "craving_inv" else value for value in recent_values]
+        item = {
+            "signal_id": feature,
+            "feature": feature,
+            "window": {"start": recent_start.isoformat(), "end": baseline_end.isoformat()},
+            "recent_mean": round(statistics.fmean(recent_values), 1) if recent_values else None,
+            "baseline_mean": round(statistics.fmean(base_values), 1) if base_values else None,
+            "change": None,
+            "band": "insufficient_data",
+            "uncertainty": {
+                "recent_n": len(recent_values),
+                "baseline_n": len(base_values),
+                "minimum_records": MIN_CHECKINS_FOR_BASELINE,
+                "recent_days": RECENT_WINDOW_DAYS,
+                "baseline_days": BASELINE_WINDOW_DAYS,
+            },
+        }
+        if len(scored_base) >= MIN_CHECKINS_FOR_BASELINE and scored_recent:
+            mean, std = _mean_std(scored_base)
+            effective_std = max(std, STD_FLOORS[axis])
+            recent_mean = statistics.fmean(scored_recent)
+            z = (recent_mean - mean) / effective_std
+            item["change"] = round(statistics.fmean(recent_values) - statistics.fmean(base_values), 1)
+            item["band"] = _deviation_band(abs(z))
+            compared += 1
+        changes.append(item)
+
+    coverage = compared / float(len(axes))
+    if compared == len(axes):
+        status, stability = "active", "eligible"
+    elif compared:
+        status, stability = "provisional", "partial"
+    else:
+        status, stability = "insufficient_data", "insufficient_data"
+    if compared == len(axes):
+        composite_values = []
+        for feature, axis in axes:
+            matched = next(item for item in changes if item["feature"] == feature)
+            base_values = [value for row in baseline_days if (value := original(row, feature)) is not None]
+            recent_values = [value for row in recent_days if (value := original(row, feature)) is not None]
+            scored_base = [10.0 - value if axis == "craving_inv" else value for value in base_values]
+            scored_recent = [10.0 - value if axis == "craving_inv" else value for value in recent_values]
+            mean, std = _mean_std(scored_base)
+            z = (statistics.fmean(scored_recent) - mean) / max(std, STD_FLOORS[axis])
+            composite_values.append(abs(z))
+        composite_z = statistics.fmean(composite_values)
+        changes.append({
+            "signal_id": "structural_composite",
+            "feature": "structural_composite",
+            "window": {"start": recent_start.isoformat(), "end": baseline_end.isoformat()},
+            "recent_mean": None,
+            "baseline_mean": None,
+            "change": round(composite_z, 3),
+            "band": _deviation_band(composite_z),
+            "uncertainty": {"recent_n": len(recent_days), "baseline_n": len(baseline_days)},
+        })
+    return {
+        "status": status,
+        "baseline": {
+            "window": {"start": baseline_start.isoformat(), "end": baseline_end.isoformat()},
+            "recent_window": {"start": recent_start.isoformat(), "end": baseline_end.isoformat()},
+            "stability": stability,
+            "data_coverage": round(coverage, 4),
+            "record_count": len(baseline_days),
+            "recent_count": len(recent_days),
+            "minimum_records": MIN_CHECKINS_FOR_BASELINE,
+        },
+        "changes": changes,
+    }
+
+
 def calculate_trend(db: Session, user_id, values: list[float]) -> str:
     """
     Very small linear-regression-slope trend classifier, matching the

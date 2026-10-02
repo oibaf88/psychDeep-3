@@ -3,6 +3,7 @@ import { api, formatDay, PatientTimelineOut } from "../api";
 import { PatientTrajectoryChart } from "../components/ClinicalCharts";
 import {
   baselineCoverage,
+  baselineGapText,
   baselineHero,
   baselineReady,
   baselineStabilityLabel,
@@ -128,10 +129,7 @@ export default function TrendsPage() {
         <h2 id="baseline-heading">Tu línea de base</h2>
 
         {!baselineReady(baseline) ? (
-          <p>
-            Todavía no hay datos suficientes para describir cómo sueles estar. Mientras la referencia sea
-            insuficiente, no se calcula un cambio y esa ausencia no se interpreta como normalidad.
-          </p>
+          <p>{baselineGapText(baseline)}</p>
         ) : (
           <div className="trend-summary">
             <div className="trend-summary__item">
@@ -165,7 +163,7 @@ export default function TrendsPage() {
           <p>{insufficientChangeNotice(comparableChanges)}</p>
         ) : (
           <>
-            {whole && <p>{patientBand(whole.band)}. {calculatedChangeText(whole)}</p>}
+            {whole && <p>En conjunto, los últimos 7 días están {patientBand(whole.band).charAt(0).toLowerCase() + patientBand(whole.band).slice(1)}.</p>}
             <div className="wave-tool-grid">
               {calculatedChanges.map((change) => (
                 <article className="card wave-tool-card" key={change.signal_id}>

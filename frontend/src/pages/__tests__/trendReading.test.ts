@@ -19,7 +19,7 @@ const insufficient = [
 describe("patient trajectory reading", () => {
   it("does not call an insufficient result a calculated signal", () => {
     const notice = insufficientChangeNotice(insufficient);
-    expect(notice).toContain("no hay datos suficientes");
+    expect(notice).toContain("Todavía no se ha calculado");
     expect(notice).not.toMatch(/señal calculada/i);
     expect(notice).not.toContain("canonical-structural");
     expect(notice).not.toContain("MOOD");
@@ -28,22 +28,31 @@ describe("patient trajectory reading", () => {
     expect(insufficient.filter(signalWasCalculated)).toHaveLength(0);
   });
 
-  it("states a calculated comparison without the algorithm name", () => {
+  it("states a calculated comparison with the same units as the chart", () => {
     const signal = {
       signal_id: "9",
       feature: "mood",
       band: "transition",
-      change: 1.4,
-      uncertainty: { recent_n: 6, baseline_n: 12 },
+      change: -1.8,
+      recent_mean: 4.2,
+      baseline_mean: 6,
+      uncertainty: { recent_n: 6, baseline_n: 12, recent_days: 7, baseline_days: 21 },
       algorithm_version: "canonical-structural-v1",
     };
     expect(signalWasCalculated(signal)).toBe(true);
     expect(patientBand(signal.band)).toBe("Un poco distinto de lo habitual en ti");
     const text = calculatedChangeText(signal);
-    expect(text).toContain("6 registros de este periodo");
-    expect(text).toContain("12 de tu referencia personal");
+    expect(text).toContain("4,2 de 10");
+    expect(text).toContain("6 de 10");
     expect(text).not.toContain("canonical-structural");
     expect(text).not.toMatch(/señal calculada/i);
+  });
+
+  it("does not name an internal structural score on the patient screen", () => {
+    const notice = insufficientChangeNotice([
+      { signal_id: "s", feature: "structural_score", band: "insufficient_data", change: null },
+    ]);
+    expect(notice.toLowerCase()).not.toContain("structural");
   });
 
   it("keeps an empty reference out of technical status codes", () => {

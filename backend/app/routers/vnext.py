@@ -15,9 +15,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import RiskAssessment, User
-from app.models_vnext import BaselineVersion, ChangeSignal, InterventionEvent, Observation
+from app.models_vnext import InterventionEvent, Observation
 from app.security import get_current_user, require_patient
 from app.services import conversation, risk_engine
+from app.services.baseline import patient_change_reading
 from app.services.canonical_analytics import run_canonical_analytics
 from app.services.consent import CORE_PROCESSING, is_granted
 from app.services.deterministic_safety_text import materialize_user_declaration
@@ -128,26 +129,9 @@ def current_state(db: Session = Depends(get_db), user: User = Depends(require_pa
 
 @router.get("/baselines/current")
 def current_baseline(db: Session = Depends(get_db), user: User = Depends(require_patient)):
-    row = (
-        db.query(BaselineVersion)
-        .filter(BaselineVersion.user_id == user.id, BaselineVersion.status.in_(["active", "provisional", "frozen"]))
-        .order_by(BaselineVersion.created_at.desc())
-        .first()
-    )
-    if row is None:
-        return {"status": "insufficient_data", "baseline": None}
-    return {
-        "status": row.status,
-        "baseline": {
-            "id": str(row.id),
-            "feature": row.feature_key,
-            "window": {"start": row.window_start, "end": row.window_end},
-            "stats": row.stats,
-            "stability": row.stability,
-            "data_coverage": row.data_coverage,
-            "algorithm_version": row.algorithm_version,
-        },
-    }
+    """Personal reference for the same daily check-ins drawn on Tendencias."""
+    reading = patient_change_reading(db, user.id)
+    return {"status": reading["status"], "baseline": reading["baseline"]}
 
 
 @router.get("/changes")
@@ -156,28 +140,13 @@ def changes(
     db: Session = Depends(get_db),
     user: User = Depends(require_patient),
 ):
-    rows = (
-        db.query(ChangeSignal)
-        .filter(ChangeSignal.user_id == user.id)
-        .order_by(ChangeSignal.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-    return [
-        {
-            "signal_id": str(row.id),
-            "feature": row.feature,
-            "window": {"start": row.window_start, "end": row.window_end},
-            "change": row.change_value,
-            "band": row.band,
-            "uncertainty": row.uncertainty,
-            "evidence_refs": row.evidence_refs,
-            "contradictions": row.contradictions,
-            "baseline_version": str(row.baseline_version_id) if row.baseline_version_id else None,
-            "algorithm_version": row.algorithm_version,
-        }
-        for row in rows
-    ]
+    """Per-area comparison of the last 7 days with the last 21 check-in days.
+
+    Stored legacy imports are not returned here: a row named structural_score
+    is not a comparison of the chart the patient is looking at.
+    """
+    reading = patient_change_reading(db, user.id)
+    return reading["changes"][:limit]
 
 
 @router.post("/analytics/run")

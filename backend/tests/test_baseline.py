@@ -39,6 +39,50 @@ def _compute(active, checkins):
     return result, db
 
 
+class PatientChartComparisonTests(unittest.TestCase):
+    def _rows(self, days, **values):
+        now = datetime(2026, 10, 2, 12, 0, 0)
+        rows = []
+        for age in range(days):
+            rows.append(SimpleNamespace(
+                id=uuid.uuid4(),
+                user_id="patient",
+                created_at=now - timedelta(days=age),
+                mood=values.get("mood", 6),
+                craving=values.get("craving", 3),
+                sleep_hours=values.get("sleep_hours", 7),
+                self_efficacy=values.get("self_efficacy", 6),
+            ))
+        return now, rows
+
+    def test_same_checkins_as_the_chart_produce_a_comparison(self):
+        now, rows = self._rows(12, mood=6, craving=3, sleep_hours=7, self_efficacy=6)
+        for row in rows[:3]:
+            row.mood = 2
+            row.craving = 9
+            row.sleep_hours = 3
+        db = MagicMock()
+        db.query.return_value.filter.return_value.order_by.return_value.all.return_value = rows
+        reading = baseline.patient_change_reading(db, "patient", now=now)
+        by_feature = {item["feature"]: item for item in reading["changes"]}
+        self.assertNotIn("structural_score", by_feature)
+        self.assertEqual(reading["status"], "active")
+        self.assertLess(by_feature["mood"]["recent_mean"], by_feature["mood"]["baseline_mean"])
+        self.assertGreater(by_feature["craving"]["recent_mean"], by_feature["craving"]["baseline_mean"])
+        self.assertIn(by_feature["mood"]["band"], {"stable", "transition", "unstable"})
+        self.assertIsNotNone(by_feature["mood"]["change"])
+        db.add.assert_not_called()
+
+    def test_fewer_than_five_days_is_not_described_as_calculated(self):
+        now, rows = self._rows(3)
+        db = MagicMock()
+        db.query.return_value.filter.return_value.order_by.return_value.all.return_value = rows
+        reading = baseline.patient_change_reading(db, "patient", now=now)
+        self.assertEqual(reading["status"], "insufficient_data")
+        self.assertEqual(reading["baseline"]["record_count"], 3)
+        self.assertTrue(all(item["band"] == "insufficient_data" and item["change"] is None for item in reading["changes"]))
+
+
 class StructuralScoreTests(unittest.TestCase):
     def test_reported_saturation_case_remains_positive_and_not_adversely_unstable(self):
         # Before the fix these z values averaged 6.827 and forced score=0.
