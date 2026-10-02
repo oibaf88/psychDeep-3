@@ -18,6 +18,7 @@ from app.services import baseline as baseline_service
 from app.services import notifications as notification_service
 from app.services import profile as profile_service
 from app.services import psychosocial as psychosocial_service
+from app.utils import utc_iso as _utc_iso
 
 MODEL_VERSION = "risk-engine-v1.5"
 
@@ -72,13 +73,6 @@ SUBTLE_NEGATIVE_VALENCE_MIN = 0.70
 PERSONAL_DEVIATION_SIGMA = 1.5
 # Do not spam professionals with duplicate open alerts at the same level.
 ALERT_DEDUPE_HOURS = 24
-
-
-def _utc_iso(value: datetime) -> str:
-    """Serialize legacy naive database timestamps explicitly as UTC."""
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
 
 
 @dataclass

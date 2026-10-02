@@ -31,8 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.services.context_budget import estimate_tokens, fit_recent_messages
-from app.services.llm_usage_context import record_context_budget
+from app.services.context_budget import fit_recent_messages
 
 from app.content.prompts import (
     AGENT1_CRISIS_INSTRUCTION,
@@ -47,7 +46,6 @@ from app.content.safety_resources import (
     LEVEL3_PATIENT_MESSAGE,
     LEVEL3_PATIENT_MESSAGE_WITH_PROFESSIONAL,
     LEVEL4_PATIENT_MESSAGE,
-    LEVEL4_PATIENT_MESSAGE_SECONDARY,
 )
 from app.models import AlfaSignal, ChatMessage, PatientProfessionalAssignment, User
 from app.services import agent1_context, llm_config, profile as profile_service, psychosocial, risk_engine

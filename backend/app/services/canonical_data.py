@@ -6,18 +6,11 @@ canonical Observation stream. The original row is never mutated.
 """
 from __future__ import annotations
 
-from datetime import timezone
-
 from sqlalchemy.orm import Session
 
 from app.models import CheckIn, DiaryEntry
 from app.models_vnext import Observation
-
-
-def _utc(value):
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+from app.utils import as_utc as _utc
 
 
 def record_checkin(db: Session, checkin: CheckIn) -> None:

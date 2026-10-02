@@ -10,13 +10,14 @@ as a single-tenant MVP reasonably can:
                      alert-management rights.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
+from app.utils import utc_iso as _iso
 from app.content.safety_resources import (
     LEVEL3_PROFESSIONAL_NOTIFICATION_TEMPLATE,
     LEVEL4_PROFESSIONAL_NOTIFICATION_TEMPLATE,
@@ -74,15 +75,6 @@ from app.services import signals as signals_service
 from app.services.timeline import build_timeline
 
 router = APIRouter(prefix="/api/v1/professional", tags=["professional"])
-
-
-def _iso(value: datetime | None) -> str | None:
-    """Serialize legacy naive database timestamps explicitly as UTC."""
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
 
 
 def _agent2_trace_out(

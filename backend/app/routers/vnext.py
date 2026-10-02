@@ -5,7 +5,6 @@ frontend migrates, so no historical data is reinterpreted or made unreadable.
 """
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
