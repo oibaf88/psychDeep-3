@@ -333,17 +333,11 @@ def _alert_out(db: Session, alert: ProfessionalAlert, *, with_evidence: bool = T
     )
 
 
-def _latest_assessment(db: Session, patient_id) -> RiskAssessment | None:
-    return (
-        db.query(RiskAssessment)
-        .filter(RiskAssessment.user_id == patient_id)
-        .order_by(RiskAssessment.calculated_at.desc())
-        .first()
-    )
+
 
 
 def _patient_summary(db: Session, patient: User, status_label: str) -> PatientSummaryOut:
-    assessment = _latest_assessment(db, patient.id)
+    assessment = risk_engine.latest_assessment(db, patient.id)
     latest_score = None
     latest_band = None
     if assessment and isinstance(assessment.input_signals, dict):
@@ -753,7 +747,7 @@ def refute_linguistic_signal(
     if not signal.is_active:
         raise HTTPException(status_code=409, detail="Esta señal ya estaba refutada")
 
-    before = _latest_assessment(db, patient_id)
+    before = risk_engine.latest_assessment(db, patient_id)
     level_before = before.alert_level if before else 0
 
     try:
@@ -860,7 +854,7 @@ def patient_dossier(
         a = _assignment(db, patient_id, professional.id, statuses=("pending", "active", "paused", "ended"))
         status_label = a.status if a else "none"
 
-    assessment = _latest_assessment(db, patient_id)
+    assessment = risk_engine.latest_assessment(db, patient_id)
     timeline = build_timeline(db, patient_id, window_days)
     checkins = (
         db.query(CheckIn)
@@ -1181,7 +1175,7 @@ def patient_level_explanation(
 ):
     """Plain-Spanish answer to 'why is this patient at this level right now'."""
     _require_clinical_read(db, professional, patient_id)
-    assessment = _latest_assessment(db, patient_id)
+    assessment = risk_engine.latest_assessment(db, patient_id)
     return LevelExplanationOut(
         **clinical_view.level_explanation(
             assessment,

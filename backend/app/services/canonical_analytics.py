@@ -46,7 +46,6 @@ AXIS_FOR_TYPE = {
     "sleep_hours": "sleep_hours",
     "self_efficacy": "self_efficacy",
 }
-TYPE_FOR_AXIS = {v: k for k, v in AXIS_FOR_TYPE.items()}
 AXES = ("mood", "craving_inv", "sleep_hours", "self_efficacy")
 
 

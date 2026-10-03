@@ -1155,6 +1155,15 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
     )
 
 
+def latest_assessment(db: Session, user_id) -> RiskAssessment | None:
+    return (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.user_id == user_id)
+        .order_by(RiskAssessment.calculated_at.desc())
+        .first()
+    )
+
+
 def _find_open_alert(db: Session, user_id, level: int) -> ProfessionalAlert | None:
     since = datetime.utcnow() - timedelta(hours=ALERT_DEDUPE_HOURS)
     return (

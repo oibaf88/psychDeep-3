@@ -50,18 +50,10 @@ VALENCE_RISK = "risk"
 VALENCE_PROTECTIVE = "protective"
 VALENCE_NEUTRAL = "neutral"
 
-VALENCES = (VALENCE_RISK, VALENCE_PROTECTIVE, VALENCE_NEUTRAL)
-
 # What a neutral, purely descriptive observation is worth on the 0-1 risk
 # scale. Not zero: "vivo solo" is not protective, it is the baseline against
 # which a later "y llevo días sin hablar con nadie" is read.
 NEUTRAL_RISK_VALUE = 0.25
-
-VALENCE_LABELS = {
-    VALENCE_RISK: "Adversidad",
-    VALENCE_PROTECTIVE: "Protector",
-    VALENCE_NEUTRAL: "Descriptivo",
-}
 
 # ------------------------------------------------------------------ groups ---
 GROUP_MATERIAL = "material"
@@ -75,8 +67,6 @@ GROUP_LABELS: dict[str, str] = {
     GROUP_INTERPERSONAL: "Riesgo interpersonal (teoría interpersonal del suicidio)",
     GROUP_SIGNALS: "Señales sutiles y contexto de consumo",
 }
-
-GROUP_ORDER = (GROUP_MATERIAL, GROUP_RELATIONAL, GROUP_INTERPERSONAL, GROUP_SIGNALS)
 
 
 @dataclass(frozen=True)

@@ -227,10 +227,6 @@ class OpenAICompatibleProvider(LLMProvider):
         return self._effective_base_url or self._base_url
 
     @property
-    def copilot_model(self) -> str:
-        return self._copilot_model
-
-    @property
     def copilot_effort(self) -> str:
         """No local runtime implements Anthropic's effort control.
 

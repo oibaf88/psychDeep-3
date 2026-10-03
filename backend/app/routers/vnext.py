@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import RiskAssessment, User
+from app.models import User
 from app.models_vnext import BaselineVersion, ChangeSignal, InterventionEvent, Observation
 from app.security import get_current_user, require_patient
 from app.services import conversation, risk_engine
@@ -47,13 +47,7 @@ class FeedbackIn(BaseModel):
     reason: str | None = Field(default=None, max_length=2000)
 
 
-def _latest_risk(db: Session, user_id) -> RiskAssessment | None:
-    return (
-        db.query(RiskAssessment)
-        .filter(RiskAssessment.user_id == user_id)
-        .order_by(RiskAssessment.calculated_at.desc())
-        .first()
-    )
+
 
 
 @router.post("/observations", status_code=201)
@@ -99,7 +93,7 @@ def current_state(db: Session = Depends(get_db), user: User = Depends(require_pa
         .limit(20)
         .all()
     )
-    risk = _latest_risk(db, user.id)
+    risk = risk_engine.latest_assessment(db, user.id)
     latest_by_type: dict[str, dict[str, Any]] = {}
     for row in recent:
         latest_by_type.setdefault(
@@ -221,7 +215,7 @@ def support_respond(payload: SupportIn, db: Session = Depends(get_db), user: Use
 @router.get("/review/weekly")
 def weekly_review(db: Session = Depends(get_db), user: User = Depends(require_patient)):
     timeline = build_patient_timeline(db, user.id, 7)
-    risk = _latest_risk(db, user.id)
+    risk = risk_engine.latest_assessment(db, user.id)
     return {
         "window_days": 7,
         "timeline": timeline,

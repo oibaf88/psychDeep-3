@@ -123,8 +123,6 @@ services:
         generateValue: true
       - key: APP_ENV
         value: production
-      - key: APP_LOCALE
-        value: es-ES
       - key: CORS_ORIGINS
         value: https://psychdeep-web.onrender.com,https://psychdeep.bfab.io
       - key: SEED_DEMO_DATA

@@ -144,7 +144,6 @@ class Settings(BaseSettings):
     conversation_max_history_messages: int = 12
 
     # --- App --------------------------------------------------------------
-    app_locale: str = "es-ES"
     app_env: str = "local"
     allow_mock_google_login: bool = False
 
