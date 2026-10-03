@@ -140,5 +140,8 @@ Archive in the PR/release record:
 - rollback commit/migration reference.
 
 
-### Curated Content (RAG)
-The conversational orchestrator dynamically incorporates active psychoeducational content from the `knowledge_items` table. To enable context-aware responses, administrators must seed this registry through the professional panel or API before use.
+### Curated content
+
+`admin_clinical` seeds `knowledge_items` through `/api/v1/knowledge`: create a draft, then approve it. The professional dashboard has no registry screen. Approving a draft retires the previous active row for the same topic, population, objective and locale.
+
+Agent 1 copies every active item with a null or still-current `review_due` into its read-only context. That copy is not filtered by population, locale or contraindications. Draft and retired rows are omitted. Deterministic safety does not read this table. The request contract is in the README section "Curated knowledge"; the incident steps are in `docs/operations/RUNBOOKS.md`.

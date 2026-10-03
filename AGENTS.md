@@ -107,8 +107,8 @@ This is the largest current product gap. Do not confuse navigation changes with 
   - Existing screen still largely matches the historical dashboard: check-in + 30-day chart.
   - Required completion: low-burden check-in, current state, change vs personal baseline, data quality/missingness, explanation, at most one default suggested action, persistent crisis/help access and “No ahora”.
 - [~] **Tendencias — longitudinal explanation.**
-  - A new page exists and reads timeline, baseline and ChangeSignal data.
-  - Required completion: evidence, uncertainty, contradictions, missingness, contextual events and clear human-readable “why this changed” explanations rather than a raw signal list.
+ - A new page exists and reads timeline, baseline and ChangeSignal data. Calculated bands and an uncalculated comparison now use plain-language copy; the raw `insufficient_data` code stays off the page.
+ - Required completion: evidence, uncertainty, contradictions, missingness, contextual events and a fuller “why this changed” explanation.
 - [ ] **Relevant-change interaction flow.**
   - Required: “tu patrón reciente puede estar cambiando” -> why/evidence -> optional contextual explanation -> proportionate action -> professional route when appropriate -> feedback recorded without deleting the signal.
 - [ ] **Weekly review UI.**
@@ -171,15 +171,16 @@ Agents must not “fix” this back to read-only model settings unless a later p
 
 - [~] Canonical model-run/deployment metadata exists as a foundation.
 - [~] Implement curated RAG content registry with source/version/reviewer/evidence level/contraindications/review date.
-  - Current foundation: backend-only draft/approve/retire registry, explicit reviewer and review date, one active version per target, contraindication-aware retrieval and negative role tests.
-  - Current gap: approved content is deliberately not injected into any LLM prompt; reviewer workflow, clinical validation and rollback rehearsal remain incomplete.
+  - Current foundation: backend-only draft/approve/retire registry, explicit reviewer and review date, one active version per target, contraindication-aware `GET /api/v1/knowledge/retrieve`, and negative role tests. That retrieve route does not call a model.
+  - Current injection: `agent1_context._knowledge_block` appends every `active` item whose `review_due` is null or still current into Agent 1's bounded context (PR #137). It does not retrieve by turn, population, locale or topic, and it does not apply contraindications.
+  - Current gap: reviewer workflow in the product UI, clinical validation, prompt-injection tests, content-version provenance on `ModelRun`, and rollback rehearsal remain incomplete. Do not describe this as a governed retrieval pipeline.
 - [ ] Create de-identified/reviewed dataset pipeline for tuning; never fine-tune patient memory into the model.
 - [ ] Train or adapt the approved cloud candidate for behaviour/style/schema/tool-use only, not risk calculation.
 - [ ] Add reproducible model card, dataset manifest, base/tokenizer/artifact checksums, code/container version, seed, hyperparameters and metrics.
 - [ ] Run model evaluation gates: schema adherence, policy adherence, crisis handling, unsupported claims, Spanish quality, over-refusal, tool use, latency/cost and regression.
 - [ ] Progress candidate through experiment -> evaluated -> clinically reviewed -> shadow -> canary -> production only with evidence.
 
-Why G7 is **not complete**: a replaceable gateway is not the same thing as a tuned cloud model, RAG registry or evaluated model promotion process.
+Why G7 is **not complete**: a replaceable gateway is not the same thing as a tuned cloud model or an evaluated promotion process. Active knowledge text can reach Agent 1, but that copy is an unfiltered context append, not targeted retrieval with contraindication filtering, content-version audit or a rehearsed rollback.
 
 ### G8 — Pilot readiness
 
@@ -229,7 +230,8 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [~] PM-006 Resource-level authorization matrix and comprehensive negative tests.
 - [x] ~~PM-007 Split consent purposes and enforce linguistic-analysis revocation.~~
 - [~] PM-008 ModelRun audit with prompt/model/policy/content versions.
-- [~] PM-009 RAG curated knowledge registry foundation (not connected to the LLM).
+- [~] PM-009 RAG curated knowledge registry foundation.
+  - Progress: active, unexpired items are copied into Agent 1 context. That path is not targeted, does not apply contraindications, and `ModelRun` does not store content versions.
 - [~] PM-010 Production observability and correlation IDs end-to-end.
 - [ ] PM-011 Backup/restore and migration rehearsal.
 
@@ -239,7 +241,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
   - First vNext UI pass is now in the patient dashboard: lower-burden check-in, current-state framing, one proportionate suggested action and “No ahora”.
 - [ ] PM-013 Weekly review user experience.
 - [~] PM-014 Improved trend/baseline visualisation.
-  - Trends now foreground personal trajectory, baseline context and reading guidance.
+  - Trends now foreground personal trajectory, baseline context and reading guidance. An uncalculated comparison is described as missing data, including that a missing calculation is not evidence that things are fine.
 - [ ] PM-015 Context annotation/correction.
 - [~] PM-016 Intervention feedback (data/API foundation exists; UX loop missing).
 - [~] PM-017 Wave/urge surfing (legacy feature exists; visual refresh applied; vNext integration incomplete).
