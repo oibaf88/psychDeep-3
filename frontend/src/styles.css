@@ -149,7 +149,6 @@ textarea,
 .tab,
 .meta,
 .chip,
-.ps-chip,
 .badge,
 label,
 nav,
@@ -267,11 +266,6 @@ main {
 
 .page h1 {
   margin-bottom: 4px;
-}
-
-.subtitle {
-  color: var(--ink-muted);
-  margin-top: 0;
 }
 
 .card {
@@ -1099,10 +1093,6 @@ button:disabled {
   color: var(--ink-muted);
 }
 
-.role-hint ul {
-  margin-bottom: 0;
-}
-
 .alert-snippet {
   padding: 8px 10px;
   margin: 8px 0;
@@ -1153,38 +1143,6 @@ button.linkish {
   border-color: var(--primary);
 }
 
-.risk-banner-grid {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr auto;
-  gap: 16px;
-  align-items: start;
-}
-
-@media (max-width: 700px) {
-  .risk-banner-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.risk-level {
-  font-size: 1.6rem;
-  font-weight: 700;
-}
-
-.risk-banner.level-3,
-.risk-banner.level-4 {
-  border-left: 6px solid var(--danger);
-}
-
-.risk-banner.level-2 {
-  border-left: 6px solid var(--warning);
-}
-
-.risk-banner.level-0,
-.risk-banner.level-1 {
-  border-left: 6px solid var(--success);
-}
-
 .level-pill {
   display: inline-block;
   padding: 2px 8px;
@@ -1225,7 +1183,6 @@ button.linkish {
 
 /* Clinical traceability -------------------------------------------------- */
 
-.trace-integrity-note,
 .trace-legacy-note {
   border-left: 4px solid var(--primary);
   background: var(--surface-2);
@@ -2857,28 +2814,6 @@ tr.row-highlight {
 }
 
 /* ------------------------------------------- runtime LLM endpoint (Ajustes) */
-/* The Settings screen is the one place a person chooses which model serves
-   the app, so the active endpoint is stated as a fact before the form that
-   changes it — you should be able to answer "what is running right now?"
-   without reading a single input. */
-
-.llm-active {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  margin: 12px 0 16px;
-  background: var(--surface-2);
-}
-
-.llm-active-label {
-  display: block;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-muted);
-  margin-bottom: 2px;
-}
-
 .llm-active-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -2896,67 +2831,6 @@ tr.row-highlight {
   margin: 0;
   font-size: 0.9rem;
   overflow-wrap: anywhere;
-}
-
-.llm-provider-choice {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.llm-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
-  margin: 0;
-  cursor: pointer;
-  font-weight: 400;
-}
-
-.llm-option.is-selected {
-  border-color: var(--primary);
-  box-shadow: inset 0 0 0 1px var(--primary);
-}
-
-.llm-option input {
-  width: auto;
-  margin: 3px 0 0;
-  flex: 0 0 auto;
-}
-
-.llm-option span {
-  display: block;
-}
-
-.llm-option strong {
-  display: block;
-  font-size: 0.92rem;
-}
-
-.llm-presets {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.btn-chip {
-  background: transparent;
-  color: inherit;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px 12px;
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.btn-chip:hover {
-  border-color: var(--primary);
 }
 
 /* The form fields carry their own hint text, so they need a block wrapper

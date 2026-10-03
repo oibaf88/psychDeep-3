@@ -1,21 +1,7 @@
 // VITE_API_BASE_URL is the only deployed API source. Legacy localStorage
 // overrides are ignored so a bad saved host cannot lock users out.
-const API_BASE_KEY = "psychapp_api_base";
-
 export function getApiBase(): string {
   return (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
-}
-
-export function getLegacyApiBaseOverride(): string {
-  return (localStorage.getItem(API_BASE_KEY) || "").trim();
-}
-
-export function clearLegacyApiBaseOverride() {
-  localStorage.removeItem(API_BASE_KEY);
-}
-
-export function setApiBase(_url: string | null) {
-  clearLegacyApiBaseOverride();
 }
 
 export function getToken(): string | null {

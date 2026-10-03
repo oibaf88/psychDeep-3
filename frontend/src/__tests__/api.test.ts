@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   getApiBase,
-  getLegacyApiBaseOverride,
-  clearLegacyApiBaseOverride,
-  setApiBase,
   getToken,
   setToken,
   formatDateTime,
@@ -38,29 +35,6 @@ describe('api base functions', () => {
     it('should return empty string if VITE_API_BASE_URL is not set', () => {
       vi.stubEnv('VITE_API_BASE_URL', '');
       expect(getApiBase()).toBe('');
-    });
-  });
-
-  describe('Legacy API Base Override', () => {
-    it('should return legacy override from localStorage', () => {
-      localStorage.setItem('psychapp_api_base', ' http://legacy.local ');
-      expect(getLegacyApiBaseOverride()).toBe('http://legacy.local');
-    });
-
-    it('should return empty string if legacy override is not set', () => {
-      expect(getLegacyApiBaseOverride()).toBe('');
-    });
-
-    it('should clear legacy override', () => {
-      localStorage.setItem('psychapp_api_base', 'http://legacy.local');
-      clearLegacyApiBaseOverride();
-      expect(localStorage.getItem('psychapp_api_base')).toBeNull();
-    });
-
-    it('should clear legacy override when setApiBase is called', () => {
-      localStorage.setItem('psychapp_api_base', 'http://legacy.local');
-      setApiBase('http://new.local');
-      expect(localStorage.getItem('psychapp_api_base')).toBeNull();
     });
   });
 
