@@ -28,7 +28,7 @@ def send_message(payload: ChatIn, db: Session = Depends(get_db), user: User = De
     return ChatOut(**result)
 
 
-@chatgpt_router.post("", response_model=ChatOut)
+@chatgpt_router.post("", response_model=ChatOut, name="send_message")
 def send_message_openai(payload: ChatIn, db: Session = Depends(get_db), user: User = Depends(require_patient)):
     """Run the normal PsychDeep clinical conversation pipeline using OpenAI."""
     materialize_user_declaration(db, user.id, payload.message)

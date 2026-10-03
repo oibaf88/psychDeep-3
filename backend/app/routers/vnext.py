@@ -47,9 +47,6 @@ class FeedbackIn(BaseModel):
     reason: str | None = Field(default=None, max_length=2000)
 
 
-
-
-
 @router.post("/observations", status_code=201)
 def create_observation(
     payload: ObservationIn,
