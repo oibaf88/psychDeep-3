@@ -20,7 +20,6 @@ from sqlalchemy import text
 
 from app.database import SessionLocal
 from app.services.llm.base import ProviderMetadata
-from app.services.llm_usage_context import current_context_budget
 
 logger = logging.getLogger("psychapp.llm_usage")
 
@@ -55,7 +54,6 @@ def record_usage_safely(
     error_kind: str | None = None,
 ) -> None:
     """Persist one provider attempt, swallowing accounting-only failures."""
-    context = current_context_budget()
     values: dict[str, Any] = {
         "id": str(uuid.uuid4()),
         "call_kind": call_kind,
@@ -84,10 +82,12 @@ def record_usage_safely(
         "schema_chars": schema_chars,
         "latency_ms": metadata.latency_ms,
         "error_kind": error_kind,
-        "context_budget_tokens": context.budget_tokens if context else None,
-        "estimated_input_tokens": context.estimated_input_tokens if context else None,
-        "context_truncated": context.truncated if context else False,
-        "context_message_count": context.message_count if context else None,
+        # Context-budget telemetry columns exist in the ledger but no call
+        # site records them yet; they are written as empty.
+        "context_budget_tokens": None,
+        "estimated_input_tokens": None,
+        "context_truncated": False,
+        "context_message_count": None,
         "created_at": datetime.now(timezone.utc),
     }
     statement = text(

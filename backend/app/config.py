@@ -82,7 +82,6 @@ class Settings(BaseSettings):
     openai_timeout_seconds: int = 120
     openai_chat_effort: str = "medium"
     openai_analysis_effort: str = "high"
-    openai_copilot_effort: str = "medium"
 
     # Legacy compatibility inputs plus the deployment-level runtime-switch
     # gate. False remains the fail-safe library default; production Render sets
@@ -140,14 +139,11 @@ class Settings(BaseSettings):
     # --- Token-efficient conversational context --------------------------
     # These budgets bound what reaches the model as the longitudinal history
     # grows. They do not delete or alter stored clinical history.
-    conversation_context_budget_tokens: int = 12000
     conversation_history_budget_tokens: int = 4000
     conversation_context_block_budget_tokens: int = 6500
     conversation_max_history_messages: int = 12
-    conversation_max_output_tokens: int = 1536
 
     # --- App --------------------------------------------------------------
-    app_locale: str = "es-ES"
     app_env: str = "local"
     allow_mock_google_login: bool = False
 

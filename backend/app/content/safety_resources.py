@@ -32,17 +32,6 @@ CRISIS_RESOURCES = [
     },
 ]
 
-# Exact copy from doc 16 (Nivel 4 - variant when context is chemsex/consumption)
-CRISIS_RESOURCES_CHEMSEX_VARIANT = [
-    {"name": "112", "description": "Emergencias", "contact": "112"},
-    {"name": "Línea 024", "description": "Atención a la conducta suicida", "contact": "024"},
-    {
-        "name": "Centro Sanitario Sandoval / Red CAD",
-        "description": "Según disponibilidad",
-        "contact": "ver recursos",
-    },
-]
-
 # ----------------------------------------------------------------------
 # Exact, server-owned message templates (doc 15 & doc 16). The LLM may
 # only add a short warm sentence around these; it must never rewrite them.
@@ -54,20 +43,6 @@ LEVEL4_PATIENT_MESSAGE = (
     "• Línea 024 (atención a la conducta suicida)\n"
     "• 112 (emergencias)\n\n"
     "No estás solo. Puedo quedarme aquí contigo mientras haces la llamada."
-)
-
-LEVEL4_PATIENT_MESSAGE_SECONDARY = (
-    "Si estás en peligro inmediato, llama al 112.\n"
-    "Si necesitas hablar con alguien especializado en conducta suicida, llama al 024.\n"
-    "Estoy aquí mientras contactas con ellos."
-)
-
-LEVEL4_PATIENT_MESSAGE_CHEMSEX_VARIANT = (
-    "Si estás en una crisis de consumo o te sientes fuera de control, contacta ahora con:\n"
-    "• 112\n"
-    "• Línea 024\n"
-    "• Centro Sanitario Sandoval / Red CAD (según disponibilidad)\n\n"
-    "Tu seguridad es lo primero."
 )
 
 LEVEL3_PATIENT_MESSAGE = (

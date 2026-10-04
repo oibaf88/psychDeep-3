@@ -457,32 +457,6 @@ select:focus-visible {
   font-weight: 650;
 }
 
-.wave-phase {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 8px 11px;
-  border-radius: 999px;
-  background: rgba(126, 168, 247, 0.08);
-  color: var(--ink-soft);
-  border: 1px solid rgba(126, 168, 247, 0.12);
-  font-size: 0.82rem;
-}
-
-.wave-phase__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--pd-calm-teal);
-  box-shadow: 0 0 0 4px rgba(118, 205, 189, 0.08);
-}
-
-.wave-phase--crest .wave-phase__dot {
-  background: var(--pd-calm-warm);
-  box-shadow: 0 0 0 4px rgba(233, 201, 130, 0.10);
-}
-
 .wave-visual.wave-visual--swell {
   margin-top: 18px;
   height: clamp(230px, 34vw, 320px);

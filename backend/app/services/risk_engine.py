@@ -19,6 +19,7 @@ from app.services import baseline as baseline_service
 from app.services import notifications as notification_service
 from app.services import profile as profile_service
 from app.services import psychosocial as psychosocial_service
+from app.utils import utc_iso as _utc_iso
 
 MODEL_VERSION = "risk-engine-v1.5"
 
@@ -307,9 +308,9 @@ def _trace_rule(code: str, level: int, label: str, conditions: list[dict], match
 def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> RiskDecision:
     """Evaluate every deterministic rule and keep the intermediate results.
 
-    Every rule outcome is recorded, then the first match is selected. The
-    ordering and the final level are the reviewed cascade, and a clinician
-    can inspect the complete calculation.
+    Rather than returning at the first matching rule, this function records
+    all rule outcomes and then selects the first match, so clinicians can
+    inspect the complete calculation.
     """
 
     evaluated_at = datetime.utcnow()
@@ -1152,6 +1153,15 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
         input_facts=input_facts,
         calculation_trace=calculation_trace,
         linguistic_signal_id=ling["_signal_uuid"],
+    )
+
+
+def latest_assessment(db: Session, user_id) -> RiskAssessment | None:
+    return (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.user_id == user_id)
+        .order_by(RiskAssessment.calculated_at.desc())
+        .first()
     )
 
 

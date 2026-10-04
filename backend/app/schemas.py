@@ -1,16 +1,14 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Annotated, Any, Optional
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_serializer, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, PlainSerializer, StringConstraints, field_validator
 
+from app.utils import utc_iso as _utc_iso
 
-def _utc_iso(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
+# Legacy naive DB timestamps are serialized explicitly as UTC ISO-8601 strings.
+UtcDateTime = Annotated[datetime, PlainSerializer(lambda value: _utc_iso(value) or "", return_type=str)]
+OptionalUtcDateTime = Annotated[datetime | None, PlainSerializer(_utc_iso, return_type=str | None)]
 
 
 # ---------------------------------------------------------------- auth ----
@@ -92,8 +90,6 @@ class GoogleLoginRequest(BaseModel):
     role: str = "patient"
 
 
-
-
 # ------------------------------------------------------------- consents ----
 class ConsentIn(BaseModel):
     consent_type: str
@@ -109,7 +105,6 @@ class ConsentOut(BaseModel):
     revoked_at: Optional[datetime]
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 # ------------------------------------------------------------- check-ins ---
@@ -383,7 +378,7 @@ class RiskAssessmentOut(BaseModel):
     confidence: Optional[float] = None
     assessment_reason: str
     model_version: str
-    calculated_at: datetime
+    calculated_at: UtcDateTime
     generated_alert_id: Optional[uuid.UUID] = None
     correlation_id: Optional[uuid.UUID] = None
     agent2_trace_id: Optional[uuid.UUID] = None
@@ -395,24 +390,16 @@ class RiskAssessmentOut(BaseModel):
     # production startup stays warning-free.
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
-    @field_serializer("calculated_at")
-    def serialize_calculated_at(self, value: datetime) -> str:
-        return _utc_iso(value) or ""
-
 
 class SignalOut(BaseModel):
     id: uuid.UUID
     signal_type: str
     value: Any
     confidence_band: Optional[str] = None
-    timestamp: datetime
+    timestamp: UtcDateTime
     agent2_trace_id: Optional[uuid.UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("timestamp")
-    def serialize_timestamp(self, value: datetime) -> str:
-        return _utc_iso(value) or ""
 
 
 class Agent2AnalysisTraceOut(BaseModel):
@@ -447,16 +434,12 @@ class Agent2AnalysisTraceOut(BaseModel):
     error_code: Optional[str] = None
     http_status: Optional[int] = None
     app_release: str
-    started_at: datetime
-    completed_at: Optional[datetime] = None
+    started_at: UtcDateTime
+    completed_at: OptionalUtcDateTime = None
     analysis: Optional[Any] = None
     signal_id: Optional[uuid.UUID] = None
     risk_assessment_id: Optional[uuid.UUID] = None
     used_by_risk_engine: bool = False
-
-    @field_serializer("started_at", "completed_at")
-    def serialize_trace_timestamps(self, value: datetime | None) -> str | None:
-        return _utc_iso(value)
 
 
 # ------------------------------------------------- clinical explanations ---
@@ -479,13 +462,9 @@ class PatientChatMessageOut(BaseModel):
     prompt_sha256: Optional[str] = None
     context_version: Optional[str] = None
     context_sha256: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("created_at")
-    def serialize_created_at(self, value: datetime) -> str:
-        return _utc_iso(value) or ""
 
 
 class LevelExplanationOut(BaseModel):
@@ -792,13 +771,9 @@ class CopilotMessageOut(BaseModel):
     context_window_days: Optional[int] = None
     context_counts: Optional[dict[str, Any]] = None
     error_kind: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("created_at")
-    def serialize_created_at(self, value: datetime) -> str:
-        return _utc_iso(value) or ""
 
 
 class PatientDossierOut(BaseModel):

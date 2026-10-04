@@ -6,7 +6,6 @@ Risk/safety remains on /api/v1/safety/evaluate via the risk engine.
 """
 from __future__ import annotations
 
-import logging
 import statistics
 import uuid
 from dataclasses import dataclass, field
@@ -24,15 +23,20 @@ from app.models_vnext import (
     FeatureValue,
     Observation,
 )
-from app.services.baseline import _deviation_band, _finite_number, _mean_std
+from app.services.baseline import (
+    BASELINE_WINDOW_DAYS,
+    RECENT_WINDOW_DAYS,
+    STD_FLOORS,
+    _deviation_band,
+    _finite_number,
+    _mean_std,
+)
+from app.utils import as_utc as _utc
 
 ALGORITHM_VERSION = "canonical-structural-v1"
 FEATURE_VERSION = "v1"
 
-BASELINE_WINDOW_DAYS = 21
-RECENT_WINDOW_DAYS = 7
 MIN_OBS_FOR_BASELINE = 5
-BASELINE_MAX_AGE_DAYS = 21
 
 # Observation.type values dual-written from check-ins.
 OBSERVATION_TYPES = ("mood", "craving", "sleep_hours", "self_efficacy")
@@ -44,10 +48,7 @@ AXIS_FOR_TYPE = {
     "sleep_hours": "sleep_hours",
     "self_efficacy": "self_efficacy",
 }
-TYPE_FOR_AXIS = {v: k for k, v in AXIS_FOR_TYPE.items()}
 AXES = ("mood", "craving_inv", "sleep_hours", "self_efficacy")
-
-STD_FLOORS = {"mood": 1.0, "craving_inv": 1.0, "sleep_hours": 0.5, "self_efficacy": 1.0}
 
 
 @dataclass
@@ -108,14 +109,6 @@ class CanonicalAnalyticsResult:
             ],
             "detail": self.detail,
         }
-
-
-def _utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 def _now_utc(now: datetime | None) -> datetime:

@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -55,6 +55,7 @@ from app.services import agent2_trace
 from app.services import baseline as baseline_service
 from app.services import daily_statistics as daily_statistics_service
 from app.services import psychosocial as psychosocial_service
+from app.utils import utc_iso as _utc_iso
 
 EXCERPT_CHARS = 320
 
@@ -379,13 +380,6 @@ BAND_MEANING = {
     "unstable": "score < 0.35 — los últimos 7 días se alejan mucho de su línea base.",
     "insufficient_data": "no hay línea base personal todavía (mínimo 5 check-ins en 21 días).",
 }
-
-
-def _indexed(db: Session, model, ids) -> dict:
-    """Load rows by primary key. An empty IN () is not a query."""
-    if not ids:
-        return {}
-    return {row.id: row for row in db.query(model).filter(model.id.in_(list(ids))).all()}
 
 
 def _excerpt(text: str | None, limit: int = EXCERPT_CHARS) -> str:
@@ -1397,7 +1391,6 @@ def evidence_for_assessment(
             trace = None
 
         if trace and trace.user_id == assessment.user_id:
-            source_model = ChatMessage if trace.source_type == "chat_message" else DiaryEntry
             source_id = trace.chat_message_id or trace.diary_entry_id
             if source_id:
                 if trace.source_type == "chat_message":

@@ -1,21 +1,7 @@
 // VITE_API_BASE_URL is the only deployed API source. Legacy localStorage
 // overrides are ignored so a bad saved host cannot lock users out.
-const API_BASE_KEY = "psychapp_api_base";
-
 export function getApiBase(): string {
   return (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
-}
-
-export function getLegacyApiBaseOverride(): string {
-  return (localStorage.getItem(API_BASE_KEY) || "").trim();
-}
-
-export function clearLegacyApiBaseOverride() {
-  localStorage.removeItem(API_BASE_KEY);
-}
-
-export function setApiBase(_url: string | null) {
-  clearLegacyApiBaseOverride();
 }
 
 export function getToken(): string | null {
@@ -521,27 +507,6 @@ export interface PsychosocialExplanationOut {
   active_count: number;
   confirmed_count: number;
   refuted_count: number;
-}
-
-export interface PsychosocialObservationOut {
-  id: string;
-  domain: string;
-  domain_label: string;
-  category: string;
-  category_label: string;
-  valence: "risk" | "protective" | "neutral";
-  intensity: number;
-  confidence: number;
-  is_change: boolean;
-  status: "inferred" | "confirmed" | "refuted";
-  summary: string;
-  evidence_quote: string;
-  source_type: string;
-  source_label: string;
-  source_id?: string | null;
-  adjudication_note?: string | null;
-  adjudicated_at?: string | null;
-  observed_at?: string | null;
 }
 
 export interface PsychosocialPoint {

@@ -5,7 +5,6 @@ frontend migrates, so no historical data is reinterpreted or made unreadable.
 """
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,8 +13,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import RiskAssessment, User
-from app.models_vnext import ChangeSignal, InterventionEvent, Observation
+from app.models import User
+from app.models_vnext import BaselineVersion, ChangeSignal, InterventionEvent, Observation
 from app.security import get_current_user, require_patient
 from app.services import conversation, risk_engine
 from app.services.canonical_analytics import run_canonical_analytics
@@ -52,15 +51,6 @@ class FeedbackIn(BaseModel):
     state: str = Field(pattern="^(accepted|rejected|postponed|completed)$")
     usefulness: int | None = Field(default=None, ge=1, le=5)
     reason: str | None = Field(default=None, max_length=2000)
-
-
-def _latest_risk(db: Session, user_id) -> RiskAssessment | None:
-    return (
-        db.query(RiskAssessment)
-        .filter(RiskAssessment.user_id == user_id)
-        .order_by(RiskAssessment.calculated_at.desc())
-        .first()
-    )
 
 
 @router.post("/observations", status_code=201)
@@ -113,7 +103,7 @@ def current_state(db: Session = Depends(get_db), user: User = Depends(require_pa
         .limit(20)
         .all()
     )
-    risk = _latest_risk(db, user.id)
+    risk = risk_engine.latest_assessment(db, user.id)
     latest_by_type: dict[str, dict[str, Any]] = {}
     for row in recent:
         latest_by_type.setdefault(
@@ -201,7 +191,7 @@ def support_respond(payload: SupportIn, db: Session = Depends(get_db), user: Use
 @router.get("/review/weekly")
 def weekly_review(db: Session = Depends(get_db), user: User = Depends(require_patient)):
     timeline = build_patient_timeline(db, user.id, 7)
-    risk = _latest_risk(db, user.id)
+    risk = risk_engine.latest_assessment(db, user.id)
     return {
         "window_days": 7,
         "timeline": timeline,
