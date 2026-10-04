@@ -107,32 +107,32 @@ export default function AccountPage() {
         <h2>Datos de usuario</h2>
         <form className="auth-form" onSubmit={saveProfile}>
           <div className="account-grid">
-            <label>
-              Nombre
-              <input value={firstName} onChange={(e) => setFirstName(e.target.value)} required maxLength={100} autoComplete="given-name" />
+            <label htmlFor="account-first-name">
+              Nombre <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+              <input id="account-first-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} required maxLength={100} autoComplete="given-name" />
             </label>
-            <label>
+            <label htmlFor="account-last-name">
               Apellidos
-              <input value={lastName} onChange={(e) => setLastName(e.target.value)} maxLength={150} autoComplete="family-name" />
+              <input id="account-last-name" value={lastName} onChange={(e) => setLastName(e.target.value)} maxLength={150} autoComplete="family-name" />
             </label>
           </div>
-          <label>
-            Correo de acceso
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+          <label htmlFor="account-email">
+            Correo de acceso <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+            <input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
           </label>
           <p className="meta">Para cambiar el correo, confirma la contraseña actual. El cambio queda registrado en auditoría.</p>
-          <label>
+          <label htmlFor="account-email-password">
             Contraseña actual para confirmar el correo (solo si lo cambias)
-            <input type="password" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} autoComplete="current-password" />
+            <input id="account-email-password" type="password" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} autoComplete="current-password" />
           </label>
           <div className="account-grid">
-            <label>
+            <label htmlFor="account-phone">
               Teléfono
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" />
+              <input id="account-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" />
             </label>
-            <label>
+            <label htmlFor="account-locale">
               Idioma
-              <select value={locale} onChange={(e) => setLocale(e.target.value)}>
+              <select id="account-locale" value={locale} onChange={(e) => setLocale(e.target.value)}>
                 <option value="es-ES">Español</option>
                 <option value="en">English</option>
               </select>
@@ -146,17 +146,17 @@ export default function AccountPage() {
         <h2>Cambiar contraseña</h2>
         <p className="meta">Usa al menos 12 caracteres y un máximo de 72 bytes. Al guardarla se cerrará la sesión en todos los dispositivos.</p>
         <form className="auth-form" onSubmit={savePassword}>
-          <label>
-            Contraseña actual
-            <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required autoComplete="current-password" />
+          <label htmlFor="account-current-password">
+            Contraseña actual <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+            <input id="account-current-password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required autoComplete="current-password" />
           </label>
-          <label>
-            Nueva contraseña
-            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={12} maxLength={256} autoComplete="new-password" />
+          <label htmlFor="account-new-password">
+            Nueva contraseña <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+            <input id="account-new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={12} maxLength={256} autoComplete="new-password" />
           </label>
-          <label>
-            Confirmar nueva contraseña
-            <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={12} maxLength={256} autoComplete="new-password" />
+          <label htmlFor="account-confirm-password">
+            Confirmar nueva contraseña <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+            <input id="account-confirm-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={12} maxLength={256} autoComplete="new-password" />
           </label>
           <button type="submit" disabled={!!busy}>{busy === "password" ? "Actualizando…" : "Cambiar contraseña"}</button>
         </form>

@@ -35,17 +35,17 @@ export default function RegisterPage() {
     <div className="auth-page">
       <h1>Crear cuenta</h1>
       <form onSubmit={onSubmit} className="auth-form">
-        <label>
-          Nombre
-          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required maxLength={255} autoComplete="name" />
+        <label htmlFor="register-name">
+          Nombre <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+          <input id="register-name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required maxLength={255} autoComplete="name" />
         </label>
-        <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+        <label htmlFor="register-email">
+          Email <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+          <input id="register-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
         </label>
-        <label>
-          Contraseña (mínimo 12 caracteres)
-          <input type="password" minLength={12} maxLength={256} value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" />
+        <label htmlFor="register-password">
+          Contraseña (mínimo 12 caracteres) <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+          <input id="register-password" type="password" minLength={12} maxLength={256} value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" />
         </label>
         <p className="info">
           El registro publico crea cuentas de paciente. Las cuentas profesionales se provisionan de forma interna.
