@@ -166,6 +166,7 @@ The original master specification stated that only Ops/ML promotion should chang
 - Patient, therapist and supervisor must not mutate provider configuration.
 - Switching must be authenticated, audited and must never expose credentials.
 - There is still no silent fallback.
+- The clinical admin's saved Codex / ChatGPT or Anthropic connection is the inference connection for patient chat, analysis and the professional copilot. A local LM Studio connection stays on the account that saved its own key. Patient chat must not keep using an old tunnel selection after Codex or Anthropic is saved.
 
 Agents must not “fix” this back to read-only model settings unless a later product-owner decision/ADR reverses it.
 
