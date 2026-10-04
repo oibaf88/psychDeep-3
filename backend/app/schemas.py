@@ -350,11 +350,27 @@ class LongitudinalStateOut(BaseModel):
     limits: list[str] = Field(default_factory=list)
 
 
+class AssignmentLinkOut(BaseModel):
+    """One patient–professional link. Operational status only: no chart data."""
+
+    id: uuid.UUID
+    professional_id: uuid.UUID
+    professional_display_name: Optional[str] = None
+    professional_email: Optional[str] = None
+    status: str
+    requested_at: datetime
+    updated_at: Optional[datetime] = None
+
+
 class PatientSummaryOut(BaseModel):
     id: uuid.UUID
     display_name: str
     email: EmailStr
     assignment_status: str
+    # Pending and done links. Empty when this response is a therapist's own
+    # row (that row already carries assignment_status) or when the patient
+    # has no links. Not a RiskAssessment and not a ChangeSignal.
+    assignments: list[AssignmentLinkOut] = Field(default_factory=list)
     latest_alert_level: Optional[int] = None
     latest_structural_score: Optional[float] = None
     latest_confidence_band: Optional[str] = None

@@ -136,6 +136,7 @@ Why G4 is **not complete**: the patient still experiences much of the old applic
 ### G5 — Professional / human collaboration loop
 
 - [~] Preserve assignment-based authorised access and professional roles.
+  - `admin_clinical` can read each patient's assignment lifecycle, split into pending and done, from the roster, Asignaciones and the selected user. That read stays free of clinical signals, alerts and dossier access. Negative tests cover a patient or therapist using the same filter to read someone else's links. Chart access for `admin_clinical` stays closed.
 - [~] Preserve longitudinal patient history access for authorised clinicians.
 - [ ] Redesign the professional patient view around longitudinal trajectory, baseline, ChangeSignals, evidence, uncertainty, assessment trace, interventions and outcomes.
 - [ ] Implement a structured **session preparation summary** derived from authorised structured data, with evidence and limitations.

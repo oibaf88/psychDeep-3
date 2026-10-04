@@ -198,11 +198,23 @@ export interface LongitudinalStateOut {
   limits?: string[];
 }
 
+export interface AssignmentLinkOut {
+  id: string;
+  professional_id: string;
+  professional_display_name?: string | null;
+  professional_email?: string | null;
+  status: string;
+  requested_at: string;
+  updated_at?: string | null;
+}
+
 export interface PatientSummaryOut {
   id: string;
   display_name: string;
   email: string;
   assignment_status: string;
+  /** Pending and done professional links. Absent or empty is not a clinical score. */
+  assignments?: AssignmentLinkOut[];
   latest_alert_level?: number | null;
   latest_structural_score?: number | null;
   latest_confidence_band?: string | null;
@@ -839,6 +851,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 };
 
 export const ASSIGNMENT_STATUS_LABELS: Record<string, string> = {
+  none: "Sin asignación",
   pending: "Pendiente de aceptación",
   active: "Activa",
   paused: "Pausada",
