@@ -6,6 +6,7 @@ Risk/safety remains on /api/v1/safety/evaluate via the risk engine.
 """
 from __future__ import annotations
 
+import logging
 import statistics
 import uuid
 from dataclasses import dataclass, field
