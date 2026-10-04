@@ -179,6 +179,7 @@ export default function CopilotPanel({
 
       <form className="chat-input-row" onSubmit={onSubmit}>
         <input
+          aria-label="Pregunta al copiloto"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Pregunta algo sobre este paciente…"

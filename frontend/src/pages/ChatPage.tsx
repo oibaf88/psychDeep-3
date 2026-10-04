@@ -125,7 +125,7 @@ export default function ChatPage() {
         <div ref={bottomRef} />
       </div>
       <form onSubmit={onSubmit} className="chat-input-row">
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Escribe un mensaje..." disabled={busy} />
+        <input aria-label="Escribe tu mensaje" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Escribe un mensaje..." disabled={busy} />
         <button type="submit" disabled={busy || !input.trim()}>
           {busy ? "Esperando…" : "Enviar"}
         </button>
