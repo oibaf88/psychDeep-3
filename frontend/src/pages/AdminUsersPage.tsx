@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ROLE_LABELS, type UserRole } from "../api";
+import { Link } from "react-router-dom";
+import { api, ROLE_LABELS, type AssignmentOut, type UserRole } from "../api";
 import { useAuth } from "../auth/AuthContext";
+import { partitionAssignments, professionalLinkLabel } from "./assignmentGroups";
 
 type ProvisionableRole = Exclude<UserRole, "patient">;
 
@@ -51,6 +53,8 @@ export default function AdminUsersPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [provisionRole, setProvisionRole] = useState<ProvisionableRole>("therapist");
+  const [patientAssignments, setPatientAssignments] = useState<AssignmentOut[] | null>(null);
+  const [assignmentsError, setAssignmentsError] = useState<string | null>(null);
 
   async function load() {
     setError(null);
@@ -65,14 +69,33 @@ export default function AdminUsersPage() {
     void load();
   }, []);
 
+  async function loadPatientAssignments(user: AdminUserOut) {
+    if (user.role !== "patient") {
+      setPatientAssignments(null);
+      setAssignmentsError(null);
+      return;
+    }
+    try {
+      const rows = await api.get<AssignmentOut[]>(`/api/v1/assignments/mine?patient_id=${user.id}`);
+      setPatientAssignments(rows);
+      setAssignmentsError(null);
+    } catch (e) {
+      setPatientAssignments([]);
+      setAssignmentsError((e as Error).message);
+    }
+  }
+
   async function selectUser(user: AdminUserOut) {
     setBusy(`select:${user.id}`);
     setError(null);
     setNotice(null);
+    setPatientAssignments(null);
+    setAssignmentsError(null);
     try {
       const document = await api.get<AdminUserPermissionsOut>(`/api/v1/admin/users/${user.id}/permissions`);
       setSelected(document);
       setDraftRole(document.user.role);
+      await loadPatientAssignments(document.user);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -123,6 +146,7 @@ export default function AdminUsersPage() {
       const document = await api.get<AdminUserPermissionsOut>(`/api/v1/admin/users/${updated.id}/permissions`);
       setSelected(document);
       setDraftRole(document.user.role);
+      await loadPatientAssignments(document.user);
       setNotice(`Rol actualizado: ${updated.email} → ${ROLE_LABELS[updated.role]}.`);
     } catch (e) {
       setDraftRole(selected.user.role);
@@ -200,7 +224,7 @@ export default function AdminUsersPage() {
     <div className="page">
       <h1>Gestión de usuarios</h1>
       <p className="subtitle">
-        Selecciona una cuenta para ver únicamente sus opciones de acceso y su documento de permisos. No se muestra aquí ningún dato clínico.
+        Selecciona una cuenta para ver sus permisos. Si es un paciente, aquí también ves sus asignaciones clínicas pendientes y hechas, sin expediente, alertas ni señales.
       </p>
 
       {error && <p className="error" role="alert">{error}</p>}
@@ -271,6 +295,15 @@ export default function AdminUsersPage() {
               </div>
               <p className="meta">Idioma: {selected.user.locale} · creada: {new Date(selected.user.created_at).toLocaleString()}</p>
 
+              {selected.user.role === "patient" && (
+                <PatientAssignmentList
+                  userId={selected.user.id}
+                  displayName={selected.user.display_name}
+                  rows={patientAssignments}
+                  error={assignmentsError}
+                />
+              )}
+
               <h3>Permisos efectivos</h3>
               <ul className="permission-list">
                 {selected.permissions.map((permission) => <li key={permission}>{permission}</li>)}
@@ -312,11 +345,58 @@ export default function AdminUsersPage() {
                 {selected.can_restore && <button type="button" disabled={busy !== null} onClick={() => void changeAccess("restore")}>Restaurar acceso</button>}
               </div>
               {selectedIsSelf && <p className="meta no-print">Tu propio acceso y rol están protegidos para evitar un bloqueo administrativo accidental.</p>}
-              <p className="print-only meta">Documento generado desde PsychDeep. No contiene datos clínicos ni contraseñas.</p>
+              <p className="print-only meta">Documento generado desde PsychDeep. No contiene expediente, alertas, señales ni contraseñas.</p>
             </>
           )}
         </section>
       </section>
     </div>
+  );
+}
+
+function PatientAssignmentList({
+  userId,
+  displayName,
+  rows,
+  error,
+}: {
+  userId: string;
+  displayName: string;
+  rows: AssignmentOut[] | null;
+  error: string | null;
+}) {
+  const { pending, done } = partitionAssignments(rows ?? []);
+  const href = `/professional/assignments?${new URLSearchParams({ patient: userId, nombre: displayName }).toString()}`;
+  return (
+    <section aria-label="Asignaciones clínicas de la cuenta">
+      <h3>Asignaciones clínicas</h3>
+      <p className="meta">Pendientes y hechas. No incluye el expediente, las alertas ni las señales.</p>
+      {error && <p className="error" role="alert">{error}</p>}
+      {rows === null ? (
+        <p className="meta">Cargando asignaciones…</p>
+      ) : (
+        <>
+          <h4>Pendientes</h4>
+          {pending.length === 0 ? (
+            <p className="info">Ninguna pendiente.</p>
+          ) : (
+            <ul className="plain-list">
+              {pending.map((row) => <li key={row.id}>{professionalLinkLabel(row)}</li>)}
+            </ul>
+          )}
+          <h4>Hechas</h4>
+          {done.length === 0 ? (
+            <p className="info">Ninguna hecha.</p>
+          ) : (
+            <ul className="plain-list">
+              {done.map((row) => <li key={row.id}>{professionalLinkLabel(row)}</li>)}
+            </ul>
+          )}
+          <p className="no-print">
+            <Link to={href}>Abrir el detalle de asignaciones</Link>
+          </p>
+        </>
+      )}
+    </section>
   );
 }
