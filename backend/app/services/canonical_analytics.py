@@ -15,8 +15,6 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-logger = logging.getLogger("psychapp.trajectory")
-
 from app.models_vnext import (
     BaselineVersion,
     ChangeSignal,
@@ -33,6 +31,8 @@ from app.services.baseline import (
     _mean_std,
 )
 from app.utils import as_utc as _utc
+
+logger = logging.getLogger("psychapp.trajectory")
 
 ALGORITHM_VERSION = "canonical-structural-v1"
 FEATURE_VERSION = "v1"

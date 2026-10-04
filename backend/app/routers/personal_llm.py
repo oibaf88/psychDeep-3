@@ -17,8 +17,8 @@ class PersonalLLMSettingsIn(BaseModel):
     # None preserves ciphertext, an empty string revokes, nonempty rotates.
     model_config = ConfigDict(extra="forbid")
     provider: str = Field(pattern="^(anthropic|openai|openai_compatible)$")
-    chat_model: str = Field(min_length=1, max_length=192)
-    analysis_model: str = Field(min_length=1, max_length=192)
+    chat_model: str = Field(default="", max_length=192)
+    analysis_model: str = Field(default="", max_length=192)
     copilot_model: str = Field(default="", max_length=192)
     max_tokens: int = Field(default=4096, ge=256, le=32768)
     timeout_seconds: int = Field(default=120, ge=5, le=5000)
@@ -84,13 +84,16 @@ def test_personal_settings(db: Session = Depends(get_db), user: User = Depends(g
         labels = {
             "http_401": "Autenticación rechazada (HTTP 401). Revisa el Service Token de Cloudflare y tu API key de LM Studio.",
             "http_403": "Acceso denegado (HTTP 403) por Cloudflare o LM Studio. Revisa ambas políticas; el código no identifica qué capa lo devolvió.",
-            "http_404": "Ruta o modelo no encontrado (HTTP 404). Revisa el ID real del modelo en LM Studio.",
+            "cloudflare_challenge": "Cloudflare ha interceptado la petición del servidor antes de llegar a LM Studio. Revisa Bot Fight Mode en el hostname del túnel.",
+            "http_404": "Ruta o modelo no encontrado (HTTP 404). Elige el modelo que LM Studio tiene cargado.",
             "http_400": "Solicitud rechazada (HTTP 400). Revisa el modelo y los parámetros admitidos.",
             "local_endpoint_unreachable": "No se alcanza el servidor. Comprueba cloudflared y LM Studio.",
             "local_endpoint_timeout": "Tiempo agotado. Comprueba si el modelo está cargado.",
             "non_json_response": "Respuesta no JSON. Revisa las credenciales del gateway y la ruta del servidor.",
         }
         return {"ok": False, "detail": labels.get(exc.error_code, "El proveedor ha rechazado la prueba. Revisa los registros seguros del backend.")}
+    except personal_llm.LocalModelUnavailable as exc:
+        return {"ok": False, "detail": str(exc)}
     except local_llm_access.LocalLlmAccessDenied:
         return {"ok": False, "detail": "Acceso denegado para usar este proveedor local. Contacta con la administración si crees que es un error."}
     except (ValueError, RuntimeError):

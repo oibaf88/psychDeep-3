@@ -89,8 +89,11 @@ class Settings(BaseSettings):
     llm_default_provider: str = "anthropic"
     llm_openai_compatible_base_url: str = ""
     llm_openai_compatible_api_key: str = ""
-    llm_openai_compatible_chat_model: str = "gemma-2-2b-it"
-    llm_openai_compatible_analysis_model: str = "gemma-2-2b-it"
+    # Empty on purpose. A library default such as gemma-2-2b-it is sent to
+    # LM Studio even after that model is no longer loaded. The account chooses
+    # an id from the live catalog, or inference uses the single loaded model.
+    llm_openai_compatible_chat_model: str = ""
+    llm_openai_compatible_analysis_model: str = ""
     llm_openai_compatible_copilot_model: str = ""
     llm_openai_compatible_timeout_seconds: int = 300
     llm_openai_compatible_max_tokens: int = 8192
