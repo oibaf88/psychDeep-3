@@ -2,10 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Annotated, Any, Optional
 
-from pydantic import (
-    AfterValidator, BaseModel, ConfigDict, EmailStr, Field, PlainSerializer,
-    StringConstraints, field_serializer, field_validator,
-)
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, PlainSerializer, StringConstraints, field_serializer, field_validator
 
 from app.utils import utc_iso as _utc_iso
 
