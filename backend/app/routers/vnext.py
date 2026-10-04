@@ -15,10 +15,16 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import RiskAssessment, User
-from app.models_vnext import BaselineVersion, ChangeSignal, InterventionEvent, Observation
+from app.models_vnext import ChangeSignal, InterventionEvent, Observation
 from app.security import get_current_user, require_patient
 from app.services import conversation, risk_engine
 from app.services.canonical_analytics import run_canonical_analytics
+from app.services.longitudinal_read import (
+    baseline_summary as _baseline_summary,
+    change_signal_summary as _change_signal_summary,
+    current_baseline as _current_baseline,
+    longitudinal_state as _longitudinal_state,
+)
 from app.services.consent import CORE_PROCESSING, is_granted
 from app.services.deterministic_safety_text import materialize_user_declaration
 from app.services.model_gateway import APPROVED_ALIASES, ModelUnavailable, get_model_gateway
@@ -55,80 +61,6 @@ def _latest_risk(db: Session, user_id) -> RiskAssessment | None:
         .order_by(RiskAssessment.calculated_at.desc())
         .first()
     )
-
-
-def _current_baseline(db: Session, user_id) -> BaselineVersion | None:
-    return (
-        db.query(BaselineVersion)
-        .filter(
-            BaselineVersion.user_id == user_id,
-            BaselineVersion.status.in_(["active", "provisional", "frozen"]),
-        )
-        .order_by(BaselineVersion.created_at.desc())
-        .first()
-    )
-
-
-def _baseline_summary(row: BaselineVersion | None) -> dict[str, Any]:
-    """Personal baseline summary. No row is insufficient_data, not a zero baseline."""
-    if row is None:
-        return {"status": "insufficient_data", "baseline": None}
-    return {
-        "status": row.status,
-        "baseline": {
-            "id": str(row.id),
-            "feature": row.feature_key,
-            "window": {"start": row.window_start, "end": row.window_end},
-            "stats": row.stats,
-            "stability": row.stability,
-            "data_coverage": row.data_coverage,
-            "algorithm_version": row.algorithm_version,
-        },
-    }
-
-
-def _change_signal_summary(row: ChangeSignal) -> dict[str, Any]:
-    """ChangeSignal fields only. Unknown change stays null and is not a risk level."""
-    return {
-        "signal_id": str(row.id),
-        "feature": row.feature,
-        "window": {"start": row.window_start, "end": row.window_end},
-        "change": row.change_value,
-        "band": row.band,
-        "uncertainty": row.uncertainty,
-        "evidence_refs": row.evidence_refs,
-        "contradictions": row.contradictions,
-        "baseline_version": str(row.baseline_version_id) if row.baseline_version_id else None,
-        "algorithm_version": row.algorithm_version,
-    }
-
-
-def _latest_relevant_changes(db: Session, user_id, baseline: BaselineVersion | None) -> list[ChangeSignal]:
-    """Newest ChangeSignal per feature attached to the current baseline."""
-    if baseline is None:
-        return []
-    rows = (
-        db.query(ChangeSignal)
-        .filter(
-            ChangeSignal.user_id == user_id,
-            ChangeSignal.baseline_version_id == baseline.id,
-        )
-        .order_by(ChangeSignal.created_at.desc(), ChangeSignal.feature.asc())
-        .all()
-    )
-    latest: dict[str, ChangeSignal] = {}
-    for row in rows:
-        latest.setdefault(row.feature, row)
-    return list(latest.values())
-
-
-def _longitudinal_state(db: Session, user_id) -> dict[str, Any]:
-    """Read persisted BaselineVersion and ChangeSignal rows. Does not recompute."""
-    baseline = _current_baseline(db, user_id)
-    return {
-        "baseline": _baseline_summary(baseline),
-        "changes": [_change_signal_summary(row) for row in _latest_relevant_changes(db, user_id, baseline)],
-    }
 
 
 @router.post("/observations", status_code=201)
