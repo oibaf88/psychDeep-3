@@ -6,6 +6,7 @@ Risk/safety remains on /api/v1/safety/evaluate via the risk engine.
 """
 from __future__ import annotations
 
+import logging
 import statistics
 import uuid
 from dataclasses import dataclass, field
@@ -13,8 +14,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
-
-logger = logging.getLogger("psychapp.trajectory")
 
 from app.models_vnext import (
     BaselineVersion,
@@ -32,6 +31,8 @@ from app.services.baseline import (
     _mean_std,
 )
 from app.utils import as_utc as _utc
+
+logger = logging.getLogger("psychapp.trajectory")
 
 ALGORITHM_VERSION = "canonical-structural-v1"
 FEATURE_VERSION = "v1"
