@@ -72,6 +72,7 @@ from app.security import require_professional
 from app.services import agent2_trace, audit, clinical_copilot, clinical_view, psychosocial, risk_engine
 from app.services import profile as profile_service
 from app.services import signals as signals_service
+from app.services.longitudinal_read import for_clinical_reader, longitudinal_state, longitudinal_states
 from app.services.timeline import build_timeline
 
 router = APIRouter(prefix="/api/v1/professional", tags=["professional"])
@@ -391,6 +392,7 @@ def _patient_summary(db: Session, patient: User, status_label: str) -> PatientSu
         open_alerts=len(open_alert_rows),
         checkin_count=checkin_count,
         last_checkin_at=last_ci.created_at if last_ci else None,
+        longitudinal=for_clinical_reader(longitudinal_state(db, patient.id)),
     )
 
 
@@ -460,7 +462,10 @@ def _batch_patient_summaries(db: Session, patients: list[tuple[User, str]]) -> l
     last_checkins = db.query(ci_subq.c.user_id, ci_subq.c.max_created_at).all()
     last_checkin_by_user = {row.user_id: row.max_created_at for row in last_checkins}
 
-    # 5. Assemble the summaries
+    # 5. Persisted baseline + ChangeSignal. This read does not recompute or score risk.
+    longitudinal_by_user = longitudinal_states(db, patient_ids)
+
+    # 6. Assemble the summaries
     summaries = []
     for patient, status_label in patients:
         if patient is None:
@@ -489,7 +494,8 @@ def _batch_patient_summaries(db: Session, patients: list[tuple[User, str]]) -> l
                 pending_alert_status=pending.status if pending else None,
                 open_alerts=len(user_alerts),
                 checkin_count=counts_by_user.get(patient.id, 0),
-                last_checkin_at=last_checkin_by_user.get(patient.id)
+                last_checkin_at=last_checkin_by_user.get(patient.id),
+                longitudinal=for_clinical_reader(longitudinal_by_user[patient.id]),
             )
         )
 
@@ -535,6 +541,7 @@ def list_patients(db: Session = Depends(get_db), professional: User = Depends(re
                 pending_alert_status=None,
                 open_alerts=0,
                 checkin_count=0,
+                longitudinal=None,
             )
         )
     return summaries

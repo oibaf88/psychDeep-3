@@ -306,6 +306,55 @@ class AlertDismissIn(BaseModel):
     dismiss_reason: str
 
 
+class LongitudinalWindowOut(BaseModel):
+    start: Optional[datetime] = None
+    end: Optional[datetime] = None
+
+    @field_serializer("start", "end")
+    def serialize_window(self, value: datetime | None) -> str | None:
+        return _utc_iso(value)
+
+
+class LongitudinalBaselineDetailOut(BaseModel):
+    id: str
+    feature: Optional[str] = None
+    window: LongitudinalWindowOut
+    stats: dict[str, Any] = Field(default_factory=dict)
+    stability: str
+    data_coverage: Optional[float] = None
+    algorithm_version: str
+
+
+class LongitudinalBaselineOut(BaseModel):
+    """Personal baseline. ``insufficient_data`` means no usable row, not a zero baseline."""
+
+    status: str
+    baseline: Optional[LongitudinalBaselineDetailOut] = None
+
+
+class LongitudinalChangeOut(BaseModel):
+    """One ChangeSignal. ``band`` is a change band. ``change`` stays null when unknown."""
+
+    signal_id: str
+    feature: str
+    window: LongitudinalWindowOut
+    change: Optional[float] = None
+    band: str
+    uncertainty: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs: list[Any] = Field(default_factory=list)
+    contradictions: list[Any] = Field(default_factory=list)
+    baseline_version: Optional[str] = None
+    algorithm_version: str
+
+
+class LongitudinalStateOut(BaseModel):
+    """Persisted baseline and latest ChangeSignals. Not a RiskAssessment."""
+
+    baseline: LongitudinalBaselineOut
+    changes: list[LongitudinalChangeOut] = Field(default_factory=list)
+    limits: list[str] = Field(default_factory=list)
+
+
 class PatientSummaryOut(BaseModel):
     id: uuid.UUID
     display_name: str
@@ -319,6 +368,10 @@ class PatientSummaryOut(BaseModel):
     open_alerts: int = 0
     checkin_count: int = 0
     last_checkin_at: Optional[datetime] = None
+    # Authorised clinical reads only. None means this response does not include
+    # the canonical trajectory (for example the admin roster). It is not a
+    # zero score and it is not an alert level.
+    longitudinal: Optional[LongitudinalStateOut] = None
 
 
 class RiskAssessmentOut(BaseModel):

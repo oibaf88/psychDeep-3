@@ -76,15 +76,16 @@ What this gate **does not** prove: it does not by itself make the patient experi
 - [x] ~~Backfill legacy check-ins/diary/baseline/signal/model-trace data additively without destroying history.~~
 - [x] ~~Dual-write new check-ins/diary content into canonical observations while legacy compatibility remains.~~
 - [~] Make the complete operational analytics path run through `Observation -> FeatureValue -> BaselineVersion -> ChangeSignal` rather than legacy calculations.
-  - A check-in refreshes that canonical trajectory in the same request. `GET /api/v1/state` returns the current BaselineVersion and ChangeSignals, and Hoy uses `longitudinal.baseline` plus `longitudinal.changes` for change-versus-personal-baseline framing. Insufficient data and missing observations stay explicit; they are not shown as zero or as absence of risk. Frontend tests cover that Hoy rendering. The professional score still uses the legacy baseline. `ChangeSignal` does not drive `RiskAssessment` or alert levels.
-  - Completion criterion: canonical feature computation, baseline eligibility/versioning and change detection are the actual source for vNext state and explanations, with tests proving reproducibility. Still open for this item: the professional score and full baseline-lifecycle explanations.
+  - A check-in now refreshes that canonical trajectory in the same request. Authorised professional summary and dossier reads now show that persisted ChangeSignal beside risk. `ChangeSignal` is still not the source of Hoy, the professional structural score or `RiskAssessment`; those keep using the legacy baseline and risk engine.
+  - Completion criterion: canonical feature computation, baseline eligibility/versioning and change detection are the actual source for vNext state and explanations, with tests proving reproducibility.
 - [~] Make personal baseline behaviour fully conform to vNext semantics.
   - Current gap: canonical baseline records exist and can be read, but the complete lifecycle (eligibility, provisional status, exclusions, recalibration/versioning, quality/missingness) is not yet the primary end-to-end product behaviour.
 - [~] Separate `ChangeSignal` from `RiskAssessment` everywhere in API **and UI**.
-  - Backend distinction exists.
-  - Hoy shows ChangeSignal bands as a comparison with the personal baseline and does not label them as alert levels. Professional UX still needs that separation and a richer workflow.
+  - Backend distinction exists for patient `GET /api/v1/state`.
+  - Authorised professional summary and dossier now surface persisted `BaselineVersion` + `ChangeSignal` (status, coverage, missingness and bands) separately from `latest_alert_level` / `RiskAssessment`. Change bands are not alert levels, and a missing change is not treated as zero or as “no risk”.
+  - Patient Hoy may still be pending merge of #151. Richer explanation and full workflow separation remain open, so this item stays partial.
 
-Why G2 is **not complete**: Hoy now reads canonical baseline and change signals for its change-versus-baseline framing, and `GET /api/v1/state` keeps that payload apart from `safety`. Personal baseline lifecycle semantics are still partial, the professional score still uses the legacy path, and ChangeSignal is not yet separated from RiskAssessment in the professional UI.
+Why G2 is **not complete**: the operational analytics path and `GET /api/v1/state` now use canonical baseline and change signals, and authorised professional reads now show ChangeSignal separately from RiskAssessment. Personal baseline lifecycle semantics are still partial, patient Hoy separation may still be pending merge of #151, and ChangeSignal is not the source of the professional score or the risk engine.
 
 ### G3 — Safety vNext
 
@@ -226,7 +227,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [~] PM-003 Canonical Observation/Feature/Baseline/ChangeSignal schemas **and full operational pipeline**.
   - Progress: analytics/run (PR #128) and `GET /api/v1/state` (PR #143) use the canonical Observation → FeatureValue → BaselineVersion → ChangeSignal path. Hoy now renders that `longitudinal` payload for change-versus-baseline framing. Baseline lifecycle completeness, the professional score, and professional UI separation of ChangeSignal from RiskAssessment remain open, so this item stays partial.
 - [~] PM-004 Separate change signal from RiskAssessment in API **and UI**.
-  - Progress: Hoy keeps ChangeSignal copy distinct from safety alert levels and does not let a change band stand in for `RiskAssessment`. Professional views still need that separation.
+  - Progress: authorised professional patient summary and dossier now return canonical ChangeSignal and personal-baseline status separately from `latest_alert_level` and `RiskAssessment`. Patient Hoy may still be pending merge of #151, so this item stays partial.
 - [~] PM-005 Version safety protocols/resources and remove direct LLM dependency.
 - [~] PM-006 Resource-level authorization matrix and comprehensive negative tests.
 - [x] ~~PM-007 Split consent purposes and enforce linguistic-analysis revocation.~~

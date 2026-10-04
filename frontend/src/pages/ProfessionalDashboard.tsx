@@ -9,6 +9,7 @@ import {
   UserRole,
 } from "../api";
 import { useAuth } from "../auth/AuthContext";
+import { dashboardChangeDetail, dashboardChangeHeadline } from "./professionalChange";
 
 export default function ProfessionalDashboard() {
   const { user } = useAuth();
@@ -94,6 +95,14 @@ export default function ProfessionalDashboard() {
               <th scope="col">Asignación</th>
               {canSeeClinicalColumns && <th scope="col">Nivel operativo</th>}
               {canSeeClinicalColumns && (
+                <th
+                  scope="col"
+                  title="Cambio respecto a su línea de base personal. No es el nivel de alerta ni el score del motor de riesgo."
+                >
+                  Cambio vs su referencia
+                </th>
+              )}
+              {canSeeClinicalColumns && (
                 <th scope="col" title="Similitud de sus check-ins de 7 días con su línea base de 21 días. 1.00 = sin cambios. NO es una escala de riesgo.">
                   Estabilidad de check-ins ⓘ
                 </th>
@@ -137,6 +146,12 @@ export default function ProfessionalDashboard() {
                   </td>
                 )}
                 {canSeeClinicalColumns && (
+                  <td>
+                    <strong className="change-band">{dashboardChangeHeadline(p.longitudinal)}</strong>
+                    <div className="meta">{dashboardChangeDetail(p.longitudinal)}</div>
+                  </td>
+                )}
+                {canSeeClinicalColumns && (
                   <td className="meta">
                     {BAND_LABELS[p.latest_confidence_band || ""] || p.latest_confidence_band || "—"}
                     {p.latest_structural_score != null
@@ -159,7 +174,7 @@ export default function ProfessionalDashboard() {
             ))}
             {patients.length === 0 && (
               <tr>
-                <td colSpan={canSeeClinicalColumns ? 8 : 4}>
+                <td colSpan={canSeeClinicalColumns ? 9 : 4}>
                   {role === "therapist"
                     ? "Aún no tienes pacientes. Solicita acceso por email."
                     : "No hay pacientes en el sistema."}
