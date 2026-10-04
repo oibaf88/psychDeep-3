@@ -4,6 +4,7 @@ export interface TrajectorySignal {
   band: string;
   change?: number | null;
   uncertainty?: Record<string, unknown>;
+  contradictions?: unknown[] | null;
   window?: { start?: string; end?: string };
   algorithm_version?: string;
 }
@@ -65,14 +66,18 @@ export function patientBand(band: string): string {
   return CALCULATED_BANDS[band] ?? "Todavía no se puede calcular";
 }
 
-export function calculatedChangeText(signal: TrajectorySignal): string {
+export function calculatedChangeText(
+  signal: TrajectorySignal,
+  options?: { includeRiskBoundary?: boolean },
+): string {
   const recent = countOf(signal.uncertainty, "recent_n");
   const reference = countOf(signal.uncertainty, "baseline_n");
   const comparison =
     recent != null && reference != null
       ? ` Usa ${recent} registros de este periodo y ${reference} de tu referencia personal.`
       : "";
-  return `${featureLabel(signal.feature)} se compara con lo que es habitual en ti.${comparison} No es una alerta de riesgo.`;
+  const boundary = options?.includeRiskBoundary === false ? "" : " No es una alerta de riesgo.";
+  return `${featureLabel(signal.feature)} se compara con lo que es habitual en ti.${comparison}${boundary}`;
 }
 
 export function insufficientChangeNotice(signals: TrajectorySignal[]): string {
