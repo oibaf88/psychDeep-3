@@ -116,7 +116,7 @@ def get_llm_provider(db=None, provider_override: str | None = None) -> LLMProvid
     if personal_mode_enabled():
         if db is None or user is None:
             raise RuntimeError("Inferencia bloqueada: falta la identidad de cuenta verificada.")
-        config = personal_llm.resolve(db, user.id)
+        config = personal_llm.resolve_active(db, user.id)
         if config.provider == llm_config.PROVIDER_LOCAL:
             local_llm_access.assert_can_use_local_llm(user)
         return build_provider(config)

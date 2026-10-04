@@ -334,7 +334,7 @@ def resolve(db: Session | None = None) -> ResolvedConfig:
     if account_id is not None:
         from app.services import personal_llm
 
-        return personal_llm.resolve(db, account_id)
+        return personal_llm.resolve_active(db, account_id)
 
     global _cached
     settings = get_settings()

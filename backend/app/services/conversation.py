@@ -131,6 +131,15 @@ def analyze_text_and_store(
     except agent2_trace.TracePersistenceError:
         logger.error("Analysis skipped because its trace could not be persisted")
         return AnalysisOutcome(correlation_id, None, None, "trace_persistence_error", None)
+    except Exception as exc:
+        # Resolving the connection can fail before a trace exists. That must
+        # not abort the turn: the deterministic risk engine still has to run.
+        from app.services.personal_llm import LocalModelUnavailable
+
+        if not isinstance(exc, (LocalModelUnavailable, RuntimeError)):
+            raise
+        logger.error("Analysis skipped because the inference connection is unavailable: %s", type(exc).__name__)
+        return AnalysisOutcome(correlation_id, None, None, "inference_unavailable", None)
 
     # Who the analyser is reading. Read-only, and read without creating: a
     # patient with no profile is analysed exactly as before this existed.

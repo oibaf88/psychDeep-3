@@ -33,6 +33,9 @@ class LocalModelUnavailable(RuntimeError):
     """The tunnel answered, but no usable LM Studio model id is selected."""
 
 
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+
+
 class UserLLMPreference(Base):
     __tablename__ = "llm_user_preferences"
 
@@ -165,18 +168,63 @@ def _catalog_payload(catalog: Catalog) -> list[dict]:
     return [{"id": model.id, "loaded": model.loaded} for model in catalog.models]
 
 
+def _is_openai_destination(row: UserLLMPreference | None) -> bool:
+    return bool(
+        row
+        and row.provider == llm_config.PROVIDER_LOCAL
+        and (row.base_url or "").rstrip("/") == OPENAI_BASE_URL
+    )
+
+
+def _admin_owner_id(db: Session) -> uuid.UUID | None:
+    """Latest active clinical-admin connection, when this session can query it."""
+    from app.models import User
+
+    query = getattr(db, "query", None)
+    if not callable(query):
+        return None
+    row = (
+        db.query(UserLLMPreference)
+        .join(User, User.id == UserLLMPreference.user_id)
+        .filter(User.role == "admin_clinical", User.is_active == True)  # noqa: E712
+        .order_by(UserLLMPreference.updated_at.desc().nullslast())
+        .first()
+    )
+    return row.user_id if row is not None else None
+
+
+def _commercial_admin_id(db: Session) -> uuid.UUID | None:
+    """Admin connection when it is Codex or Anthropic.
+
+    Those providers use server credentials. A local LM Studio row stays on
+    the account that stored its own key and must not replace another account.
+    """
+    owner = _admin_owner_id(db)
+    if owner is None:
+        return None
+    row = db.get(UserLLMPreference, owner)
+    if row is None:
+        return None
+    if row.provider == llm_config.PROVIDER_ANTHROPIC or _is_openai_destination(row):
+        return owner
+    return None
+
+
 def status(db: Session, user_id: uuid.UUID) -> dict:
     row = db.get(UserLLMPreference, user_id)
     settings = get_settings()
     selected = row.provider if row else llm_config.PROVIDER_LOCAL
-    openai = bool(
-        row
-        and row.provider == llm_config.PROVIDER_LOCAL
-        and (row.base_url or "").rstrip("/") == "https://api.openai.com/v1"
-    )
+    openai = _is_openai_destination(row)
     local = selected == llm_config.PROVIDER_LOCAL and not openai
     logical_provider = "openai" if openai else selected
-    catalog = _catalog_for(_usable_key(row.lm_api_key_encrypted if row else None))
+    # Codex and Anthropic do not need the LM Studio catalog. Asking the
+    # tunnel here makes the admin screen depend on Cloudflare while the
+    # saved connection is a server provider.
+    catalog = (
+        _catalog_for(_usable_key(row.lm_api_key_encrypted if row else None))
+        if local
+        else Catalog((), False)
+    )
     # Local inference follows the model loaded on the operator's computer.
     # A stored id is not a menu choice and is not shown as one.
     effective = select_model("", catalog) if local else ""
@@ -231,7 +279,7 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
             raise ValueError("OpenAI no está habilitado: falta OPENAI_API_KEY en Render.")
         # The OpenAI destination and model ids are server-owned. The account
         # selects the provider, never an arbitrary URL or model name.
-        endpoint = "https://api.openai.com/v1"
+        endpoint = OPENAI_BASE_URL
         chat_model = settings.openai_chat_model
         analysis_model = settings.openai_analysis_model
         copilot_model = settings.openai_copilot_model or chat_model
@@ -295,11 +343,7 @@ def resolve(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
     row = db.get(UserLLMPreference, user_id)
     settings = get_settings()
     selected = row.provider if row else llm_config.PROVIDER_LOCAL
-    openai = bool(
-        row
-        and row.provider == llm_config.PROVIDER_LOCAL
-        and (row.base_url or "").rstrip("/") == "https://api.openai.com/v1"
-    )
+    openai = _is_openai_destination(row)
     if selected == llm_config.PROVIDER_ANTHROPIC:
         if not settings.model_allow_commercial or not settings.anthropic_api_key:
             raise RuntimeError("Anthropic no está habilitado por el administrador.")
@@ -348,3 +392,15 @@ def resolve(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
         access_client_secret=settings.model_local_cf_access_client_secret,
         access_hostname=approved_host(),
     )
+
+
+def resolve_active(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
+    """Inference connection for this request.
+
+    When the clinical admin has saved Codex or Anthropic, every account uses
+    that connection. Patient chat must not keep calling the local tunnel
+    after that selection. A local connection still resolves for the account
+    that owns the LM Studio key.
+    """
+    owner = _commercial_admin_id(db)
+    return resolve(db, owner if owner is not None else user_id)

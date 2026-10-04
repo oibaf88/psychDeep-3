@@ -252,6 +252,89 @@ class PersonalGatewayTests(unittest.TestCase):
                 personal_llm.resolve(self.db, self.a)
             self.assertEqual(personal_llm.status(self.db, self.a)["chat_model"], "")
 
+    def test_codex_status_does_not_ask_the_local_tunnel(self):
+        personal_llm.save(self.db, self.a, payload(provider="openai"))
+        personal_llm.fetch_catalog.assert_not_called()
+        self.assertEqual(personal_llm.status(self.db, self.a)["provider"], "openai")
+
+    def test_patient_inference_follows_the_clinical_admin_codex_connection(self):
+        personal_llm.save(self.db, self.a, payload(key="patient-key"))
+        personal_llm.save(self.db, self.b, payload(provider="openai"))
+        personal_llm.fetch_catalog.reset_mock()
+        self.db.info["authenticated_user_id"] = self.a
+        from app.services import llm_config
+
+        with patch.object(personal_llm, "_admin_owner_id", return_value=self.b), patch(
+            "app.services.personal_resolution.personal_mode_enabled", return_value=True
+        ):
+            resolved = personal_llm.resolve_active(self.db, self.a)
+            active = llm_config.resolve(self.db)
+        personal_llm.fetch_catalog.assert_not_called()
+        self.assertEqual(resolved.provider, "openai")
+        self.assertEqual(resolved.chat_model, "test-openai-model")
+        self.assertEqual(resolved.api_key, "test-openai-key")
+        self.assertEqual(active.provider, "openai")
+        self.assertEqual(active.api_key, "test-openai-key")
+        own = personal_llm.resolve(self.db, self.a)
+        self.assertEqual(own.provider, "openai_compatible")
+        self.assertEqual(own.api_key, "patient-key")
+
+    def test_patient_inference_follows_the_clinical_admin_anthropic_connection(self):
+        personal_llm.save(self.db, self.a, payload(key="patient-key"))
+        personal_llm.save(self.db, self.b, payload(provider="anthropic", model="claude-test"))
+        with patch.object(personal_llm, "_admin_owner_id", return_value=self.b):
+            resolved = personal_llm.resolve_active(self.db, self.a)
+        self.assertEqual(resolved.provider, "anthropic")
+        self.assertEqual(resolved.api_key, "server-anthropic-test-key")
+
+    def test_a_local_admin_connection_does_not_replace_another_account(self):
+        personal_llm.save(self.db, self.a, payload(key="patient-key"))
+        personal_llm.save(self.db, self.b, payload(key="admin-key"))
+        with patch.object(personal_llm, "_admin_owner_id", return_value=self.b):
+            resolved = personal_llm.resolve_active(self.db, self.a)
+        self.assertEqual(resolved.api_key, "patient-key")
+
+    def test_personal_mode_chat_uses_the_active_codex_connection(self):
+        from app.models import User
+        from app.services.llm import get_llm_provider
+
+        personal_llm.save(self.db, self.a, payload(key="patient-key"))
+        personal_llm.save(self.db, self.b, payload(provider="openai"))
+        patient = SimpleNamespace(id=self.a, role="patient", is_active=True, local_llm_approved=False)
+        stored_get = self.db.get
+
+        def get(model, key):
+            if model is User and key == self.a:
+                return patient
+            return stored_get(model, key)
+
+        self.db.get = get
+        self.db.info["authenticated_user_id"] = self.a
+        with patch.object(personal_llm, "_admin_owner_id", return_value=self.b), patch(
+            "app.services.personal_resolution.personal_mode_enabled", return_value=True
+        ), patch("app.services.llm.build_provider", side_effect=lambda config: config):
+            provider = get_llm_provider(self.db)
+        self.assertEqual(provider.provider, "openai")
+        self.assertEqual(provider.api_key, "test-openai-key")
+
+    def test_chat_analysis_continues_when_the_local_connection_is_down(self):
+        from app.services import conversation
+
+        with patch.object(
+            conversation.agent2_trace, "start", side_effect=personal_llm.LocalModelUnavailable("down")
+        ):
+            outcome = conversation.analyze_text_and_store(
+                SimpleNamespace(),
+                uuid.uuid4(),
+                "hola",
+                source_type="chat_message",
+                source_id=uuid.uuid4(),
+                correlation_id=uuid.uuid4(),
+            )
+        self.assertEqual(outcome.status, "inference_unavailable")
+        self.assertIsNone(outcome.trace_id)
+        self.assertIsNone(outcome.value)
+
     def test_rejects_invalid_new_token_without_changing_other_accounts(self):
         personal_llm.save(self.db, self.b, payload(key="bob-key"))
         with self.assertRaises(ValueError):
