@@ -74,10 +74,11 @@ These runbooks are deliberately provider-neutral. Clinical safety must not requi
 
 ## RAG/content incident
 
-1. Retire affected `KnowledgeItem` version; never edit historical provenance silently.
-2. Ensure deterministic crisis resources remain available independently.
-3. Identify ModelRuns that referenced the affected content version.
-4. Publish reviewed replacement and run safety/content regression suite before activation.
+1. As `admin_clinical`, retire the affected row with `POST /api/v1/knowledge/{id}/retire`. Do not rewrite the stored content of a row that was already approved.
+2. Leave deterministic crisis and safety routes in place. They do not read `knowledge_items`.
+3. Do not search `model_runs` for a content version. A run stores `input_hash`, prompt version and policy version, not the knowledge item id.
+4. Publish a replacement as a new draft and approve it. Approval retires other active rows for the same topic, population, objective and locale.
+5. The next Agent 1 context build omits retired rows and rows whose `review_due` is before today. A null `review_due` stays eligible until the row is retired.
 
 ## Release rollback
 
