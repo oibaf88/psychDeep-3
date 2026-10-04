@@ -31,6 +31,7 @@ import PatientProfilePanel from "../components/PatientProfilePanel";
 import PsychosocialPanel from "../components/PsychosocialPanel";
 import DailyStatisticsPanel from "../components/DailyStatisticsPanel";
 import PsychDeepLoader from "../components/PsychDeepLoader";
+import LongitudinalChangePanel from "../components/LongitudinalChangePanel";
 
 type Tab =
   | "resumen"
@@ -237,6 +238,7 @@ export default function PatientDetailPage() {
           </button>
         }
       />
+      <LongitudinalChangePanel longitudinal={p.longitudinal} />
       {message && <p className="info">{message}</p>}
       {error && <p className="error">{error}</p>}
 

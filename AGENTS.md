@@ -76,15 +76,16 @@ What this gate **does not** prove: it does not by itself make the patient experi
 - [x] ~~Backfill legacy check-ins/diary/baseline/signal/model-trace data additively without destroying history.~~
 - [x] ~~Dual-write new check-ins/diary content into canonical observations while legacy compatibility remains.~~
 - [~] Make the complete operational analytics path run through `Observation -> FeatureValue -> BaselineVersion -> ChangeSignal` rather than legacy calculations.
-  - Current gap: `/api/v1/analytics/run` still uses the legacy deterministic risk engine as a compatibility bridge.
+  - A check-in now refreshes that canonical trajectory in the same request. Authorised professional summary and dossier reads now show that persisted ChangeSignal beside risk. `ChangeSignal` is still not the source of Hoy, the professional structural score or `RiskAssessment`; those keep using the legacy baseline and risk engine.
   - Completion criterion: canonical feature computation, baseline eligibility/versioning and change detection are the actual source for vNext state and explanations, with tests proving reproducibility.
 - [~] Make personal baseline behaviour fully conform to vNext semantics.
   - Current gap: canonical baseline records exist and can be read, but the complete lifecycle (eligibility, provisional status, exclusions, recalibration/versioning, quality/missingness) is not yet the primary end-to-end product behaviour.
 - [~] Separate `ChangeSignal` from `RiskAssessment` everywhere in API **and UI**.
-  - Backend distinction exists.
-  - Patient/professional UX still needs richer explanation and workflow separation.
+  - Backend distinction exists for patient `GET /api/v1/state`.
+  - Authorised professional summary and dossier now surface persisted `BaselineVersion` + `ChangeSignal` (status, coverage, missingness and bands) separately from `latest_alert_level` / `RiskAssessment`. Change bands are not alert levels, and a missing change is not treated as zero or as “no risk”.
+  - Patient Hoy may still be pending merge of #151. Richer explanation and full workflow separation remain open, so this item stays partial.
 
-Why G2 is **not complete**: schemas and backfill exist, but the full canonical longitudinal pipeline is not yet the sole operational path.
+Why G2 is **not complete**: the operational analytics path and `GET /api/v1/state` now use canonical baseline and change signals, and authorised professional reads now show ChangeSignal separately from RiskAssessment. Personal baseline lifecycle semantics are still partial, patient Hoy separation may still be pending merge of #151, and ChangeSignal is not the source of the professional score or the risk engine.
 
 ### G3 — Safety vNext
 
@@ -104,11 +105,11 @@ Why G3 is **not complete**: independence from the LLM is materially improved, bu
 This is the largest current product gap. Do not confuse navigation changes with completion.
 
 - [~] **Hoy — redesign around current state and one useful next action.**
-  - Existing screen still largely matches the historical dashboard: check-in + 30-day chart.
+  - Hoy reads canonical longitudinal state for change versus the personal baseline, with explicit missingness, and keeps crisis/help plus “No ahora”. The check-in, the 30-day observation chart and the earlier suggested action remain; that action is not yet tied to the change explanation or to feedback.
   - Required completion: low-burden check-in, current state, change vs personal baseline, data quality/missingness, explanation, at most one default suggested action, persistent crisis/help access and “No ahora”.
 - [~] **Tendencias — longitudinal explanation.**
-  - A new page exists and reads timeline, baseline and ChangeSignal data.
-  - Required completion: evidence, uncertainty, contradictions, missingness, contextual events and clear human-readable “why this changed” explanations rather than a raw signal list.
+ - A new page exists and reads timeline, baseline and ChangeSignal data. Calculated bands and an uncalculated comparison now use plain-language copy; the raw `insufficient_data` code stays off the page.
+ - Required completion: evidence, uncertainty, contradictions, missingness, contextual events and a fuller “why this changed” explanation.
 - [ ] **Relevant-change interaction flow.**
   - Required: “tu patrón reciente puede estar cambiando” -> why/evidence -> optional contextual explanation -> proportionate action -> professional route when appropriate -> feedback recorded without deleting the signal.
 - [ ] **Weekly review UI.**
@@ -171,15 +172,16 @@ Agents must not “fix” this back to read-only model settings unless a later p
 
 - [~] Canonical model-run/deployment metadata exists as a foundation.
 - [~] Implement curated RAG content registry with source/version/reviewer/evidence level/contraindications/review date.
-  - Current foundation: backend-only draft/approve/retire registry, explicit reviewer and review date, one active version per target, contraindication-aware retrieval and negative role tests.
-  - Current gap: approved content is deliberately not injected into any LLM prompt; reviewer workflow, clinical validation and rollback rehearsal remain incomplete.
+  - Current foundation: backend-only draft/approve/retire registry, explicit reviewer and review date, one active version per target, contraindication-aware `GET /api/v1/knowledge/retrieve`, and negative role tests. That retrieve route does not call a model.
+  - Current injection: `agent1_context._knowledge_block` appends every `active` item whose `review_due` is null or still current into Agent 1's bounded context (PR #137). It does not retrieve by turn, population, locale or topic, and it does not apply contraindications.
+  - Current gap: reviewer workflow in the product UI, clinical validation, prompt-injection tests, content-version provenance on `ModelRun`, and rollback rehearsal remain incomplete. Do not describe this as a governed retrieval pipeline.
 - [ ] Create de-identified/reviewed dataset pipeline for tuning; never fine-tune patient memory into the model.
 - [ ] Train or adapt the approved cloud candidate for behaviour/style/schema/tool-use only, not risk calculation.
 - [ ] Add reproducible model card, dataset manifest, base/tokenizer/artifact checksums, code/container version, seed, hyperparameters and metrics.
 - [ ] Run model evaluation gates: schema adherence, policy adherence, crisis handling, unsupported claims, Spanish quality, over-refusal, tool use, latency/cost and regression.
 - [ ] Progress candidate through experiment -> evaluated -> clinically reviewed -> shadow -> canary -> production only with evidence.
 
-Why G7 is **not complete**: a replaceable gateway is not the same thing as a tuned cloud model, RAG registry or evaluated model promotion process.
+Why G7 is **not complete**: a replaceable gateway is not the same thing as a tuned cloud model or an evaluated promotion process. Active knowledge text can reach Agent 1, but that copy is an unfiltered context append, not targeted retrieval with contraindication filtering, content-version audit or a rehearsed rollback.
 
 ### G8 — Pilot readiness
 
@@ -223,22 +225,26 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [x] ~~PM-001 Decommission product path for local frontend/backend/Postgres/SymmetricDS.~~
 - [x] ~~PM-002 Create Model Gateway and approved deployment abstraction.~~
 - [~] PM-003 Canonical Observation/Feature/Baseline/ChangeSignal schemas **and full operational pipeline**.
+  - Progress: analytics/run (PR #128) and `GET /api/v1/state` (PR #143) use the canonical Observation → FeatureValue → BaselineVersion → ChangeSignal path. Hoy now renders that `longitudinal` payload for change-versus-baseline framing. Baseline lifecycle completeness, the professional score, and professional UI separation of ChangeSignal from RiskAssessment remain open, so this item stays partial.
 - [~] PM-004 Separate change signal from RiskAssessment in API **and UI**.
+  - Progress: authorised professional patient summary and dossier now return canonical ChangeSignal and personal-baseline status separately from `latest_alert_level` and `RiskAssessment`. Patient Hoy may still be pending merge of #151, so this item stays partial.
 - [~] PM-005 Version safety protocols/resources and remove direct LLM dependency.
 - [~] PM-006 Resource-level authorization matrix and comprehensive negative tests.
 - [x] ~~PM-007 Split consent purposes and enforce linguistic-analysis revocation.~~
 - [~] PM-008 ModelRun audit with prompt/model/policy/content versions.
-- [~] PM-009 RAG curated knowledge registry foundation (not connected to the LLM).
+- [~] PM-009 RAG curated knowledge registry foundation.
+  - Progress: active, unexpired items are copied into Agent 1 context. That path is not targeted, does not apply contraindications, and `ModelRun` does not store content versions.
 - [~] PM-010 Production observability and correlation IDs end-to-end.
 - [ ] PM-011 Backup/restore and migration rehearsal.
 
 ### P1 — core product value
 
 - [~] PM-012 Today dashboard redesign.
-  - First vNext UI pass is now in the patient dashboard: lower-burden check-in, current-state framing, one proportionate suggested action and “No ahora”.
+  - First vNext UI pass remains in the patient dashboard: lower-burden check-in, current-state framing, one proportionate suggested action and “No ahora”.
+  - Hoy now also reads `longitudinal` from `GET /api/v1/state` for change versus the personal baseline. Tying that action to the change explanation and recording feedback are still open.
 - [ ] PM-013 Weekly review user experience.
 - [~] PM-014 Improved trend/baseline visualisation.
-  - Trends now foreground personal trajectory, baseline context and reading guidance.
+  - Trends now foreground personal trajectory, baseline context and reading guidance. An uncalculated comparison is described as missing data, including that a missing calculation is not evidence that things are fine.
 - [ ] PM-015 Context annotation/correction.
 - [~] PM-016 Intervention feedback (data/API foundation exists; UX loop missing).
 - [~] PM-017 Wave/urge surfing (legacy feature exists; visual refresh applied; vNext integration incomplete).
@@ -375,3 +381,16 @@ The final designation requires at minimum:
 Until then, describe the system accurately as **“PsychDeep vNext transition/foundation with progressive migration in progress.”**
 
 See `README.md`, `DEPLOY.md`, `docs/release/CHECKLIST.md`, `docs/operations/RUNBOOKS.md`, the approved master specification and accepted ADRs for implementation and operations details.
+
+## Cursor Cloud specific instructions
+
+This section is operating guidance for Cloud Agents. It does not change the product data plane: Supabase remains the only authoritative clinical store. The local PostgreSQL process below exists so agents can boot the API with `APP_ENV=local` (`create_all` plus demo seed). Do not describe that process as a supported clinical product stack, and do not apply `supabase/migrations` onto the `psychapp` database the API is using.
+
+- The image provides Python 3.12 and Node 22. CI pins Python 3.11 and Node 20. Backend pytest and frontend vitest, `tsc`, and the Vite build were verified on 3.12 and 22.
+- Backend dependencies live in `backend/.venv` (`pip install -r backend/requirements-dev.txt`). Frontend dependencies come from `npm ci` in `frontend/`.
+- On boot, PostgreSQL 16, the API (`http://127.0.0.1:8000`), and Vite (`http://127.0.0.1:5173`) are started. Vite must receive `VITE_API_BASE_URL=http://127.0.0.1:8000`.
+- The boot script forces `DATABASE_URL=postgresql://psychapp:psychapp@127.0.0.1:5432/psychapp` and `APP_ENV=local`. An injected `DATABASE_URL` secret is the cloud Supabase URL. Do not start the API with `APP_ENV=local` against that URL: startup calls `create_all` and can seed demo accounts into the cloud database.
+- Demo patient login is prefilled in Vite dev mode. The password is `DemoPass123!` in `backend/app/seed.py`. A saved check-in shows `Check-in registrado.`
+- Before `python -m pytest tests/ -q`, unset `MODEL_LOCAL_CF_ACCESS_CLIENT_ID` and `MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET` when they are present without `MODEL_LOCAL_CF_ACCESS_HOST` and `MODEL_LOCAL_CF_ACCESS_REQUIRED`. That partial pair fails `tests/test_llm_endpoint.py::ProviderSelectionTests::test_local_profile_is_selectable_and_uses_its_endpoint` because `build_provider` reads live settings. With those two variables unset, the suite matches CI.
+- Local-tunnel inference stays unconfigured until `MODEL_LOCAL_BASE_URL` and a complete Cloudflare Access set exist. Login, check-in, and deterministic safety do not need a model. Health then reports `model.configured: false` while `status` remains `ok`.
+- The migration apply/re-apply gate is `.github/workflows/tests.yml`. It needs the Supabase role model (`supabase_admin` as superuser and a non-superuser `postgres`). Do not point that job at the local `psychapp` database.

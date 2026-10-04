@@ -168,6 +168,36 @@ export interface SafetyPlanOut {
   updated_at: string;
 }
 
+export interface LongitudinalChangeOut {
+  signal_id: string;
+  feature: string;
+  window?: { start?: string | null; end?: string | null };
+  change?: number | null;
+  band: string;
+  uncertainty?: Record<string, unknown>;
+  evidence_refs?: unknown[];
+  contradictions?: unknown[];
+  baseline_version?: string | null;
+  algorithm_version?: string;
+}
+
+export interface LongitudinalStateOut {
+  baseline: {
+    status: string;
+    baseline: null | {
+      id: string;
+      feature?: string | null;
+      window?: { start?: string | null; end?: string | null };
+      stats?: Record<string, unknown>;
+      stability?: string;
+      data_coverage?: number | null;
+      algorithm_version?: string;
+    };
+  };
+  changes: LongitudinalChangeOut[];
+  limits?: string[];
+}
+
 export interface PatientSummaryOut {
   id: string;
   display_name: string;
@@ -181,6 +211,8 @@ export interface PatientSummaryOut {
   open_alerts: number;
   checkin_count?: number;
   last_checkin_at?: string | null;
+  /** Canonical baseline + ChangeSignal. Null when this response has no clinical read. */
+  longitudinal?: LongitudinalStateOut | null;
 }
 
 export interface RiskRuleEvaluation {

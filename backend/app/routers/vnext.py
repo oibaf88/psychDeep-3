@@ -18,6 +18,12 @@ from app.models_vnext import BaselineVersion, ChangeSignal, InterventionEvent, O
 from app.security import get_current_user, require_patient
 from app.services import conversation, risk_engine
 from app.services.canonical_analytics import run_canonical_analytics
+from app.services.longitudinal_read import (
+    baseline_summary as _baseline_summary,
+    change_signal_summary as _change_signal_summary,
+    current_baseline as _current_baseline,
+    longitudinal_state as _longitudinal_state,
+)
 from app.services.consent import CORE_PROCESSING, is_granted
 from app.services.deterministic_safety_text import materialize_user_declaration
 from app.services.model_gateway import APPROVED_ALIASES, ModelUnavailable, get_model_gateway
@@ -83,6 +89,13 @@ def create_observation(
 
 @router.get("/state")
 def current_state(db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    """Current observations, with safety and longitudinal change kept apart.
+
+    `safety` is only the latest RiskAssessment snapshot.
+    `longitudinal` is the current BaselineVersion plus the latest ChangeSignals
+    for that baseline. This read does not run analytics, calculate risk, or
+    call a model. Missing canonical rows stay insufficient_data / null.
+    """
     recent = (
         db.query(Observation)
         .filter(Observation.user_id == user.id)
@@ -112,32 +125,14 @@ def current_state(db: Session = Depends(get_db), user: User = Depends(require_pa
             "model_version": risk.model_version if risk else None,
             "correlation_id": str(risk.correlation_id) if risk and risk.correlation_id else None,
         },
+        "longitudinal": _longitudinal_state(db, user.id),
         "limits": ["La ausencia de una señal no demuestra ausencia de riesgo."],
     }
 
 
 @router.get("/baselines/current")
 def current_baseline(db: Session = Depends(get_db), user: User = Depends(require_patient)):
-    row = (
-        db.query(BaselineVersion)
-        .filter(BaselineVersion.user_id == user.id, BaselineVersion.status.in_(["active", "provisional", "frozen"]))
-        .order_by(BaselineVersion.created_at.desc())
-        .first()
-    )
-    if row is None:
-        return {"status": "insufficient_data", "baseline": None}
-    return {
-        "status": row.status,
-        "baseline": {
-            "id": str(row.id),
-            "feature": row.feature_key,
-            "window": {"start": row.window_start, "end": row.window_end},
-            "stats": row.stats,
-            "stability": row.stability,
-            "data_coverage": row.data_coverage,
-            "algorithm_version": row.algorithm_version,
-        },
-    }
+    return _baseline_summary(_current_baseline(db, user.id))
 
 
 @router.get("/changes")
@@ -153,31 +148,15 @@ def changes(
         .limit(limit)
         .all()
     )
-    return [
-        {
-            "signal_id": str(row.id),
-            "feature": row.feature,
-            "window": {"start": row.window_start, "end": row.window_end},
-            "change": row.change_value,
-            "band": row.band,
-            "uncertainty": row.uncertainty,
-            "evidence_refs": row.evidence_refs,
-            "contradictions": row.contradictions,
-            "baseline_version": str(row.baseline_version_id) if row.baseline_version_id else None,
-            "algorithm_version": row.algorithm_version,
-        }
-        for row in rows
-    ]
+    return [_change_signal_summary(row) for row in rows]
 
 
 @router.post("/analytics/run")
 def run_analytics(db: Session = Depends(get_db), user: User = Depends(require_patient)):
-    """Run canonical longitudinal analytics (not clinical risk).
+    """Recompute the canonical trajectory without calculating clinical risk.
 
-    Persists Observation-derived FeatureValue, BaselineVersion and ChangeSignal.
-    ChangeSignal is deliberately separate from RiskAssessment: safety/risk stays
-    on POST /api/v1/safety/evaluate via the deterministic risk engine. The LLM
-    is never consulted here.
+    A check-in already does this. This endpoint remains for an explicit refresh.
+    ChangeSignal stays separate from RiskAssessment. The LLM is not consulted.
     """
     result = run_canonical_analytics(db, user.id)
     return result.to_response()

@@ -34,7 +34,7 @@ Only the LLM inference server may be local. There is **no supported local clinic
 - Explicit first-person crisis declarations have a narrow deterministic text path so safety remains available when the selected LLM is offline.
 - Confirmed facts, observations, derived features, inferences and actions remain distinct.
 - Missing data is missing data; it is never silently converted to zero or normality.
-- The orchestrator supports targeted Retrieval-Augmented Generation (RAG). Approved psychoeducational content is injected strictly as reference material to accompany, rather than replace, clinical interaction.
+- Active curated knowledge can be copied into Agent 1's read-only context as psychoeducational reference. That text does not calculate risk, confirm facts, or replace deterministic safety, and it is not turn-targeted retrieval. See [Curated knowledge](#curated-knowledge).
 
 
 ## Model selection
@@ -57,10 +57,62 @@ vNext uses expand-and-migrate. Existing `psychdeep_v12` records are never rebuil
 
 The migration backfills canonical compatibility rows with references to legacy sources; original clinical rows remain untouched.
 
+## Check-in trajectory
+
+`POST /api/v1/checkins` requires the patient role and granted `core_processing` consent. It then:
+
+1. Stores the check-in and commits it.
+2. Dual-writes `mood`, `craving`, `sleep_hours` and `self_efficacy` into `observations`. Notes become a `checkin_context` observation. That write commits separately.
+3. Recomputes the canonical trajectory (`refresh_trajectory` → `run_canonical_analytics`, algorithm `canonical-structural-v1`).
+4. Runs the deterministic risk engine. This step still runs when step 3 fails.
+
+`POST /api/v1/observations` stores an observation and does not recompute the trajectory. `POST /api/v1/analytics/run` recomputes it and does not calculate risk. `GET /api/v1/state` only reads stored rows: `safety` is the latest `RiskAssessment`; `longitudinal` is the current `BaselineVersion` plus the newest `ChangeSignal` for each feature on that baseline. Neither read calls a model.
+
+| Input | Rule |
+| --- | --- |
+| Baseline window | 21 days |
+| Recent window | 7 days |
+| Axis eligibility | at least 5 observations |
+| Craving | scored as `10 - reported craving` (`craving_inv`) |
+| Band | absolute z ≤ 1.2 `stable`; ≤ 1.95 `transition`; otherwise `unstable` |
+| Missing recent or baseline values | `band=insufficient_data` and `change_value` null |
+| Composite | `structural_composite` is another `ChangeSignal`, not a risk level |
+
+A failed refresh logs the exception type and rolls back the analytics transaction. The check-in and observation dual-write stay, because they were already committed. Previous baseline rows for the same algorithm are marked `superseded` rather than deleted.
+
+Hoy charts the 30-day self-report series. Tendencias reads `/api/v1/timeline`, `/api/v1/baselines/current` and `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
+
+## Curated knowledge
+
+`knowledge_items` is a versioned registry. The professional dashboard has no screen for it. Only `admin_clinical` writes it. `POST /api/v1/knowledge` accepts:
+
+```json
+{
+  "topic": "respiracion",
+  "population": "adultos",
+  "objective": "bajar-activacion",
+  "locale": "es-ES",
+  "evidence_level": "revision-interna",
+  "contraindications": ["dolor-toracico"],
+  "content": "Texto de al menos veinte caracteres.",
+  "content_version": "2026-10-02",
+  "review_due": "2027-01-01",
+  "source_ref": "protocolo-interno-v3"
+}
+```
+
+`review_due` must be after today or the draft is rejected. `POST /api/v1/knowledge/{id}/approve` activates a draft and retires every other `active` row with the same topic, population, objective and locale. `POST /api/v1/knowledge/{id}/retire` marks a row `retired`.
+
+`GET /api/v1/knowledge/retrieve` is available to therapist, supervisor and `admin_clinical`. It matches population, objective, topic and locale exactly, drops rows whose contraindications overlap the query, and returns rows only. The handler makes no model call.
+
+Agent 1 reads the table directly. `agent1_context._knowledge_block` loads every `active` row whose `review_due` is null or still today or later, then appends topic, objective, evidence level and the full content. Selection uses status and review date only, so a row can be included even when it lists contraindications or targets another population. A query error yields an empty block. Sections are packed in order under `conversation_context_block_budget_tokens` (default 6500). Knowledge is last. When the budget runs out, that block is shortened or omitted. An earlier section is shortened only when that section is the one that crosses the ceiling.
+
+`ModelRun` stores `input_hash`, `prompt_version` and `policy_version`. Retiring an item changes the next prompt. Past runs can be correlated by input hash, not by `content_version`.
+
 ## Patient information architecture
 
-- **Hoy** — low-burden check-in and current context.
-- **Tendencias** — longitudinal view, personal baseline, missingness and change signals.
+- **Hoy** — low-burden check-in, current context, and a 30-day chart of recorded values.
+- **Tendencias** — personal baseline, missingness, and a plain-language reading of change signals. An uncalculated comparison is described as missing data.
 - **Regular** — urge-surfing wave, guided breathing, STOP and non-harmful grounding.
 - **Diario** — free/structured entries; linguistic analysis requires separate consent.
 - **Plan** — editable safety/prevention plan.

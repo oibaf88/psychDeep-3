@@ -14,6 +14,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+logger = logging.getLogger("psychapp.trajectory")
+
 from app.models_vnext import (
     BaselineVersion,
     ChangeSignal,
@@ -435,3 +437,21 @@ def run_canonical_analytics(
             "correlation_id": str(corr),
         },
     )
+
+
+def refresh_trajectory(db: Session, user_id) -> bool:
+    """Recompute this person's canonical baseline and change signals.
+
+    A failure here must not discard the self-report or skip deterministic
+    safety. ChangeSignal stays a longitudinal comparison, not a risk level.
+    """
+    try:
+        run_canonical_analytics(db, user_id)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Canonical trajectory refresh failed (%s); the self-report and deterministic safety continue.",
+            type(exc).__name__,
+        )
+        db.rollback()
+        return False

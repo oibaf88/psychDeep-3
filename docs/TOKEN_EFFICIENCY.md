@@ -8,6 +8,7 @@ LLM never receives the complete history by default.
 - Stored history is immutable from the context-budget layer.
 - Agent 1 receives a bounded recent-message window.
 - Agent 1 receives a bounded deterministic context block.
+- Active curated knowledge is appended after the patient sections. `fit_context_block` keeps earlier sections and truncates or drops the knowledge block when the structured-context ceiling is reached.
 - The latest user turn is retained when a budget is tight.
 - Normal conversational output is capped separately from clinical analysis.
 - Anthropic chat requests cache the stable system-policy prefix while leaving

@@ -1,47 +1,41 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { api, formatDay, PatientTimelineOut } from "../api";
+import { PatientTrajectoryChart } from "../components/ClinicalCharts";
+import {
+  baselineCoverage,
+  baselineHero,
+  baselineReady,
+  baselineStabilityLabel,
+  baselineStatusLabel,
+  calculatedChangeText,
+  featureLabel,
+  insufficientChangeNotice,
+  latestByFeature,
+  patientBand,
+  signalWasCalculated,
+  type BaselineSnapshot,
+  type TrajectorySignal,
+} from "./trendReading";
 
-interface BaselineResponse {
-  status: string;
-  baseline: null | {
+interface BaselineResponse extends BaselineSnapshot {
+  baseline: null | BaselineSnapshot["baseline"] & {
     id: string;
     feature?: string | null;
     window: { start: string; end: string };
-    stability: string;
-    data_coverage?: number | null;
-    algorithm_version: string;
   };
-}
-
-interface ChangeSignal {
-  signal_id: string;
-  feature: string;
-  band: string;
-  uncertainty: Record<string, unknown>;
-  algorithm_version: string;
 }
 
 export default function TrendsPage() {
   const [timeline, setTimeline] = useState<PatientTimelineOut | null>(null);
   const [baseline, setBaseline] = useState<BaselineResponse | null>(null);
-  const [changes, setChanges] = useState<ChangeSignal[]>([]);
+  const [changes, setChanges] = useState<TrajectorySignal[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
       api.get<PatientTimelineOut>("/api/v1/timeline?window_days=30"),
       api.get<BaselineResponse>("/api/v1/baselines/current"),
-      api.get<ChangeSignal[]>("/api/v1/changes?limit=10"),
+      api.get<TrajectorySignal[]>("/api/v1/changes?limit=20"),
     ])
       .then(([timelineData, baselineData, changeData]) => {
         if (timelineData && timelineData.points) {
@@ -49,8 +43,7 @@ export default function TrendsPage() {
         }
         setTimeline(timelineData);
         setBaseline(baselineData);
-        const uniqueChanges = Array.from(new Map(changeData.map((c) => [c.signal_id, c])).values());
-        setChanges(uniqueChanges);
+        setChanges(latestByFeature(changeData));
       })
       .catch((err: Error) => setError(err.message));
   }, []);
@@ -59,6 +52,9 @@ export default function TrendsPage() {
     if (!timeline?.points?.length) return null;
     return timeline.points[timeline.points.length - 1];
   }, [timeline]);
+  const comparableChanges = changes.filter((change) => change.feature !== "structural_composite");
+  const calculatedChanges = comparableChanges.filter(signalWasCalculated);
+  const whole = changes.find((change) => change.feature === "structural_composite" && signalWasCalculated(change));
 
   return (
     <div className="page">
@@ -74,14 +70,8 @@ export default function TrendsPage() {
 
         <div className="trends-baseline">
           <p className="trends-baseline__title">Línea de base</p>
-          <p className="trends-baseline__value">
-            {!baseline || !baseline.baseline ? "Aún insuficiente" : baseline.baseline.stability}
-          </p>
-          <span className="meta">
-            {!baseline?.baseline?.data_coverage
-              ? "Cobertura no disponible"
-              : Math.round(baseline.baseline.data_coverage * 100) + "% de cobertura"}
-          </span>
+          <p className="trends-baseline__value">{baselineHero(baseline)}</p>
+          <span className="meta">{baselineCoverage(baseline)}</span>
         </div>
       </section>
 
@@ -115,57 +105,12 @@ export default function TrendsPage() {
             </div>
 
             <div className="chart-shell" aria-label="Tendencia longitudinal" role="region">
-              <ResponsiveContainer width="100%" height={340}>
-                <LineChart data={timeline.points} margin={{ top: 8, right: 12, bottom: 8, left: -10 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tickFormatter={formatDay} minTickGap={24} tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="left" domain={[0, 10]} tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="sleep" orientation="right" domain={[0, 24]} tick={{ fontSize: 11 }} />
-                  <Tooltip labelFormatter={formatDay} />
-                  <Legend />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="mood"
-                    name="Ánimo"
-                    stroke="#7ea8f7"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="craving"
-                    name="Craving"
-                    stroke="#df9a73"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="self_efficacy"
-                    name="Autoeficacia"
-                    stroke="#76cdbd"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                  <Line
-                    yAxisId="sleep"
-                    type="monotone"
-                    dataKey="sleep_hours"
-                    name="Sueño (h)"
-                    stroke="#e9c982"
-                    strokeWidth={2}
-                    strokeDasharray="5 3"
-                    connectNulls={false}
-                    dot={{ r: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <PatientTrajectoryChart
+                points={timeline.points}
+                height={340}
+                margin={{ top: 8, right: 12, bottom: 8, left: -10 }}
+                dotRadius={2}
+              />
             </div>
 
             <p className="chart-reading-note">
@@ -182,37 +127,32 @@ export default function TrendsPage() {
         <div className="today-separator">2 · Contextualizar</div>
         <h2 id="baseline-heading">Tu línea de base</h2>
 
-        {!baseline || baseline.status === "insufficient_data" || !baseline.baseline ? (
+        {!baselineReady(baseline) ? (
           <p>
-            Todavía no hay datos suficientes para construir una línea de base útil. El sistema no interpreta esta
-            ausencia como normalidad.
+            Todavía no hay datos suficientes para describir cómo sueles estar. Mientras la referencia sea
+            insuficiente, no se calcula un cambio y esa ausencia no se interpreta como normalidad.
           </p>
         ) : (
           <div className="trend-summary">
             <div className="trend-summary__item">
               <span className="trend-summary__label">Estado</span>
-              <span className="trend-summary__value">{baseline.status}</span>
+              <span className="trend-summary__value">{baselineStatusLabel(baseline?.status ?? "")}</span>
             </div>
             <div className="trend-summary__item">
-              <span className="trend-summary__label">Estabilidad</span>
-              <span className="trend-summary__value">{baseline.baseline.stability}</span>
+              <span className="trend-summary__label">Referencia</span>
+              <span className="trend-summary__value">{baselineStabilityLabel(baseline?.baseline?.stability ?? "")}</span>
             </div>
             <div className="trend-summary__item">
               <span className="trend-summary__label">Cobertura</span>
-              <span className="trend-summary__value">
-                {baseline.baseline.data_coverage == null
-                  ? "Sin estimar"
-                  : Math.round(baseline.baseline.data_coverage * 100) + "%"}
-              </span>
+              <span className="trend-summary__value">{baselineCoverage(baseline)}</span>
             </div>
           </div>
         )}
 
         <p className="meta">
-          Ventana:{" "}
-          {baseline?.baseline
-            ? formatDay(baseline.baseline.window.start) + " – " + formatDay(baseline.baseline.window.end) +
-              " · versión " + baseline.baseline.algorithm_version
+          Periodo mirado:{" "}
+          {baseline?.baseline?.window
+            ? formatDay(baseline.baseline.window.start) + " – " + formatDay(baseline.baseline.window.end)
             : "no disponible"}
         </p>
       </section>
@@ -221,26 +161,29 @@ export default function TrendsPage() {
         <div className="today-separator">3 · Preguntar antes de concluir</div>
         <h2 id="signals-heading">Señales de cambio</h2>
 
-        {changes.length === 0 ? (
-          <p>No hay señales de cambio canónicas disponibles.</p>
+        {calculatedChanges.length === 0 ? (
+          <p>{insufficientChangeNotice(comparableChanges)}</p>
         ) : (
-          <div className="wave-tool-grid">
-            {changes.map((change) => (
-              <article className="card wave-tool-card" key={change.signal_id}>
-                <p className="patient-action-card__eyebrow">{change.feature}</p>
-                <h3>{change.band}</h3>
-                <p>
-                  Señal calculada con {change.algorithm_version}. Antes de interpretarla, añade el contexto que
-                  consideres relevante: qué ocurrió, qué cambió y qué podría faltar en los datos.
-                </p>
-              </article>
-            ))}
-          </div>
+          <>
+            {whole && <p>{patientBand(whole.band)}. {calculatedChangeText(whole)}</p>}
+            <div className="wave-tool-grid">
+              {calculatedChanges.map((change) => (
+                <article className="card wave-tool-card" key={change.signal_id}>
+                  <p className="patient-action-card__eyebrow">{featureLabel(change.feature)}</p>
+                  <h3>{patientBand(change.band)}</h3>
+                  <p>{calculatedChangeText(change)}</p>
+                </article>
+              ))}
+            </div>
+            {comparableChanges.some((change) => !signalWasCalculated(change)) && (
+              <p>{insufficientChangeNotice(comparableChanges.filter((change) => !signalWasCalculated(change)))}</p>
+            )}
+          </>
         )}
 
         <p className="chart-reading-note">
-          <strong>Importante:</strong> una señal describe cambio respecto a una referencia; la evaluación de seguridad
-          se calcula por separado con reglas deterministas.
+          <strong>Importante:</strong> esto compara tus registros contigo mismo. No es una valoración de riesgo ni
+          sustituye pedir ayuda si la necesitas.
         </p>
       </section>
     </div>

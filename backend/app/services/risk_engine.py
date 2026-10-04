@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.models import AlfaSignal, ConfirmedFact, ProfessionalAlert, RiskAssessment
+from app.schemas import _utc_iso
 from app.services import baseline as baseline_service
 from app.services import notifications as notification_service
 from app.services import profile as profile_service
@@ -305,7 +306,7 @@ def _trace_rule(code: str, level: int, label: str, conditions: list[dict], match
 
 
 def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> RiskDecision:
-    """Evaluate every deterministic rule and persistable intermediate.
+    """Evaluate every deterministic rule and keep the intermediate results.
 
     Rather than returning at the first matching rule, this function records
     all rule outcomes and then selects the first match, so clinicians can

@@ -67,11 +67,13 @@ from app.schemas import (
     SignalOut,
     StructuralExplanationOut,
     TimelineOut,
+    _utc_iso,
 )
 from app.security import require_professional
 from app.services import agent2_trace, audit, clinical_copilot, clinical_view, psychosocial, risk_engine
 from app.services import profile as profile_service
 from app.services import signals as signals_service
+from app.services.longitudinal_read import for_clinical_reader, longitudinal_state, longitudinal_states
 from app.services.timeline import build_timeline
 
 router = APIRouter(prefix="/api/v1/professional", tags=["professional"])
@@ -375,6 +377,7 @@ def _patient_summary(db: Session, patient: User, status_label: str) -> PatientSu
         open_alerts=len(open_alert_rows),
         checkin_count=checkin_count,
         last_checkin_at=last_ci.created_at if last_ci else None,
+        longitudinal=for_clinical_reader(longitudinal_state(db, patient.id)),
     )
 
 
@@ -444,7 +447,10 @@ def _batch_patient_summaries(db: Session, patients: list[tuple[User, str]]) -> l
     last_checkins = db.query(ci_subq.c.user_id, ci_subq.c.max_created_at).all()
     last_checkin_by_user = {row.user_id: row.max_created_at for row in last_checkins}
 
-    # 5. Assemble the summaries
+    # 5. Persisted baseline + ChangeSignal. This read does not recompute or score risk.
+    longitudinal_by_user = longitudinal_states(db, patient_ids)
+
+    # 6. Assemble the summaries
     summaries = []
     for patient, status_label in patients:
         if patient is None:
@@ -473,7 +479,8 @@ def _batch_patient_summaries(db: Session, patients: list[tuple[User, str]]) -> l
                 pending_alert_status=pending.status if pending else None,
                 open_alerts=len(user_alerts),
                 checkin_count=counts_by_user.get(patient.id, 0),
-                last_checkin_at=last_checkin_by_user.get(patient.id)
+                last_checkin_at=last_checkin_by_user.get(patient.id),
+                longitudinal=for_clinical_reader(longitudinal_by_user[patient.id]),
             )
         )
 
@@ -491,7 +498,13 @@ def list_patients(db: Session = Depends(get_db), professional: User = Depends(re
             )
             .all()
         )
-        patients = [(db.get(User, a.patient_id), a.status) for a in assignments]
+        patient_ids = [assignment.patient_id for assignment in assignments]
+        users = (
+            {user.id: user for user in db.query(User).filter(User.id.in_(patient_ids)).all()}
+            if patient_ids
+            else {}
+        )
+        patients = [(users.get(assignment.patient_id), assignment.status) for assignment in assignments]
     else:
         patients = [(u, "roster") for u in db.query(User).filter(User.role == "patient").all()]
 
@@ -513,6 +526,7 @@ def list_patients(db: Session = Depends(get_db), professional: User = Depends(re
                 pending_alert_status=None,
                 open_alerts=0,
                 checkin_count=0,
+                longitudinal=None,
             )
         )
     return summaries
@@ -595,13 +609,7 @@ def patient_checkins(
     professional: User = Depends(require_professional),
 ):
     _require_clinical_read(db, professional, patient_id)
-    return (
-        db.query(CheckIn)
-        .filter(CheckIn.user_id == patient_id)
-        .order_by(CheckIn.created_at.desc())
-        .limit(min(limit, 200))
-        .all()
-    )
+    return _recent_for_patient(db, CheckIn, patient_id, CheckIn.created_at, limit, 200)
 
 
 @router.get("/patients/{patient_id}/diary", response_model=list[DiaryOut])
@@ -612,13 +620,7 @@ def patient_diary(
     professional: User = Depends(require_professional),
 ):
     _require_clinical_read(db, professional, patient_id)
-    return (
-        db.query(DiaryEntry)
-        .filter(DiaryEntry.user_id == patient_id)
-        .order_by(DiaryEntry.created_at.desc())
-        .limit(min(limit, 100))
-        .all()
-    )
+    return _recent_for_patient(db, DiaryEntry, patient_id, DiaryEntry.created_at, limit, 100)
 
 
 @router.get("/patients/{patient_id}/assessments", response_model=list[RiskAssessmentOut])
@@ -648,13 +650,7 @@ def patient_signals(
     professional: User = Depends(require_professional),
 ):
     _require_clinical_read(db, professional, patient_id)
-    return (
-        db.query(AlfaSignal)
-        .filter(AlfaSignal.user_id == patient_id)
-        .order_by(AlfaSignal.timestamp.desc())
-        .limit(min(limit, 100))
-        .all()
-    )
+    return _recent_for_patient(db, AlfaSignal, patient_id, AlfaSignal.timestamp, limit, 100)
 
 
 @router.get("/patients/{patient_id}/profile", response_model=PatientProfileOut)
@@ -1068,8 +1064,8 @@ def _psychosocial_observation_out(row: PsychosocialObservation) -> PsychosocialO
         source_label="Chat" if row.source_type == "chat_message" else "Diario",
         source_id=row.chat_message_id or row.diary_entry_id,
         adjudication_note=row.adjudication_note,
-        adjudicated_at=_iso(row.adjudicated_at),
-        observed_at=_iso(row.observed_at),
+        adjudicated_at=_utc_iso(row.adjudicated_at),
+        observed_at=_utc_iso(row.observed_at),
     )
 
 

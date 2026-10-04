@@ -1157,6 +1157,38 @@ button.linkish {
   color: var(--danger);
 }
 
+.change-panel {
+  border-left: 4px solid var(--pd-accent);
+  margin-top: 16px;
+}
+
+.change-band {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: rgba(108, 152, 244, 0.16);
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.change-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.change-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: baseline;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
 .diary-entry {
   border-bottom: 1px solid var(--border);
   padding: 10px 0;
