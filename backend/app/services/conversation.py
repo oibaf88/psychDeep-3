@@ -492,7 +492,7 @@ def get_reply(
                     "http_401": "El proveedor rechazó la autenticación (HTTP 401). Revisa la clave API del servidor.",
                     "http_403": "El proveedor denegó el acceso (HTTP 403). Revisa la autorización de la clave API.",
                     "cloudflare_challenge": "Cloudflare ha interceptado la petición al modelo local antes de llegar a LM Studio.",
-                    "http_404": "El modelo o la ruta de la API no existe (HTTP 404). Elige el modelo cargado en Mis modelos.",
+                    "http_404": "El modelo o la ruta de la API no existe (HTTP 404). Comprueba que el modelo esté cargado en el ordenador.",
                     "timeout": "El proveedor no respondió dentro del tiempo configurado.",
                     "network_error": "No se pudo establecer conexión con el proveedor LLM.",
                     "empty_output": "El proveedor respondió sin contenido utilizable.",
