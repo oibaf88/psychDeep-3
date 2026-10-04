@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User
-from app.security import get_current_user
+from app.security import require_admin
 from app.services import audit, local_llm_access, personal_llm
 from app.services.llm.base import StructuredAnalysisError
 
@@ -32,14 +32,14 @@ def _status_for(db: Session, user: User) -> dict:
 
 
 @router.get("")
-def read_personal_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def read_personal_settings(db: Session = Depends(get_db), user: User = Depends(require_admin)):
     return _status_for(db, user)
 
 
 @router.put("")
 def update_personal_settings(
     payload: PersonalLLMSettingsIn,
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db), user: User = Depends(require_admin),
 ):
     if payload.provider == "openai_compatible":
         try:
@@ -58,7 +58,7 @@ def update_personal_settings(
 
 
 @router.delete("")
-def delete_personal_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def delete_personal_settings(db: Session = Depends(get_db), user: User = Depends(require_admin)):
     row = db.get(personal_llm.UserLLMPreference, user.id)
     if row is not None:
         db.delete(row)
@@ -70,7 +70,7 @@ def delete_personal_settings(db: Session = Depends(get_db), user: User = Depends
 
 
 @router.post("/test")
-def test_personal_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def test_personal_settings(db: Session = Depends(get_db), user: User = Depends(require_admin)):
     """Send a synthetic prompt using only the current account's saved key."""
     try:
         from app.services.llm import build_provider

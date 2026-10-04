@@ -23,7 +23,6 @@ from app.config import get_settings
 from app.database import Base
 from app.services import llm_config
 from app.services.local_model_catalog import (
-    UNCONFIRMED_DEFAULTS,
     Catalog,
     fetch_catalog,
     select_model,
@@ -178,13 +177,9 @@ def status(db: Session, user_id: uuid.UUID) -> dict:
     local = selected == llm_config.PROVIDER_LOCAL and not openai
     logical_provider = "openai" if openai else selected
     catalog = _catalog_for(_usable_key(row.lm_api_key_encrypted if row else None))
-    stored_choice = (row.chat_model or "").strip() if row else ""
-    advertised = {model.id for model in catalog.models}
-    if catalog.reachable:
-        choice = stored_choice if stored_choice in advertised else ""
-    else:
-        choice = "" if stored_choice in UNCONFIRMED_DEFAULTS else stored_choice
-    effective = select_model(stored_choice, catalog)
+    # Local inference follows the model loaded on the operator's computer.
+    # A stored id is not a menu choice and is not shown as one.
+    effective = select_model("", catalog) if local else ""
     loaded = next((model.id for model in catalog.models if model.loaded), "")
     if not loaded and len(catalog.models) == 1:
         loaded = catalog.models[0].id
@@ -192,14 +187,16 @@ def status(db: Session, user_id: uuid.UUID) -> dict:
         "configured": row is not None,
         "provider": logical_provider,
         "chat_model": (
-            choice if local
+            "" if local
             else settings.openai_chat_model if openai
-            else row.chat_model
+            else settings.anthropic_chat_model if row and row.provider == llm_config.PROVIDER_ANTHROPIC
+            else ""
         ),
         "analysis_model": (
-            choice if local
+            "" if local
             else settings.openai_analysis_model if openai
-            else row.analysis_model
+            else settings.anthropic_analysis_model if row and row.provider == llm_config.PROVIDER_ANTHROPIC
+            else ""
         ),
         "effective_local_model": effective,
         "copilot_model": (
@@ -220,52 +217,29 @@ def status(db: Session, user_id: uuid.UUID) -> dict:
     }
 
 
-def _local_model_choice(requested: str, supplied_key: str | None, row: UserLLMPreference | None) -> tuple[str, str, str]:
-    """Store only an id the account chose and the server still advertises.
-
-    An empty choice means “whatever is loaded now” and stays empty, so changing
-    the model in LM Studio does not keep sending a previous name.
-    """
-    key = ""
-    if supplied_key is not None and supplied_key.strip():
-        key = supplied_key.strip()
-    elif supplied_key is None and row is not None:
-        key = _usable_key(row.lm_api_key_encrypted)
-    catalog = _catalog_for(key) if key else Catalog((), False)
-    requested = (requested or "").strip()
-    retired_and_unlisted = requested in UNCONFIRMED_DEFAULTS and not any(
-        model.id == requested for model in catalog.models
-    )
-    if not requested or retired_and_unlisted:
-        return "", "", ""
-    if catalog.reachable and requested not in {model.id for model in catalog.models}:
-        return "", "", ""
-    return requested, requested, ""
-
-
 def save(db: Session, user_id: uuid.UUID, payload) -> dict:
     settings = get_settings()
     if payload.provider == llm_config.PROVIDER_ANTHROPIC:
         if not settings.model_allow_commercial or not settings.anthropic_api_key:
             raise ValueError("Anthropic no está habilitado por el administrador.")
         endpoint = None
-        chat_model, analysis_model, copilot_model = payload.chat_model, payload.analysis_model, payload.copilot_model
+        chat_model = settings.anthropic_chat_model
+        analysis_model = settings.anthropic_analysis_model
+        copilot_model = settings.anthropic_copilot_model or chat_model
     elif payload.provider == "openai":
         if not settings.openai_api_key:
             raise ValueError("OpenAI no está habilitado: falta OPENAI_API_KEY en Render.")
-        # The OpenAI destination is server-owned. The account may choose models,
-        # but never an arbitrary URL.
+        # The OpenAI destination and model ids are server-owned. The account
+        # selects the provider, never an arbitrary URL or model name.
         endpoint = "https://api.openai.com/v1"
-        chat_model = payload.chat_model or settings.openai_chat_model
-        analysis_model = payload.analysis_model or settings.openai_analysis_model
-        copilot_model = payload.copilot_model or settings.openai_copilot_model or chat_model
+        chat_model = settings.openai_chat_model
+        analysis_model = settings.openai_analysis_model
+        copilot_model = settings.openai_copilot_model or chat_model
     else:
         _, endpoint = shared_gateway()
-        # The account chooses an id LM Studio advertised. An empty choice means
-        # "the model that is loaded"; a stale pinned id is not stored.
-        chat_model, analysis_model, copilot_model = _local_model_choice(
-            payload.chat_model, payload.lm_api_key, db.get(UserLLMPreference, user_id),
-        )
+        # Ignore any model id from the request. Inference reads the model
+        # loaded in LM Studio on the operator's computer.
+        chat_model, analysis_model, copilot_model = "", "", ""
     if payload.provider == "openai":
         fields = {
             "provider": llm_config.PROVIDER_LOCAL,
@@ -330,8 +304,10 @@ def resolve(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
         if not settings.model_allow_commercial or not settings.anthropic_api_key:
             raise RuntimeError("Anthropic no está habilitado por el administrador.")
         return PersonalResolvedConfig(
-            provider=selected, chat_model=row.chat_model, analysis_model=row.analysis_model,
-            copilot_model=row.copilot_model or row.chat_model,
+            provider=selected,
+            chat_model=settings.anthropic_chat_model,
+            analysis_model=settings.anthropic_analysis_model,
+            copilot_model=settings.anthropic_copilot_model or settings.anthropic_chat_model,
             copilot_model_explicit=row.copilot_model, api_key=settings.anthropic_api_key,
             max_tokens=row.max_tokens, timeout_seconds=row.timeout_seconds,
             label="Selección de cuenta", source="runtime",
@@ -341,9 +317,9 @@ def resolve(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
             raise RuntimeError("OpenAI no está habilitado: falta OPENAI_API_KEY en Render.")
         return PersonalResolvedConfig(
             provider="openai",
-            chat_model=row.chat_model or settings.openai_chat_model,
-            analysis_model=row.analysis_model or settings.openai_analysis_model,
-            copilot_model=row.copilot_model or settings.openai_copilot_model or row.chat_model,
+            chat_model=settings.openai_chat_model,
+            analysis_model=settings.openai_analysis_model,
+            copilot_model=settings.openai_copilot_model or settings.openai_chat_model,
             copilot_model_explicit=row.copilot_model,
             api_key=settings.openai_api_key,
             max_tokens=row.max_tokens,
@@ -355,10 +331,10 @@ def resolve(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
         raise RuntimeError("Proveedor personal no autorizado.")
     settings, endpoint = shared_gateway()
     api_key = _decrypt_lm_key(row.lm_api_key_encrypted if row else None)
-    model = select_model(row.chat_model if row else "", _catalog_for(api_key))
+    model = select_model("", _catalog_for(api_key))
     if not model:
         raise LocalModelUnavailable(
-            "LM Studio no tiene un modelo seleccionado. Carga uno en el servidor local o elige uno en Mis modelos."
+            "No hay un modelo cargado en el ordenador. Carga uno en LM Studio; desde PsychDeep no se elige un modelo."
         )
     return PersonalResolvedConfig(
         provider=selected, base_url=endpoint, chat_model=model,

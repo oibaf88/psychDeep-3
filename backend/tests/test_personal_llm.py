@@ -52,6 +52,7 @@ def settings(**overrides):
         anthropic_api_key="server-anthropic-test-key",
         anthropic_chat_model="claude-test",
         anthropic_analysis_model="claude-test",
+        anthropic_copilot_model="",
         openai_api_key="test-openai-key",
         openai_chat_model="test-openai-model",
         openai_analysis_model="test-openai-model",
@@ -79,7 +80,8 @@ class PersonalGatewayTests(unittest.TestCase):
         # Keep unit tests off the live tunnel. An unreachable catalog preserves
         # the id the account stored.
         self.catalog_patch = patch.object(
-            personal_llm, "fetch_catalog", return_value=Catalog((), False),
+            personal_llm, "fetch_catalog",
+            return_value=Catalog((LocalModel("loaded-on-computer", True),), True),
         )
         self.catalog_patch.start()
 
@@ -221,11 +223,25 @@ class PersonalGatewayTests(unittest.TestCase):
         self.assertEqual(state["local_models"][0]["id"], "loaded-model")
         self.assertNotIn("gemma-2-2b-it", str(state["local_models"]))
 
-    def test_explicit_advertised_model_is_kept(self):
+    def test_a_requested_model_id_is_discarded_for_the_loaded_one(self):
         personal_llm.save(self.db, self.a, payload(model="kept-model", key="alice-key"))
+        self.assertEqual(self.db.rows[self.a].chat_model, "")
+        self.assertEqual(self.db.rows[self.a].analysis_model, "")
         catalog = Catalog((LocalModel("kept-model", False), LocalModel("loaded-model", True)), True)
         with patch.object(personal_llm, "fetch_catalog", return_value=catalog):
-            self.assertEqual(personal_llm.resolve(self.db, self.a).chat_model, "kept-model")
+            resolved = personal_llm.resolve(self.db, self.a)
+        self.assertEqual(resolved.chat_model, "loaded-model")
+        self.assertEqual(resolved.analysis_model, "loaded-model")
+
+    def test_commercial_providers_ignore_a_client_model_name(self):
+        personal_llm.save(self.db, self.a, payload(provider="anthropic", model="not-a-choice", key="alice-key"))
+        resolved = personal_llm.resolve(self.db, self.a)
+        self.assertEqual(resolved.provider, "anthropic")
+        self.assertEqual(resolved.chat_model, "claude-test")
+        personal_llm.save(self.db, self.a, payload(provider="openai", model="also-not-a-choice"))
+        resolved = personal_llm.resolve(self.db, self.a)
+        self.assertEqual(resolved.provider, "openai")
+        self.assertEqual(resolved.chat_model, "test-openai-model")
 
     def test_several_models_and_no_choice_does_not_invent_one(self):
         personal_llm.save(self.db, self.a, payload(key="alice-key"))
@@ -242,6 +258,26 @@ class PersonalGatewayTests(unittest.TestCase):
             personal_llm.save(self.db, self.a, payload(key="not-valid\r\nheader"))
         self.assertEqual(personal_llm.resolve(self.db, self.b).api_key, "bob-key")
         self.assertNotIn(self.a, self.db.rows)
+
+
+class PersonalSettingsAuthorizationTests(unittest.TestCase):
+    def test_every_personal_route_requires_admin_clinical(self):
+        import inspect
+
+        from fastapi.params import Depends
+
+        from app.routers import personal_llm as routes
+        from app.security import require_admin
+
+        for endpoint in (
+            routes.read_personal_settings,
+            routes.update_personal_settings,
+            routes.delete_personal_settings,
+            routes.test_personal_settings,
+        ):
+            dependency = inspect.signature(endpoint).parameters["user"].default
+            self.assertIsInstance(dependency, Depends)
+            self.assertIs(dependency.dependency, require_admin)
 
 
 if __name__ == "__main__":

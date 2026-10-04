@@ -94,7 +94,7 @@ export default function NavBar() {
         )}
 
         <MenuLink to="/account">Mi cuenta</MenuLink>
-        <MenuLink to="/settings">Mis modelos</MenuLink>
+        {isAdmin && <MenuLink to="/settings">Mis modelos</MenuLink>}
       </div>
 
       <div className="navbar-user">
