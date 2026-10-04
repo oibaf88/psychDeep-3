@@ -1,6 +1,14 @@
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import BreathingPacer from "../components/BreathingPacer";
 import { api } from "../api";
+import {
+  WAVE_HEIGHT,
+  WAVE_WIDTH,
+  createWaveClock,
+  stepWaveClock,
+  waveFrame,
+  type WaveClock,
+} from "../waveMotion";
 import "../wave-swell.css";
 
 interface ResourcesResponse {
@@ -22,71 +30,6 @@ const CREST_FRAC = 0.12;
 type RideStatus = "idle" | "riding" | "paused" | "done";
 type RidePhase = "idle" | "rising" | "crest" | "falling" | "done";
 
-const WAVE_WIDTH = 320;
-const WAVE_HEIGHT = 160;
-const WAVE_SAMPLES = 48;
-
-interface WaveLayer {
-  amplitude: number;
-  cycles: number;
-  phaseOffset: number;
-  speed: number;
-  verticalOffset: number;
-}
-
-/**
- * Three independent wave fields make the visual read as layered water rather
- * than three copies of the same curve. Intensity changes the response
- * non-linearly: high urge raises the whole body, increases crest-to-trough
- * distance and accelerates the motion.
- */
-const WAVE_LAYERS: WaveLayer[] = [
-  { amplitude: 0.62, cycles: 1.65, phaseOffset: 1.25, speed: 0.76, verticalOffset: 6 },
-  { amplitude: 0.82, cycles: 2.05, phaseOffset: -0.45, speed: 1.02, verticalOffset: 2 },
-  { amplitude: 1.0, cycles: 2.35, phaseOffset: 0, speed: 1.28, verticalOffset: 0 },
-];
-
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
-}
-
-function waveSurface(level: number, phase: number, layer: WaveLayer): Array<{ x: number; y: number }> {
-  const normalized = clamp01(level / 10);
-  const severity = Math.pow(normalized, 1.55);
-  const baseWaterline = 140 - severity * 72;
-  const swellRange = 3 + severity * 27;
-  const swell = (0.5 - 0.5 * Math.cos(phase * 0.72 + layer.phaseOffset)) * swellRange;
-  const amplitude = (2.5 + severity * 28) * layer.amplitude;
-  const travelPhase = phase * layer.speed;
-
-  return Array.from({ length: WAVE_SAMPLES + 1 }, (_, index) => {
-    const x = (index / WAVE_SAMPLES) * WAVE_WIDTH;
-    const position = index / WAVE_SAMPLES;
-    const angle = position * Math.PI * 2 * layer.cycles + travelPhase + layer.phaseOffset;
-    const primary = Math.sin(angle);
-    const harmonic = 0.28 * Math.sin(angle * 1.92 - travelPhase * 0.7);
-    const y = baseWaterline - swell + layer.verticalOffset + (primary + harmonic) * amplitude * 0.5;
-    return { x, y: Math.max(14, Math.min(WAVE_HEIGHT - 2, y)) };
-  });
-}
-
-function fillWavePath(points: Array<{ x: number; y: number }>): string {
-  const surface = points.map(({ x, y }) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(" L ");
-  return `M 0 ${WAVE_HEIGHT} L ${surface} L ${WAVE_WIDTH} ${WAVE_HEIGHT} Z`;
-}
-
-function surfacePath(points: Array<{ x: number; y: number }>): string {
-  return `M ${points.map(({ x, y }) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(" L ")}`;
-}
-
-function wavePath(level: number, phase: number, layer: WaveLayer): string {
-  return fillWavePath(waveSurface(level, phase, layer));
-}
-
-function foamPath(level: number, phase: number): string {
-  return surfacePath(waveSurface(level, phase, WAVE_LAYERS[2]));
-}
-
 function peakForStart(start: number): number {
   if (start >= 8) return start;
   return Math.min(10, start + Math.max(2, Math.ceil((10 - start) * 0.35)));
@@ -106,7 +49,6 @@ function intensityAt(progress: number, start: number, peak: number): number {
   const eased = t * t * (3 - 2 * t);
   return peak * (1 - eased);
 }
-
 
 function phaseFromProgress(progress: number, start: number, peak: number): RidePhase {
   if (progress <= 0) return "idle";
@@ -142,15 +84,14 @@ export default function WavePage() {
   const [alternatives, setAlternatives] = useState<string[]>([]);
   const [rideStatus, setRideStatus] = useState<RideStatus>("idle");
   const [rideProgress, setRideProgress] = useState(0);
-  const [visualPhase, setVisualPhase] = useState(0);
+  const [visualClock, setVisualClock] = useState<WaveClock>(createWaveClock);
 
   const startLevelRef = useRef(5);
   const peakRef = useRef(7);
   const elapsedRef = useRef(0);
   const urgeLevelRef = useRef(5);
   const lastTickRef = useRef<number | null>(null);
-  const visualPhaseRef = useRef(0);
-  const visualFrameAccumulatorRef = useRef(0);
+  const clockRef = useRef<WaveClock>(createWaveClock());
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -192,14 +133,8 @@ export default function WavePage() {
         const motionLevel = rideStatus === "riding"
           ? intensityAt(elapsedRef.current / RIDE_DURATION_MS, startLevelRef.current, peakRef.current)
           : urgeLevelRef.current;
-        const speed = 0.00115 + clamp01(motionLevel / 10) * 0.0048;
-        visualPhaseRef.current += delta * speed;
-
-        visualFrameAccumulatorRef.current += delta;
-        if (visualFrameAccumulatorRef.current >= 33) {
-          visualFrameAccumulatorRef.current = 0;
-          setVisualPhase(visualPhaseRef.current);
-        }
+        clockRef.current = stepWaveClock(clockRef.current, delta, motionLevel);
+        setVisualClock(clockRef.current);
       }
 
       rafRef.current = requestAnimationFrame(tick);
@@ -213,7 +148,6 @@ export default function WavePage() {
         rafRef.current = null;
       }
       lastTickRef.current = null;
-      visualFrameAccumulatorRef.current = 0;
     };
   }, [rideStatus]);
 
@@ -226,33 +160,20 @@ export default function WavePage() {
         ? phaseFromProgress(rideProgress, startLevelRef.current, peakRef.current)
         : "idle";
 
-  const waveBack = useMemo(() => wavePath(
-    Math.max(0, urgeLevel - 1.3),
-    visualPhase,
-    WAVE_LAYERS[0],
-  ), [urgeLevel, visualPhase]);
-
-  const waveMid = useMemo(() => wavePath(
-    Math.max(0, urgeLevel - 0.5),
-    visualPhase,
-    WAVE_LAYERS[1],
-  ), [urgeLevel, visualPhase]);
-
-  const waveFront = useMemo(
-    () => wavePath(urgeLevel, visualPhase, WAVE_LAYERS[2]),
-    [urgeLevel, visualPhase],
-  );
-
-  const waveFoam = useMemo(
-    () => foamPath(urgeLevel, visualPhase),
-    [urgeLevel, visualPhase],
-  );
+  const frame = useMemo(() => waveFrame(urgeLevel, visualClock), [urgeLevel, visualClock]);
+  const { palette } = frame;
 
   const waveState =
     ridePhase === "crest" || urgeLevel >= 8 ? "storm" : ridePhase === "rising" || urgeLevel >= 4 ? "rising" : "calm";
   const waveStyle = {
     "--wave-fill": `${Math.min(100, Math.max(8, urgeLevel * 9.2))}%`,
     "--wave-intensity": String(urgeLevel / 10),
+    "--wave-surge": frame.surge.toFixed(3),
+    "--wave-tension": frame.tension.toFixed(3),
+    "--wave-foam-color": palette.foam,
+    "--wave-foam-width": `${frame.foamWidth.toFixed(2)}px`,
+    "--wave-foam-opacity": frame.foamOpacity.toFixed(3),
+    "--wave-foam-dash": frame.foamDash,
   } as CSSProperties;
 
   function startRide() {
@@ -370,26 +291,26 @@ export default function WavePage() {
           aria-hidden="true"
           data-phase={ridePhase}
         >
-          <svg className="wave-svg" viewBox="0 0 320 160" preserveAspectRatio="none">
+          <svg className="wave-svg" viewBox={`0 0 ${WAVE_WIDTH} ${WAVE_HEIGHT}`} preserveAspectRatio="none">
             <defs>
               <linearGradient id="waveFrontGradient" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="#7fd8c2" />
-                <stop offset="46%" stopColor="#6c98f4" />
-                <stop offset="100%" stopColor="#2f4f9e" />
+                <stop offset="0%" stopColor={palette.frontHi} />
+                <stop offset="42%" stopColor={palette.frontMid} />
+                <stop offset="100%" stopColor={palette.frontLo} />
               </linearGradient>
               <linearGradient id="waveBackGradient" x1="0" x2="1" y1="0" y2="1">
-                <stop offset="0%" stopColor="#b9cdfa" stopOpacity="0.7" />
-                <stop offset="100%" stopColor="#6c98f4" stopOpacity="0.55" />
+                <stop offset="0%" stopColor={palette.backHi} stopOpacity="0.72" />
+                <stop offset="100%" stopColor={palette.backLo} stopOpacity="0.55" />
               </linearGradient>
               <linearGradient id="waveMidGradient" x1="0" x2="0.7" y1="0" y2="1">
-                <stop offset="0%" stopColor="#9bded8" stopOpacity="0.78" />
-                <stop offset="100%" stopColor="#4578c9" stopOpacity="0.72" />
+                <stop offset="0%" stopColor={palette.midHi} stopOpacity="0.8" />
+                <stop offset="100%" stopColor={palette.midLo} stopOpacity="0.72" />
               </linearGradient>
             </defs>
-            <path className="wave-back" d={waveBack} />
-            <path className="wave-mid" d={waveMid} />
-            <path className="wave-front" d={waveFront} />
-            <path className="wave-foam" d={waveFoam} />
+            <path className="wave-back" d={frame.paths.back} />
+            <path className="wave-mid" d={frame.paths.mid} />
+            <path className="wave-front" d={frame.paths.front} />
+            <path className="wave-foam" d={frame.paths.foam} />
           </svg>
         </div>
       </section>
