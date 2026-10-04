@@ -382,6 +382,13 @@ BAND_MEANING = {
 }
 
 
+def _indexed(db: Session, model, ids) -> dict:
+    """Load rows by primary key. An empty IN () is not a query."""
+    if not ids:
+        return {}
+    return {row.id: row for row in db.query(model).filter(model.id.in_(list(ids))).all()}
+
+
 def _excerpt(text: str | None, limit: int = EXCERPT_CHARS) -> str:
     if not text:
         return ""

@@ -491,7 +491,8 @@ def get_reply(
                     "http_400": "El proveedor rechazó la solicitud (HTTP 400). Revisa el modelo o los parámetros configurados.",
                     "http_401": "El proveedor rechazó la autenticación (HTTP 401). Revisa la clave API del servidor.",
                     "http_403": "El proveedor denegó el acceso (HTTP 403). Revisa la autorización de la clave API.",
-                    "http_404": "El modelo o la ruta de la API no existe (HTTP 404). Revisa el identificador del modelo.",
+                    "cloudflare_challenge": "Cloudflare ha interceptado la petición al modelo local antes de llegar a LM Studio.",
+                    "http_404": "El modelo o la ruta de la API no existe (HTTP 404). Elige el modelo cargado en Mis modelos.",
                     "timeout": "El proveedor no respondió dentro del tiempo configurado.",
                     "network_error": "No se pudo establecer conexión con el proveedor LLM.",
                     "empty_output": "El proveedor respondió sin contenido utilizable.",
@@ -510,7 +511,10 @@ def get_reply(
                     reply_text += " Tus datos y check-ins se han guardado con normalidad."
             else:
                 from app.services.local_llm_access import LocalLlmAccessDenied
-                if isinstance(exc, LocalLlmAccessDenied):
+                from app.services.personal_llm import LocalModelUnavailable
+                if isinstance(exc, LocalModelUnavailable):
+                    reply_text = f"{exc} Tus datos y check-ins se han guardado con normalidad."
+                elif isinstance(exc, LocalLlmAccessDenied):
                     reply_text = (
                         "Ahora mismo no puedo generar una respuesta conversacional. "
                         "El fallo queda registrado de forma segura y tus datos y check-ins "

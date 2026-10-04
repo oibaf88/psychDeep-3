@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.services import personal_llm
 from app.services.llm import build_provider
+from app.services.local_model_catalog import Catalog, LocalModel
 from app.routers.personal_llm import PersonalLLMSettingsIn
 
 
@@ -75,8 +76,15 @@ class PersonalGatewayTests(unittest.TestCase):
         self.env_patch.start()
         self.fake_settings = patch.object(personal_llm, "get_settings", return_value=settings())
         self.mock_settings = self.fake_settings.start()
+        # Keep unit tests off the live tunnel. An unreachable catalog preserves
+        # the id the account stored.
+        self.catalog_patch = patch.object(
+            personal_llm, "fetch_catalog", return_value=Catalog((), False),
+        )
+        self.catalog_patch.start()
 
     def tearDown(self):
+        self.catalog_patch.stop()
         self.fake_settings.stop()
         self.env_patch.stop()
 
@@ -197,6 +205,36 @@ class PersonalGatewayTests(unittest.TestCase):
                     PersonalLLMSettingsIn.model_validate({**safe, extra: "attacker-value"})
         with self.assertRaises(ValidationError):
             PersonalLLMSettingsIn.model_validate({**safe, "lm_api_key": "x" * 8193})
+
+    def test_stale_stored_model_is_replaced_by_the_loaded_one(self):
+        personal_llm.save(self.db, self.a, payload(key="alice-key"))
+        self.db.rows[self.a].chat_model = "gemma-2-2b-it"
+        catalog = Catalog((LocalModel("loaded-model", True), LocalModel("other-model", False)), True)
+        with patch.object(personal_llm, "fetch_catalog", return_value=catalog):
+            resolved = personal_llm.resolve(self.db, self.a)
+            state = personal_llm.status(self.db, self.a)
+        self.assertEqual(resolved.chat_model, "loaded-model")
+        self.assertEqual(resolved.analysis_model, "loaded-model")
+        self.assertEqual(state["chat_model"], "")
+        self.assertEqual(state["effective_local_model"], "loaded-model")
+        self.assertEqual(state["default_local_chat_model"], "loaded-model")
+        self.assertEqual(state["local_models"][0]["id"], "loaded-model")
+        self.assertNotIn("gemma-2-2b-it", str(state["local_models"]))
+
+    def test_explicit_advertised_model_is_kept(self):
+        personal_llm.save(self.db, self.a, payload(model="kept-model", key="alice-key"))
+        catalog = Catalog((LocalModel("kept-model", False), LocalModel("loaded-model", True)), True)
+        with patch.object(personal_llm, "fetch_catalog", return_value=catalog):
+            self.assertEqual(personal_llm.resolve(self.db, self.a).chat_model, "kept-model")
+
+    def test_several_models_and_no_choice_does_not_invent_one(self):
+        personal_llm.save(self.db, self.a, payload(key="alice-key"))
+        self.db.rows[self.a].chat_model = "gemma-2-2b-it"
+        catalog = Catalog((LocalModel("one", False), LocalModel("two", False)), True)
+        with patch.object(personal_llm, "fetch_catalog", return_value=catalog):
+            with self.assertRaises(personal_llm.LocalModelUnavailable):
+                personal_llm.resolve(self.db, self.a)
+            self.assertEqual(personal_llm.status(self.db, self.a)["chat_model"], "")
 
     def test_rejects_invalid_new_token_without_changing_other_accounts(self):
         personal_llm.save(self.db, self.b, payload(key="bob-key"))
