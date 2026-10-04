@@ -45,6 +45,8 @@ MODEL_LOCAL_API_KEY=<LM_STUDIO_API_KEY>
 LLM_ALLOW_RUNTIME_OVERRIDE=true
 ```
 
+Leave `MODEL_LOCAL_CHAT_MODEL`, `MODEL_LOCAL_ANALYSIS_MODEL` and `MODEL_LOCAL_COPILOT_MODEL` empty. A value such as `gemma-2-2b-it` is sent even when that model is no longer loaded.
+
 Do not configure `TUNNEL_TOKEN`, `TUNNEL_SECRET` or `CF_API_TOKEN` in Render for this integration. Never put the Access secrets in the Docker container, browser, database or tracked configuration. Check `LLM_PERSONAL_MODE` before testing account-scoped credentials; each account must provide its own LM key when this mode is active.
 
 ## D. Configure in PsychDeep
@@ -52,7 +54,7 @@ Do not configure `TUNNEL_TOKEN`, `TUNNEL_SECRET` or `CF_API_TOKEN` in Render for
 Sign in as an authorized `admin_clinical`, select the OpenAI-compatible/local provider and set:
 
 - Base endpoint: `https://ai.bfab.io/v1` (not `/models`, not `/chat/completions`).
-- Chat/analysis model IDs: exact identifiers returned by the running LM Studio server (not a guessed model name).
+- Chat/analysis model: leave the deployment model ids empty. In **Mis modelos**, choose an identifier LM Studio is advertising, or leave “El modelo que esté cargado” when only one model is loaded. Do not type a model name from memory.
 - Use **Probar proveedor** with synthetic prompts; only deliberately save/activate once healthy. Do not silently fall back to Anthropic during an outage.
 
 The browser must never receive backend tokens. Clinical prompts may traverse the cloud backend and Cloudflare to the Windows host; evaluate patient consent, processor/region, audit and log retention separately.
@@ -63,7 +65,9 @@ The browser must never receive backend tokens. Clinical prompts may traverse the
 - Tunnel DOWN: check Docker process and its logs, outbound network connectivity, and whether the correct dedicated connector is running.
 - `502`: check LM Studio, firewall, and `host.docker.internal:1234` inside a Docker container. `localhost` in Docker refers to Docker itself.
 - `401` from LM Studio: LM key missing or wrong; verify backend `MODEL_LOCAL_API_KEY` and personal credentials when applicable.
+- `403` with an HTML page titled "Just a moment..." (`cf-mitigated: challenge`): Bot Fight Mode is challenging the HTTP client before Access or LM Studio. The backend sends `User-Agent: PsychDeep-API/1` because the default `python-httpx` agent is challenged. Do not disable Access to get past that page. A browser user agent reaches LM Studio from the same network; `python-httpx` does not.
 - `403`/Access login: verify Access app and Service Auth headers/credentials; do not disable Access.
+- Model id: do not configure a model name the LM Studio server is not serving. Leave `MODEL_LOCAL_CHAT_MODEL` empty and choose the loaded model in **Mis modelos**. If several models are advertised and none is selected, inference stops instead of guessing.
 - `404`: verify `/v1` on backend base URL and **no** `/v1` on origin route.
 - `NXDOMAIN`: correct domain DNS/delegation; Docker and the tunnel token cannot create a missing record.
 

@@ -20,6 +20,9 @@ interface PersonalStatus {
   local_llm_approved?: boolean;
   local_llm_usable?: boolean;
   local_llm_access?: "manager" | "approved" | "pending";
+  local_models?: { id: string; loaded: boolean }[];
+  local_models_reachable?: boolean;
+  effective_local_model?: string;
 }
 interface FormState {
   provider: Provider;
@@ -67,7 +70,7 @@ export default function SettingsPage() {
     if (provider === "anthropic") {
       patch({ provider, chat_model: "claude-3-5-sonnet-20240620", analysis_model: "claude-3-5-sonnet-20240620", copilot_model: "" });
     } else {
-      patch({ provider, chat_model: status.default_local_chat_model, analysis_model: status.default_local_analysis_model, copilot_model: "" });
+      patch({ provider, chat_model: "", analysis_model: "", copilot_model: "" });
     }
   }
 
@@ -139,7 +142,23 @@ export default function SettingsPage() {
             <p className="info">ChatGPT se ejecuta mediante la API oficial de OpenAI. La API key permanece en el servidor; tu cuenta solo selecciona los modelos y parámetros.</p>
             {!status?.openai_allowed && <p className="warning">OpenAI no está configurado en Render. Un administrador debe añadir OPENAI_API_KEY.</p>}
           </> : local ? <>
-            <p className="info">Modelos disponibles: conversación <code>{status?.default_local_chat_model || "pendiente"}</code>; análisis <code>{status?.default_local_analysis_model || "pendiente"}</code>.</p>
+            <p className="info">PsychDeep no fija un modelo. Si dejas «El modelo que esté cargado», se usa el que LM Studio tenga en marcha. Si hay varios, elige uno.</p>
+            {status?.effective_local_model && <p className="info">Se usará <code>{status.effective_local_model}</code>.</p>}
+            <label className="field"><span>Modelo de LM Studio</span>
+              <select value={form.chat_model} onChange={(event) => patch({ chat_model: event.target.value, analysis_model: event.target.value })}>
+                <option value="">El modelo que esté cargado</option>
+                {(status?.local_models ?? []).map((model) => (
+                  <option key={model.id} value={model.id}>{model.id}{model.loaded ? " · cargado" : ""}</option>
+                ))}
+              </select>
+              <span className="meta">
+                {status?.local_models?.length
+                  ? "La lista sale del servidor local a través del túnel. Un nombre que ya no está cargado no se envía."
+                  : status?.lm_api_key_configured
+                    ? "No hay modelos anunciados. Carga uno en LM Studio y vuelve a abrir esta página."
+                    : "Guarda tu API key para ver los modelos que LM Studio tiene cargados."}
+              </span>
+            </label>
             <label className="field" htmlFor="personal-lm-api-key">
               <span>Tu API key de LM Studio</span>
               <input id="personal-lm-api-key" type="password" autoComplete="new-password"

@@ -22,6 +22,16 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from app.config import get_settings
 from app.database import Base
 from app.services import llm_config
+from app.services.local_model_catalog import (
+    UNCONFIRMED_DEFAULTS,
+    Catalog,
+    fetch_catalog,
+    select_model,
+)
+
+
+class LocalModelUnavailable(RuntimeError):
+    """The tunnel answered, but no usable LM Studio model id is selected."""
 
 
 class UserLLMPreference(Base):
@@ -128,6 +138,34 @@ def shared_ready() -> bool:
         return False
 
 
+def _catalog_for(api_key: str) -> Catalog:
+    """Catalog of the operator tunnel. Never uses the shared LM Studio key."""
+    try:
+        settings, endpoint = shared_gateway()
+    except (ValueError, RuntimeError):
+        return Catalog((), False)
+    if not api_key.strip():
+        return Catalog((), False)
+    return fetch_catalog(
+        endpoint=endpoint,
+        api_key=api_key,
+        access_client_id=settings.model_local_cf_access_client_id,
+        access_client_secret=settings.model_local_cf_access_client_secret,
+        access_hostname=settings.model_local_cf_access_host,
+    )
+
+
+def _usable_key(ciphertext: str | None) -> str:
+    try:
+        return _decrypt_lm_key(ciphertext)
+    except RuntimeError:
+        return ""
+
+
+def _catalog_payload(catalog: Catalog) -> list[dict]:
+    return [{"id": model.id, "loaded": model.loaded} for model in catalog.models]
+
+
 def status(db: Session, user_id: uuid.UUID) -> dict:
     row = db.get(UserLLMPreference, user_id)
     settings = get_settings()
@@ -139,26 +177,40 @@ def status(db: Session, user_id: uuid.UUID) -> dict:
     )
     local = selected == llm_config.PROVIDER_LOCAL and not openai
     logical_provider = "openai" if openai else selected
+    catalog = _catalog_for(_usable_key(row.lm_api_key_encrypted if row else None))
+    stored_choice = (row.chat_model or "").strip() if row else ""
+    advertised = {model.id for model in catalog.models}
+    if catalog.reachable:
+        choice = stored_choice if stored_choice in advertised else ""
+    else:
+        choice = "" if stored_choice in UNCONFIRMED_DEFAULTS else stored_choice
+    effective = select_model(stored_choice, catalog)
+    loaded = next((model.id for model in catalog.models if model.loaded), "")
+    if not loaded and len(catalog.models) == 1:
+        loaded = catalog.models[0].id
     return {
         "configured": row is not None,
         "provider": logical_provider,
         "chat_model": (
-            settings.local_chat_model if local
+            choice if local
             else settings.openai_chat_model if openai
             else row.chat_model
         ),
         "analysis_model": (
-            settings.local_analysis_model if local
+            choice if local
             else settings.openai_analysis_model if openai
             else row.analysis_model
         ),
+        "effective_local_model": effective,
         "copilot_model": (
             "" if local
             else settings.openai_copilot_model or settings.openai_chat_model if openai
             else row.copilot_model
         ),
-        "default_local_chat_model": settings.local_chat_model,
-        "default_local_analysis_model": settings.local_analysis_model,
+        "default_local_chat_model": loaded,
+        "default_local_analysis_model": loaded,
+        "local_models": _catalog_payload(catalog),
+        "local_models_reachable": catalog.reachable,
         "max_tokens": row.max_tokens if row else min(settings.model_local_max_tokens, 32768),
         "timeout_seconds": row.timeout_seconds if row else settings.model_local_timeout_seconds,
         "local_available": shared_ready(),
@@ -166,6 +218,29 @@ def status(db: Session, user_id: uuid.UUID) -> dict:
         "anthropic_allowed": bool(settings.model_allow_commercial and settings.anthropic_api_key),
         "openai_allowed": bool(settings.openai_api_key),
     }
+
+
+def _local_model_choice(requested: str, supplied_key: str | None, row: UserLLMPreference | None) -> tuple[str, str, str]:
+    """Store only an id the account chose and the server still advertises.
+
+    An empty choice means “whatever is loaded now” and stays empty, so changing
+    the model in LM Studio does not keep sending a previous name.
+    """
+    key = ""
+    if supplied_key is not None and supplied_key.strip():
+        key = supplied_key.strip()
+    elif supplied_key is None and row is not None:
+        key = _usable_key(row.lm_api_key_encrypted)
+    catalog = _catalog_for(key) if key else Catalog((), False)
+    requested = (requested or "").strip()
+    retired_and_unlisted = requested in UNCONFIRMED_DEFAULTS and not any(
+        model.id == requested for model in catalog.models
+    )
+    if not requested or retired_and_unlisted:
+        return "", "", ""
+    if catalog.reachable and requested not in {model.id for model in catalog.models}:
+        return "", "", ""
+    return requested, requested, ""
 
 
 def save(db: Session, user_id: uuid.UUID, payload) -> dict:
@@ -186,8 +261,11 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
         copilot_model = payload.copilot_model or settings.openai_copilot_model or chat_model
     else:
         _, endpoint = shared_gateway()
-        # Only the operator's pinned local model IDs are authoritative.
-        chat_model, analysis_model, copilot_model = settings.local_chat_model, settings.local_analysis_model, ""
+        # The account chooses an id LM Studio advertised. An empty choice means
+        # "the model that is loaded"; a stale pinned id is not stored.
+        chat_model, analysis_model, copilot_model = _local_model_choice(
+            payload.chat_model, payload.lm_api_key, db.get(UserLLMPreference, user_id),
+        )
     if payload.provider == "openai":
         fields = {
             "provider": llm_config.PROVIDER_LOCAL,
@@ -199,11 +277,18 @@ def save(db: Session, user_id: uuid.UUID, payload) -> dict:
             "timeout_seconds": payload.timeout_seconds,
         }
     else:
+        # An empty local id is valid: inference reads the model loaded in LM Studio.
+        # validate() still checks the pinned tunnel URL, tokens and timeout.
+        placeholder = chat_model.strip() or "pending-model"
         fields = llm_config.validate(
-            provider=payload.provider, base_url=endpoint, chat_model=chat_model,
-            analysis_model=analysis_model, copilot_model=copilot_model,
+            provider=payload.provider, base_url=endpoint, chat_model=placeholder,
+            analysis_model=analysis_model.strip() or placeholder, copilot_model=copilot_model,
             max_tokens=payload.max_tokens, timeout_seconds=payload.timeout_seconds,
         )
+        if payload.provider == llm_config.PROVIDER_LOCAL:
+            fields["chat_model"] = chat_model.strip()
+            fields["analysis_model"] = analysis_model.strip()
+            fields["copilot_model"] = ""
     row = db.get(UserLLMPreference, user_id)
     old_ciphertext = row.lm_api_key_encrypted if row else None
     lm_ciphertext = _replace_lm_key(payload.lm_api_key, old_ciphertext)
@@ -270,10 +355,15 @@ def resolve(db: Session, user_id: uuid.UUID) -> PersonalResolvedConfig:
         raise RuntimeError("Proveedor personal no autorizado.")
     settings, endpoint = shared_gateway()
     api_key = _decrypt_lm_key(row.lm_api_key_encrypted if row else None)
+    model = select_model(row.chat_model if row else "", _catalog_for(api_key))
+    if not model:
+        raise LocalModelUnavailable(
+            "LM Studio no tiene un modelo seleccionado. Carga uno en el servidor local o elige uno en Mis modelos."
+        )
     return PersonalResolvedConfig(
-        provider=selected, base_url=endpoint, chat_model=settings.local_chat_model,
-        analysis_model=settings.local_analysis_model,
-        copilot_model=settings.local_copilot_model,
+        provider=selected, base_url=endpoint, chat_model=model,
+        analysis_model=model,
+        copilot_model=model,
         copilot_model_explicit="", api_key=api_key,
         max_tokens=row.max_tokens if row else min(settings.model_local_max_tokens, 32768),
         timeout_seconds=row.timeout_seconds if row else settings.model_local_timeout_seconds,
