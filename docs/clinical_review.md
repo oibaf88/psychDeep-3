@@ -29,3 +29,5 @@ La condición N3 vigente es `adverse_composite_z > 2.4` y además (`rumination_s
 La lógica clínica es independiente del proveedor y no se atribuye capacidad clínica exclusiva a Claude ni a ningún otro modelo. La procedencia de Agent 1 registra versión y hash del prompt y del contexto cuando interviene un modelo.
 
 Runpod permanece desactivado. El registro RAG es una base backend-only con borradores, aprobación explícita, una versión activa por destino, revisión y contraindicaciones. No está conectado al prompt ni al gateway del LLM; esa conexión exige revisión clínica, pruebas contra inyección y un rollback ensayado.
+
+Esa última frase describe la línea base de esta revisión (`72e8372`). El código posterior copia los ítems `active` no vencidos al contexto de solo lectura de Agent 1, sin filtro de población, locale o contraindicaciones, y sin guardar `content_version` en `ModelRun`. El endpoint de retrieval sigue sin llamar al modelo. El contrato vigente está en el README, sección "Curated knowledge".
