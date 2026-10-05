@@ -79,4 +79,54 @@ describe("ProfessionalDashboard assignment visibility", () => {
     expect(screen.queryByText("N4")).not.toBeInTheDocument();
     expect(screen.queryByText("9")).not.toBeInTheDocument();
   });
+
+  it("keeps a missing change apart from the alert level and the motor band", async () => {
+    currentUser = {
+      id: "therapist-1",
+      email: "therapist@example.com",
+      display_name: "Terapeuta",
+      role: "therapist",
+      locale: "es",
+    };
+    vi.mocked(api.get).mockResolvedValue([
+      {
+        id: "patient-2",
+        display_name: "Paciente Con Cambio Ausente",
+        email: "cambio@example.com",
+        assignment_status: "active",
+        open_alerts: 1,
+        latest_alert_level: 3,
+        latest_structural_score: 0.91,
+        latest_confidence_band: "stable",
+        longitudinal: {
+          baseline: { status: "insufficient_data", baseline: null },
+          changes: [
+            {
+              signal_id: "mood-1",
+              feature: "mood",
+              band: "insufficient_data",
+              change: null,
+              uncertainty: { baseline_n: 0, recent_n: 0 },
+            },
+          ],
+          limits: ["La ausencia de una señal de cambio no demuestra ausencia de riesgo."],
+        },
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <ProfessionalDashboard />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("N3")).toBeInTheDocument();
+    expect(screen.getByText("Datos insuficientes")).toBeInTheDocument();
+    expect(screen.getByText("Banda del motor: estable")).toBeInTheDocument();
+    expect(screen.getByText("0.91")).toBeInTheDocument();
+    expect(screen.getByText(/no es una alerta/)).toBeInTheDocument();
+    expect(screen.queryByText(/sin riesgo|no hay riesgo/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("0.00")).not.toBeInTheDocument();
+    expect(screen.queryByText(/1\.00 = sin cambios/)).not.toBeInTheDocument();
+  });
 });

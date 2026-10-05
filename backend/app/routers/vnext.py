@@ -22,6 +22,7 @@ from app.services.longitudinal_read import (
     baseline_summary as _baseline_summary,
     change_signal_summary as _change_signal_summary,
     current_baseline as _current_baseline,
+    for_clinical_reader as _for_clinical_reader,
     longitudinal_state as _longitudinal_state,
 )
 from app.services.consent import CORE_PROCESSING, is_granted
@@ -190,6 +191,13 @@ def support_respond(payload: SupportIn, db: Session = Depends(get_db), user: Use
 
 @router.get("/review/weekly")
 def weekly_review(db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    """Seven-day review with safety and change kept in separate objects.
+
+    `safety` is only the latest RiskAssessment snapshot. `longitudinal` is the
+    persisted BaselineVersion and ChangeSignals. This read does not recompute
+    analytics, calculate risk, or call a model. A missing change stays
+    insufficient_data / null and is never copied from the alert level.
+    """
     timeline = build_patient_timeline(db, user.id, 7)
     risk = risk_engine.latest_assessment(db, user.id)
     return {
@@ -199,6 +207,7 @@ def weekly_review(db: Session = Depends(get_db), user: User = Depends(require_pa
             "alert_level": risk.alert_level if risk else None,
             "assessment_id": str(risk.id) if risk else None,
         },
+        "longitudinal": _for_clinical_reader(_longitudinal_state(db, user.id)),
         "questions_for_review": [
             "¿Qué cambió respecto a tus días habituales?",
             "¿Qué pareció protegerte o ayudarte?",

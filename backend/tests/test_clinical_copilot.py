@@ -25,6 +25,7 @@ from app.models import (
     SafetyPlan,
     TherapistCopilotMessage,
 )
+from app.models_vnext import BaselineVersion, ChangeSignal
 from app.services import clinical_copilot
 from app.services.llm.base import ChatResult, ProviderMetadata
 
@@ -184,6 +185,96 @@ class DossierTests(unittest.TestCase):
         self.assertIn("No hay entradas de diario en la ventana.", text)
         self.assertIn("No hay mensajes de chat en la ventana.", text)
         self.assertEqual(counts["chat"], 0)
+        self.assertIn("No hay señal de cambio calculada.", text)
+        self.assertIn("no es cero ni ausencia de riesgo", text)
+
+    def test_change_section_stays_apart_from_the_alert_level(self):
+        patient = _patient()
+        now = datetime(2026, 8, 14, 9, 0, 0)
+        baseline_id = uuid.uuid4()
+        db = _Db(
+            {
+                CheckIn: [],
+                DiaryEntry: [],
+                ChatMessage: [],
+                ConfirmedFact: [],
+                AlfaSignal: [],
+                ProfessionalAlert: [],
+                SafetyPlan: [],
+                RiskAssessment: [
+                    SimpleNamespace(
+                        id=uuid.uuid4(),
+                        calculated_at=now,
+                        alert_level=3,
+                        triggering_rules=["N3_demo"],
+                        assessment_reason="Evaluación de riesgo distinta del cambio.",
+                        input_signals={"structural_score": 0.91, "confidence_band": "stable"},
+                        input_facts={},
+                        calculation_trace={"conclusion": {"selected_rule_code": "N3_demo"}, "inputs": {}},
+                        generated_alert_id=None,
+                    )
+                ],
+                BaselineVersion: [
+                    SimpleNamespace(
+                        id=baseline_id,
+                        user_id=patient.id,
+                        feature_key=None,
+                        window_start=now,
+                        window_end=now,
+                        stats={},
+                        stability="partial",
+                        data_coverage=0.5,
+                        status="provisional",
+                        algorithm_version="canonical-structural-v1",
+                        created_at=now,
+                    )
+                ],
+                ChangeSignal: [
+                    SimpleNamespace(
+                        id=uuid.uuid4(),
+                        user_id=patient.id,
+                        feature="mood",
+                        window_start=now,
+                        window_end=now,
+                        change_value=2.5,
+                        band="unstable",
+                        uncertainty={},
+                        evidence_refs=[],
+                        contradictions=[],
+                        baseline_version_id=baseline_id,
+                        algorithm_version="canonical-structural-v1",
+                        created_at=now,
+                    ),
+                    SimpleNamespace(
+                        id=uuid.uuid4(),
+                        user_id=patient.id,
+                        feature="sleep_hours",
+                        window_start=now,
+                        window_end=now,
+                        change_value=None,
+                        band="insufficient_data",
+                        uncertainty={"baseline_n": 0, "recent_n": 0},
+                        evidence_refs=[],
+                        contradictions=[],
+                        baseline_version_id=baseline_id,
+                        algorithm_version="canonical-structural-v1",
+                        created_at=now,
+                    ),
+                ],
+            }
+        )
+        text, _counts = clinical_copilot.build_dossier_text(db, patient)
+        change = text.split("## CAMBIO RESPECTO A SU LÍNEA DE BASE", 1)[1].split("## PLAN DE SEGURIDAD", 1)[0]
+        feature_lines = [line for line in change.splitlines() if line.startswith("- ")]
+        self.assertIn("nivel 3", text)
+        self.assertIn("banda de cambio unstable", change)
+        self.assertIn("distancia 2.5", change)
+        self.assertIn("sin cálculo", change)
+        self.assertEqual(len(feature_lines), 2)
+        for line in feature_lines:
+            self.assertNotIn("nivel", line.lower())
+        self.assertNotIn("distancia 0", change)
+        self.assertNotIn("sin riesgo", change)
 
     def test_long_text_is_clipped(self):
         self.assertTrue(clinical_copilot._clip("x" * 1000, 50).endswith("…"))

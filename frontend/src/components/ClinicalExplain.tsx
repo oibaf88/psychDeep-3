@@ -70,6 +70,11 @@ export function LevelExplanationCard({
         {actions && <div className="explain-actions">{actions}</div>}
       </div>
 
+      <p className="chart-reading-note">
+        Este recuadro es la evaluación de riesgo del motor determinista. No es la señal de cambio respecto a la
+        línea de base personal.
+      </p>
+
       <dl className="explain-grid">
         <div>
           <dt>Qué significa este nivel</dt>
@@ -127,6 +132,10 @@ export function StructuralExplanationCard({ explanation }: { explanation: Struct
   return (
     <section className="explain-card explain-structural">
       <h3>Score estructural, explicado</h3>
+      <p className="subtitle">
+        Esta tarjeta explica una entrada del motor de riesgo. No es la señal de cambio respecto a la línea de
+        base personal ni el nivel de alerta.
+      </p>
       <p className="explain-headline">{explanation.summary}</p>
       <p className="explain-scale">{explanation.scale_note}</p>
       {explanation.band_meaning && (

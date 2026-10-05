@@ -90,7 +90,19 @@ class NoRawEngineDumpTests(unittest.TestCase):
 
     def test_the_state_reaches_it_as_words(self):
         self.assertIn("revisión clínica urgente", _build(_Db(), level=4))
-        self.assertIn("habitual", _build(_Db(), level=0))
+        level_zero = _build(_Db(), level=0)
+        self.assertIn("habitual", level_zero)
+        self.assertIn("No describe si el patrón reciente cambió", level_zero)
+        level_one = _build(_Db(), level=1)
+        self.assertNotIn("cambio leve", level_one)
+        self.assertIn("No es una lectura de cambio", level_one)
+
+    def test_missing_safety_is_not_rewritten_as_no_change(self):
+        block = agent1_context._state_block(SimpleNamespace(alert_level=None))
+        self.assertIn("No hay una evaluación de seguridad", block)
+        self.assertNotIn("habitual", block)
+        self.assertNotIn("cambio leve", block)
+        self.assertIn("no es la comparación con su línea de base", block)
 
 
 class FactsAreVisibleTests(unittest.TestCase):

@@ -96,6 +96,7 @@ class LevelExplanationTests(unittest.TestCase):
         self.assertIsNotNone(text)
         self.assertIn("0.91", text)
         self.assertIn("No hay contradicción", text)
+        self.assertIn("No es la banda de la señal de cambio", text)
 
     def test_confirmed_fact_level_is_marked_as_fact_not_inference(self):
         explanation = clinical_view.level_explanation(_assessment(level=4, rule="N4_declaracion_ideacion_o_plan"))
@@ -203,7 +204,9 @@ class StructuralExplanationTests(unittest.TestCase):
         )
         self.assertIn("SIMILITUD", explanation["scale_note"])
         self.assertIn("nunca «sin riesgo»", explanation["scale_note"])
+        self.assertIn("señal de cambio", explanation["scale_note"])
         self.assertIn("estable", explanation["summary"])
+        self.assertIn("no la señal de cambio", explanation["summary"])
 
     def test_thin_recent_window_adds_a_caveat(self):
         assessment = _assessment(level=0, rule="N0_estable")
@@ -217,6 +220,17 @@ class StructuralExplanationTests(unittest.TestCase):
         explanation = clinical_view.structural_explanation(assessment)
         self.assertIsNone(explanation["score"])
         self.assertEqual(explanation["variables"], [])
+        self.assertNotIn("inestable", explanation["summary"])
+        self.assertIn("no es la señal de cambio", explanation["summary"])
+        self.assertNotIn("sin riesgo", explanation["summary"])
+
+    def test_insufficient_band_is_not_relabelled_as_unstable(self):
+        explanation = clinical_view.structural_explanation(
+            _assessment(level=3, rule="N3_unstable_persistente", score=0.4, band="insufficient_data")
+        )
+        self.assertNotIn("inestable", explanation["summary"])
+        self.assertIn("no es un cero", explanation["summary"])
+        self.assertNotEqual(explanation["band"], explanation.get("level"))
 
     def test_v2_explains_new_formula_and_separates_favourable_change_from_deterioration(self):
         explanation = clinical_view.structural_explanation(self._v2_assessment())

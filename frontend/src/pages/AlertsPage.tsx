@@ -67,6 +67,10 @@ export default function AlertsPage() {
         Niveles 3–4 escalan a profesionales asignados. Gestión: reconocer → resolver o descartar (nivel 4 exige
         justificación).
       </p>
+      <p className="chart-reading-note">
+        Esta lista es solo el motor de riesgo. No muestra la señal de cambio, y un filtro vacío no significa que
+        no haya cambio ni que no haya riesgo.
+      </p>
 
       <div className="filters card">
         <label>

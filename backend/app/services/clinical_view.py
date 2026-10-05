@@ -374,11 +374,17 @@ BAND_LABELS = {
 }
 
 BAND_MEANING = {
-    "stable": "score ≥ 0.60 — los últimos 7 días se parecen a su línea base.",
-    "transition": "0.35 ≤ score < 0.60 — desviación moderada respecto a su línea base.",
-    "unstable": "score < 0.35 — los últimos 7 días se alejan mucho de su línea base.",
-    "insufficient_data": "no hay línea base personal todavía (mínimo 5 check-ins en 21 días).",
+    "stable": "score ≥ 0.60 — los últimos 7 días se parecen a la ventana que usa el motor de riesgo.",
+    "transition": "0.35 ≤ score < 0.60 — desviación moderada respecto a la ventana del motor.",
+    "unstable": "score < 0.35 — los últimos 7 días se alejan mucho de la ventana del motor.",
+    "insufficient_data": "no hay ventana personal todavía para el motor (mínimo 5 check-ins en 21 días).",
 }
+
+# Appended to every risk explanation so a similarity band is not read as ChangeSignal.
+NOT_A_CHANGE_SIGNAL = (
+    " Este texto pertenece a la evaluación de riesgo. No es la banda de la señal de cambio, "
+    "y una similitud ausente no es cero ni ausencia de riesgo."
+)
 
 def _indexed(db: Session, model, ids) -> dict:
     """Load rows by primary key. An empty IN () is not a query."""
@@ -447,7 +453,10 @@ def level_explanation(
         return {
             "level": None,
             "level_label": "Sin evaluación",
-            "level_meaning": "Este paciente todavía no tiene ninguna evaluación de riesgo guardada.",
+            "level_meaning": (
+                "Este paciente todavía no tiene ninguna evaluación de riesgo guardada. "
+                "Esa falta no es una señal de cambio ni se lee como ausencia de riesgo."
+            ),
             "headline": "Sin evaluación de riesgo todavía.",
             "rule_code": None,
             "rule_title": None,
@@ -540,6 +549,9 @@ def level_explanation(
             "(mínimo 5 check-ins en 21 días) o no ha hecho check-ins en los últimos 7 días."
         )
 
+    if reconciliation:
+        reconciliation += NOT_A_CHANGE_SIGNAL
+
     return {
         "level": level,
         "level_label": LEVEL_LABELS.get(level, f"Nivel {level}"),
@@ -581,12 +593,15 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         "band_label": None,
         "band_meaning": None,
         "scale_note": (
-            "El score estructural va de 0.00 a 1.00 y mide SIMILITUD con la línea base del propio "
-            "paciente, no gravedad clínica. 1.00 = sus últimos 7 días son indistinguibles de sus "
-            "21 días previos. 0.00 = se han alejado mucho. Un score alto significa «sin cambios», "
-            "nunca «sin riesgo»."
+            "El score estructural es una entrada del motor de riesgo. Mide SIMILITUD de los check-ins "
+            "con la ventana de 21 días que usa ese motor, no la señal de cambio canónica y no un nivel "
+            "de alerta. 1.00 = los últimos 7 días se parecen a esa ventana. 0.00 = se han alejado mucho. "
+            "Un score alto nunca «sin riesgo» y nunca una señal de cambio ausente o en cero."
         ),
-        "summary": "Sin score estructural en esta evaluación.",
+        "summary": (
+            "Sin score estructural en esta evaluación. Esa falta no es un cero, "
+            "no es la señal de cambio y no es un nivel de alerta."
+        ),
         "direction_summary": None,
         "variables": [],
         "composite_z": None,
@@ -626,16 +641,17 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
     band_meaning = BAND_MEANING.get(band)
     if is_v2:
         scale_note = (
-            "El score estructural mide SIMILITUD con la línea base personal: va de más de 0 a 1. "
-            "1.00 = las medias recientes coinciden con la línea base; cuanto menor es, mayor es el cambio. "
-            "Una mejora también puede bajarlo. Un score alto significa «sin cambios», nunca «sin riesgo». "
-            "El componente de deterioro se calcula por separado y tampoco es una probabilidad clínica."
+            "El score estructural es una entrada del motor de riesgo. Mide SIMILITUD de los check-ins "
+            "con la ventana que usa ese motor, no la señal de cambio canónica. Va de más de 0 a 1. "
+            "1.00 = las medias recientes coinciden con esa ventana; cuanto menor es, mayor es la distancia. "
+            "Una mejora también puede bajarlo. Un score alto nunca «sin riesgo» y nunca una señal de cambio "
+            "en cero. El componente de deterioro se calcula por separado y tampoco es un nivel de alerta."
         )
         band_meaning = {
             "stable": "Media de |z| ≤ 1.20: similitud descriptiva estable (score ≥ 1/2.20).",
             "transition": "1.20 < media de |z| ≤ 1.95: transición (1/2.95 ≤ score < 1/2.20).",
-            "unstable": "Media de |z| > 1.95: cambio descriptivo marcado (score < 1/2.95).",
-            "insufficient_data": "Faltan observaciones válidas para comparar los cuatro ejes con su línea base.",
+            "unstable": "Media de |z| > 1.95: distancia descriptiva marcada (score < 1/2.95).",
+            "insufficient_data": "Faltan observaciones válidas para comparar los cuatro ejes con la ventana del motor.",
         }.get(band)
 
     z_scores = _as_dict(signals.get("z_scores"))
@@ -724,17 +740,26 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         default=None,
     )
 
-    if score is None:
-        summary = "No hay suficientes datos válidos de línea base o de check-ins recientes para calcular el score."
+    if score is None or band in (None, "insufficient_data"):
+        summary = (
+            "No hay una similitud calculable en esta evaluación del motor. "
+            "Esa falta no es un cero, no es la señal de cambio y no es un nivel de alerta."
+        )
     elif band == "stable":
         summary = (
-            f"{score:.2f} · estable. Sus check-ins de los últimos 7 días se parecen a su línea base "
-            f"personal de 21 días. Esto describe continuidad, no bienestar."
+            f"{score:.2f} · estable. Sus check-ins de los últimos 7 días se parecen a la ventana de 21 días "
+            "que usa el motor de riesgo. Esto describe continuidad de esa entrada, no la señal de cambio ni bienestar."
         )
     elif band == "transition":
-        summary = f"{score:.2f} · transición. Hay una desviación moderada respecto a su propia normalidad."
+        summary = (
+            f"{score:.2f} · transición. La similitud del motor muestra una desviación moderada. "
+            "No es la señal de cambio ni un nivel de alerta."
+        )
     else:
-        summary = f"{score:.2f} · inestable. Sus últimos 7 días se alejan claramente de su línea base personal."
+        summary = (
+            f"{score:.2f} · inestable. La similitud del motor se aleja de su ventana de 21 días. "
+            "No es la señal de cambio ni un nivel de alerta."
+        )
 
     sleep_variable = next((v for v in variables if v["key"] == "sleep_hours"), None)
     sleep_change = sleep_variable["abs_z"] if sleep_variable is not None else None

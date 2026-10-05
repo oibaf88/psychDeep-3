@@ -94,7 +94,9 @@ describe("professional change reading", () => {
     render(<LongitudinalChangePanel longitudinal={calculated} />);
     expect(screen.getByRole("heading", { name: "Cambio respecto a su línea de base" })).toBeInTheDocument();
     expect(screen.getByText("Bastante distinto de su referencia personal")).toBeInTheDocument();
-    expect(screen.getByText("Cambio: 2.50")).toBeInTheDocument();
+    expect(
+      screen.getByText("Distancia respecto a su referencia: 2.50. No es un nivel de alerta."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Sin cálculo")).toBeInTheDocument();
     expect(screen.getByText(/no demuestra ausencia de riesgo/)).toBeInTheDocument();
     expect(screen.queryByText(/N3|nivel de alerta 3|alerta N/)).not.toBeInTheDocument();

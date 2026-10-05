@@ -130,5 +130,10 @@ describe("patient timeline views", () => {
       expect(screen.getByTestId(`line-${key}`)).toHaveAttribute("data-dot-radius", "2");
     }
     expect(screen.getByTestId("line-sleep_hours")).toHaveAttribute("data-dot-radius", "2");
+    expect(screen.getByRole("heading", { name: "Señales de cambio" })).toBeInTheDocument();
+    expect(screen.getByText(/falta de cálculo no significa que todo vaya bien/)).toBeInTheDocument();
+    expect(screen.queryByText(/sin riesgo|no hay riesgo/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("0%")).not.toBeInTheDocument();
+    expect(screen.queryByText(/nivel de alerta\s*\d/i)).not.toBeInTheDocument();
   });
 });

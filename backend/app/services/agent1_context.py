@@ -68,10 +68,26 @@ FACT_LABELS = {
 # How the engine's state reads to someone who may not be told the number.
 # Deliberately vaguer than the clinician's wording: the patient-facing agent
 # is told what posture to take, not what the rule concluded.
+_MISSING_SAFETY = (
+    "No hay una evaluación de seguridad guardada. No lo trates como calma, "
+    "como ausencia de cambio ni como ausencia de riesgo."
+)
+
+# Safety posture only. These sentences must not describe a ChangeSignal:
+# alert level 0/1 is not "no change" and a missing assessment is not level 0.
 STATE_SUMMARY = {
-    0: "Las señales recientes están dentro de lo habitual en esta persona.",
-    1: "Hay algún cambio leve reciente, nada llamativo.",
-    2: "Se han acumulado varias señales de desgaste. Conviene un tono algo más atento.",
+    0: (
+        "La postura de seguridad es la de seguimiento habitual. "
+        "No describe si el patrón reciente cambió respecto a su referencia personal."
+    ),
+    1: (
+        "La evaluación de seguridad queda en seguimiento leve. "
+        "No es una lectura de cambio respecto a su referencia personal."
+    ),
+    2: (
+        "La evaluación de seguridad pide un tono más atento. "
+        "No es una lectura de cambio respecto a su referencia personal."
+    ),
     3: "El sistema ha activado revisión profesional. Acompaña con cuidado.",
     4: "El sistema ha activado revisión clínica urgente y el protocolo de seguridad.",
 }
@@ -153,16 +169,21 @@ def _checkins_block(db: Session, user_id) -> str:
 
 
 def _state_block(assessment) -> str:
-    """The engine's conclusion, in words, without the number.
+    """The engine's safety posture, in words, without the number.
 
     This replaces the raw `input_signals` dump. The agent is told what
     posture the moment calls for, which is the only part of the engine's
     output it can act on; the number, the rule code and the thresholds are
     the clinician's, and the prompt forbids revealing them anyway.
+    A missing assessment is not rewritten as the level-0 sentence.
     """
     level = getattr(assessment, "alert_level", None)
-    summary = STATE_SUMMARY.get(level, STATE_SUMMARY[0])
-    return "ESTADO SEGÚN EL SISTEMA (no lo cites, no lo nombres, no des cifras).\n" + summary
+    summary = STATE_SUMMARY.get(level, _MISSING_SAFETY) if isinstance(level, int) else _MISSING_SAFETY
+    return (
+        "ESTADO SEGÚN EL SISTEMA (postura de seguridad del motor determinista; "
+        "no es la comparación con su línea de base. No lo cites, no lo nombres, no des cifras).\n"
+        + summary
+    )
 
 
 def _direction_block(profile) -> str:
