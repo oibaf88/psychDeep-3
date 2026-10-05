@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ASSIGNMENT_STATUS_LABELS,
-  BAND_LABELS,
   LEVEL_SHORT_LABELS,
   PatientSummaryOut,
   api,
   formatDateTime,
 } from "../api";
+import { dashboardChangeDetail, dashboardChangeHeadline } from "./professionalChange";
+import { riskEngineBandText, riskEngineScoreText } from "../riskEngineReading";
 import { useAuth } from "../auth/AuthContext";
 import CopilotPanel from "../components/CopilotPanel";
 import PsychDeepLoader from "../components/PsychDeepLoader";
@@ -117,15 +118,12 @@ export default function CopilotPage() {
                     )}
                 </span>
                 <span>
-                  Score estructural:{" "}
-                  <strong>
-                    {patient.latest_structural_score != null
-                      ? Number(patient.latest_structural_score).toFixed(2)
-                      : "—"}
-                  </strong>{" "}
-                  {patient.latest_confidence_band
-                    ? `(${BAND_LABELS[patient.latest_confidence_band] || patient.latest_confidence_band})`
-                    : ""}
+                  Similitud del motor: <strong>{riskEngineScoreText(patient.latest_structural_score)}</strong>{" "}
+                  <span className="meta">{riskEngineBandText(patient.latest_confidence_band)}</span>
+                </span>
+                <span>
+                  Cambio vs su referencia: <strong>{dashboardChangeHeadline(patient.longitudinal)}</strong>
+                  <span className="meta"> {dashboardChangeDetail(patient.longitudinal)}</span>
                 </span>
                 <span>
                   Alertas abiertas: <strong>{patient.open_alerts}</strong>

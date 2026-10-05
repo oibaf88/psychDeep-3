@@ -80,12 +80,11 @@ What this gate **does not** prove: it does not by itself make the patient experi
   - Completion criterion: canonical feature computation, baseline eligibility/versioning and change detection are the actual source for vNext state and explanations, with tests proving reproducibility.
 - [~] Make personal baseline behaviour fully conform to vNext semantics.
   - Current gap: canonical baseline records exist and can be read, but the complete lifecycle (eligibility, provisional status, exclusions, recalibration/versioning, quality/missingness) is not yet the primary end-to-end product behaviour.
-- [~] Separate `ChangeSignal` from `RiskAssessment` everywhere in API **and UI**.
-  - Backend distinction exists for patient `GET /api/v1/state`.
-  - Authorised professional summary and dossier now surface persisted `BaselineVersion` + `ChangeSignal` (status, coverage, missingness and bands) separately from `latest_alert_level` / `RiskAssessment`. Change bands are not alert levels, and a missing change is not treated as zero or as “no risk”.
-  - Patient Hoy may still be pending merge of #151. Richer explanation and full workflow separation remain open, so this item stays partial.
+- [x] ~~Separate `ChangeSignal` from `RiskAssessment` everywhere in API **and UI**.~~
+  - Evidence: patient `GET /api/v1/state` (PR #143) and Hoy (PR #151, merged) keep `longitudinal` apart from `safety.alert_level`. Authorised professional summary and dossier (PR #153) return persisted `BaselineVersion` + `ChangeSignal` beside `latest_alert_level` / `RiskAssessment`. `GET /api/v1/review/weekly` now returns the same split. Roster, copilot picker, alert list, structural-score chart and the risk card label the engine's similarity band as a risk-engine input. The copilot dossier and Agent 1 safety posture name change and risk separately. A missing ChangeSignal stays null / `insufficient_data` and is not serialised or rendered as zero or “sin riesgo”.
+  - Tests: `tests/test_vnext_change_risk_separation.py`, `tests/test_professional_longitudinal.py`, `tests/test_clinical_view.py`, `tests/test_clinical_copilot.py`, `tests/test_agent1_context.py`, and the frontend suites `ChangeRiskSurfaces`, `ProfessionalDashboard`, `professionalChange`, `PatientDashboard`, `longitudinalReading` and `PatientTimelinePages`.
 
-Why G2 is **not complete**: the operational analytics path and `GET /api/v1/state` now use canonical baseline and change signals, and authorised professional reads now show ChangeSignal separately from RiskAssessment. Personal baseline lifecycle semantics are still partial, patient Hoy separation may still be pending merge of #151, and ChangeSignal is not the source of the professional score or the risk engine.
+Why G2 is **not complete**: the operational analytics path and `GET /api/v1/state` now use canonical baseline and change signals, and ChangeSignal is presented apart from RiskAssessment in the API and UI. Personal baseline lifecycle semantics are still partial, and ChangeSignal is not the source of the professional structural score or the risk engine.
 
 ### G3 — Safety vNext
 
@@ -233,9 +232,9 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [x] ~~PM-001 Decommission product path for local frontend/backend/Postgres/SymmetricDS.~~
 - [x] ~~PM-002 Create Model Gateway and approved deployment abstraction.~~
 - [~] PM-003 Canonical Observation/Feature/Baseline/ChangeSignal schemas **and full operational pipeline**.
-  - Progress: analytics/run (PR #128) and `GET /api/v1/state` (PR #143) use the canonical Observation → FeatureValue → BaselineVersion → ChangeSignal path. Hoy now renders that `longitudinal` payload for change-versus-baseline framing. Baseline lifecycle completeness, the professional score, and professional UI separation of ChangeSignal from RiskAssessment remain open, so this item stays partial.
-- [~] PM-004 Separate change signal from RiskAssessment in API **and UI**.
-  - Progress: authorised professional patient summary and dossier now return canonical ChangeSignal and personal-baseline status separately from `latest_alert_level` and `RiskAssessment`. Patient Hoy may still be pending merge of #151, so this item stays partial.
+  - Progress: analytics/run (PR #128) and `GET /api/v1/state` (PR #143) use the canonical Observation → FeatureValue → BaselineVersion → ChangeSignal path. Hoy renders that `longitudinal` payload for change-versus-baseline framing. Baseline lifecycle completeness remains open, and the professional structural score is still the risk engine's similarity input, shown apart from ChangeSignal, so this item stays partial.
+- [x] ~~PM-004 Separate change signal from RiskAssessment in API **and UI**.~~
+  - Evidence: patient state and Hoy, authorised professional summary and dossier, weekly review, roster, copilot, alerts, and the structural-score surfaces keep change bands apart from alert levels. A missing ChangeSignal is not zero and is not “sin riesgo”. See the G2 separation item for the test list.
 - [~] PM-005 Version safety protocols/resources and remove direct LLM dependency.
 - [~] PM-006 Resource-level authorization matrix and comprehensive negative tests.
 - [x] ~~PM-007 Split consent purposes and enforce linguistic-analysis revocation.~~

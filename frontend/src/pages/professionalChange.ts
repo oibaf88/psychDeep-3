@@ -52,7 +52,7 @@ export function professionalBandLabel(band: string): string {
 
 export function formatChangeValue(change: number | null | undefined): string {
   if (typeof change !== "number" || !Number.isFinite(change)) return "Sin cálculo";
-  return `Cambio: ${change.toFixed(2)}`;
+  return `Distancia respecto a su referencia: ${change.toFixed(2)}. No es un nivel de alerta.`;
 }
 
 function countLabel(value: unknown): string {
@@ -100,6 +100,7 @@ export interface ProfessionalChangeRow {
   bandLabel: string;
   changeLabel: string;
   missingNote: string | null;
+  contradictionNote: string | null;
   calculated: boolean;
 }
 
@@ -122,6 +123,10 @@ export function readProfessionalChange(state: LongitudinalStateOut | null | unde
       bandLabel: calculated ? professionalBandLabel(signal.band) : "Datos insuficientes",
       changeLabel: calculated ? formatChangeValue(signal.change) : "Sin cálculo",
       missingNote: missingnessNote(signal),
+      contradictionNote:
+        Array.isArray(signal.contradictions) && signal.contradictions.length > 0
+          ? "Hay contexto contradictorio registrado. La señal de cambio se conserva y no se convierte en un nivel de alerta."
+          : null,
       calculated,
     };
   });

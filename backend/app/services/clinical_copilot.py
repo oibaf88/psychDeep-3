@@ -99,6 +99,8 @@ def build_dossier_text(db: Session, patient: User, window_days: int = DEFAULT_WI
     structural = clinical_view.structural_explanation(assessment)
     parts.append(
         "## ESTADO ACTUAL SEGÚN EL MOTOR DETERMINISTA (no es tuyo, no lo recalcules)\n"
+        "- Este bloque es la evaluación de riesgo y la similitud de check-ins del motor. "
+        "La señal de cambio va en otra sección; no se deduce de este nivel y una similitud ausente no es cero.\n"
         f"- Nivel: {explanation['level_label']}\n"
         f"- Regla que lo disparó: {explanation['rule_code']} — {explanation['rule_title']}\n"
         f"- Tipo de evidencia: {explanation['driver_family_label']}\n"
@@ -297,6 +299,8 @@ def build_dossier_text(db: Session, patient: User, window_days: int = DEFAULT_WI
         )
         parts.append(f"## ALERTAS PROFESIONALES\n{rows}")
 
+    parts.append(_longitudinal_change_section(db, patient))
+
     plan = db.query(SafetyPlan).filter(SafetyPlan.user_id == patient.id).first()
     if plan:
         parts.append(
@@ -321,6 +325,32 @@ def build_dossier_text(db: Session, patient: User, window_days: int = DEFAULT_WI
         counts["clinical_memory"] = 1
 
     return "\n\n".join(parts), counts
+
+
+def _longitudinal_change_section(db: Session, patient: User) -> str:
+    """Canonical change for the copilot, in its own section from the alert list.
+
+    The model must be able to answer "what changed" without reading an alert
+    level as a ChangeSignal. Missing change stays uncalculated.
+    """
+    from app.services.longitudinal_read import for_clinical_reader, longitudinal_state
+
+    state = for_clinical_reader(longitudinal_state(db, patient.id))
+    lines = [
+        "## CAMBIO RESPECTO A SU LÍNEA DE BASE (señal de cambio, no nivel de alerta)",
+        "Compara registros recientes con la referencia personal de esta persona.",
+        "No es una evaluación de riesgo. Si no hay cálculo, no es cero ni ausencia de riesgo.",
+        f"Referencia: {state['baseline']['status']}.",
+    ]
+    changes = state["changes"]
+    if not changes:
+        lines.append("No hay señal de cambio calculada.")
+    else:
+        for row in changes:
+            change = row.get("change")
+            change_text = "sin cálculo" if change is None else f"distancia {change}"
+            lines.append(f"- {row['feature']}: banda de cambio {row['band']} · {change_text}")
+    return "\n".join(lines)
 
 
 def history(db: Session, professional_id, patient_id, limit: int = 200) -> list[TherapistCopilotMessage]:

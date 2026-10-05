@@ -216,7 +216,9 @@ export interface PatientSummaryOut {
   /** Pending and done professional links. Absent or empty is not a clinical score. */
   assignments?: AssignmentLinkOut[];
   latest_alert_level?: number | null;
+  /** Risk-engine check-in similarity. Not a ChangeSignal value and not an alert level. */
   latest_structural_score?: number | null;
+  /** Risk-engine similarity band. Not a ChangeSignal band and not an alert level. */
   latest_confidence_band?: string | null;
   pending_alert_level?: number | null;
   pending_alert_status?: string | null;

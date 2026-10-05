@@ -384,7 +384,7 @@ function DetailedDeterministicMath({ trace }: { trace: UnknownRecord }) {
           <div><span className="meta">Media de |z|</span><strong>{formatValue(composite.composite_z)}</strong></div>
           <div><span className="meta">Fórmula del score estructural</span><code>{formatValue(composite.score_formula)}</code></div>
           <div><span className="meta">Score resultante</span><strong>{formatValue(composite.score)}</strong></div>
-          <div><span className="meta">Banda</span><strong>{formatValue(composite.band)}</strong></div>
+          <div><span className="meta">Banda de similitud del motor</span><strong>{formatValue(composite.band)}</strong></div>
         </div>
       </section>
 
@@ -468,8 +468,8 @@ function RiskAssessmentCard({ assessment, featured }: { assessment: RiskAssessme
             <p>{assessment.assessment_reason}</p>
           </div>
           <div className="score-visual">
-            <span className="meta">Score estructural registrado</span>
-            <strong>{structuralScore === null ? "—" : formatNumber(structuralScore)}</strong>
+            <span className="meta">Similitud que usó el motor</span>
+            <strong>{structuralScore === null ? "Sin score del motor" : formatNumber(structuralScore)}</strong>
             {structuralScore !== null && structuralScore >= 0 && structuralScore <= 1 && meterThresholds && (
               <meter
                 aria-label={`Score estructural: ${formatNumber(structuralScore)}`}
@@ -483,7 +483,9 @@ function RiskAssessmentCard({ assessment, featured }: { assessment: RiskAssessme
                 {structuralScore}
               </meter>
             )}
-            <span className="meta">Banda: {confidenceBand || "—"} · {structuralVersion}</span>
+            <span className="meta">
+              {confidenceBand ? `Banda del motor: ${confidenceBand}` : "Banda del motor no calculada"} · {structuralVersion}. No es la señal de cambio.
+            </span>
           </div>
           <dl className="trace-identifiers">
             <div><dt>Regla concluyente</dt><dd><code>{selectedRule || "—"}</code></dd></div>

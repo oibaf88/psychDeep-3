@@ -372,6 +372,9 @@ class PatientSummaryOut(BaseModel):
     # has no links. Not a RiskAssessment and not a ChangeSignal.
     assignments: list[AssignmentLinkOut] = Field(default_factory=list)
     latest_alert_level: Optional[int] = None
+    # Risk-engine check-in similarity from the latest RiskAssessment.
+    # Not a ChangeSignal band and not an alert level. Null means the engine
+    # did not record one; it is not zero and it is not "no risk".
     latest_structural_score: Optional[float] = None
     latest_confidence_band: Optional[str] = None
     pending_alert_level: Optional[int] = None

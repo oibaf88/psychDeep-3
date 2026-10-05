@@ -32,6 +32,7 @@ export default function LongitudinalChangePanel({
               <span className="change-band">{row.bandLabel}</span>
               <span className="meta">{row.changeLabel}</span>
               {row.missingNote && <span className="meta">{row.missingNote}</span>}
+              {row.contradictionNote && <span className="meta">{row.contradictionNote}</span>}
             </li>
           ))}
         </ul>

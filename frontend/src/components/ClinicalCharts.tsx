@@ -122,7 +122,7 @@ export function LevelHistoryChart({
     <ChartCard
       title="Nivel de alarma en el tiempo"
       question="¿Cuándo y con qué frecuencia ha escalado este paciente?"
-      howToRead="Un punto por día con actividad, con el nivel MÁS ALTO alcanzado ese día (0–4). Las mesetas en 3–4 son lo que hay que mirar; los picos aislados suelen ser un único texto. El nivel lo decide siempre el motor determinista, nunca el modelo de lenguaje."
+      howToRead="Un punto por día con actividad, con el nivel MÁS ALTO alcanzado ese día (0–4). Las mesetas en 3–4 son lo que hay que mirar; los picos aislados suelen ser un único texto. El nivel lo decide siempre el motor determinista, nunca el modelo de lenguaje. Este gráfico es el nivel de alerta, no la señal de cambio: un día sin punto no es nivel cero ni ausencia de riesgo."
       empty={data.length === 0}
     >
       <ResponsiveContainer width="100%" height={220}>
@@ -158,9 +158,9 @@ export function StructuralScoreChart({ points }: { points: StructuralPoint[] }) 
   const versions = [...new Set(points.filter((point) => typeof point.score === "number" && Number.isFinite(point.score)).map((point) => point.calculation_version ?? "structural-v1"))];
   return (
     <ChartCard
-      title="Score estructural (similitud con su línea base)"
-      question="¿Se están alejando sus check-ins de lo que es habitual en él o ella?"
-      howToRead="La versión structural-v2 calcula 1 / (1 + media de |z|): 1 = sin cambio; un valor menor indica más distancia de la línea base. No es una escala clínica ni una probabilidad de riesgo. Bandas v2: estable ≥ 1/2,2 (≈ 0,455), transición ≥ 1/2,95 (≈ 0,339), inestable por debajo. Las reglas usan un componente de deterioro separado para que las mejoras no compensen señales adversas."
+      title="Similitud de check-ins del motor de riesgo"
+      question="¿Qué similitud guardó el motor de riesgo entre los check-ins recientes y su ventana de 21 días?"
+      howToRead="Esta gráfica es la similitud de check-ins que guarda el motor de riesgo, no la señal de cambio canónica ni el nivel de alerta. structural-v2 calcula 1 / (1 + media de |z|): 1 = los check-ins recientes coinciden con la ventana del motor; un valor menor es más distancia. No indica ausencia de riesgo y no rellena un hueco con cero. Bandas de esa entrada: estable ≥ 1/2,2 (≈ 0,455), transición ≥ 1/2,95 (≈ 0,339), inestable por debajo. Las reglas usan un componente de deterioro separado para que las mejoras no compensen señales adversas."
       empty={!points.some((point) => typeof point.score === "number" && Number.isFinite(point.score))}
       footer={versions.some((version) => version !== "structural-v2") ? <p className="chart-footnote">Los cálculos históricos se conservan. Cada versión tiene su propia gráfica y sus umbrales; no se une el cambio de fórmula como si fuera una evolución clínica.</p> : undefined}
     >
@@ -188,7 +188,7 @@ export function StructuralScoreChart({ points }: { points: StructuralPoint[] }) 
             labelFormatter={formatDay}
             formatter={(value: unknown, _n, item) => {
               const point = item?.payload as StructuralPoint | undefined;
-              return [`${value}${point?.band ? ` (${point.band})` : ""} · ${point?.calculation_version ?? "versión histórica"}`, "Score estructural"];
+              return [`${value}${point?.band ? ` (banda del motor: ${point.band})` : ""} · ${point?.calculation_version ?? "versión histórica"}`, "Similitud del motor"];
             }}
           />
           <Line
@@ -214,7 +214,7 @@ export function ZScoreChart({ points }: { points: StructuralPoint[] }) {
     <ChartCard
       title="Desviación por variable (z-scores)"
       question="Si se ha desviado, ¿QUÉ se ha desviado y en qué dirección?"
-      howToRead="0 = igual que su línea base. Para ánimo, craving invertido y autoeficacia, valores negativos indican cambio adverso y positivos cambio favorable. En sueño, negativo significa menos horas y positivo más: ambas direcciones requieren contexto, sin diagnóstico automático. El denominador mínimo v2 es 1 punto para escalas 0–10 y 0,5 h para sueño. La similitud usa |z|; las reglas usan los componentes adversos sin compensarlos con mejoras."
+      howToRead="Estos z son la entrada del motor de riesgo, no la señal de cambio canónica. 0 en un eje presente significa que esa variable coincide con la ventana del motor; un eje ausente no se dibuja como cero. Para ánimo, craving invertido y autoeficacia, valores negativos indican desviación adversa y positivos desviación favorable. En sueño, negativo significa menos horas y positivo más: ambas direcciones requieren contexto, sin diagnóstico automático. El denominador mínimo v2 es 1 punto para escalas 0–10 y 0,5 h para sueño. La similitud usa |z|; las reglas usan los componentes adversos sin compensarlos con mejoras."
       empty={points.length === 0}
     >
       <ResponsiveContainer width="100%" height={240}>

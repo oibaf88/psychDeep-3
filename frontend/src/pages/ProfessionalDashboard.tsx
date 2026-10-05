@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import {
   api,
   ASSIGNMENT_STATUS_LABELS,
-  BAND_LABELS,
   PatientSummaryOut,
   ROLE_LABELS,
   UserRole,
@@ -11,6 +10,7 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import { joinAssignmentLabels, partitionAssignments } from "./assignmentGroups";
 import { dashboardChangeDetail, dashboardChangeHeadline } from "./professionalChange";
+import { riskEngineBandText, riskEngineScoreText } from "../riskEngineReading";
 
 export default function ProfessionalDashboard() {
   const { user } = useAuth();
@@ -105,8 +105,11 @@ export default function ProfessionalDashboard() {
                 </th>
               )}
               {canSeeClinicalColumns && (
-                <th scope="col" title="Similitud de sus check-ins de 7 días con su línea base de 21 días. 1.00 = sin cambios. NO es una escala de riesgo.">
-                  Estabilidad de check-ins ⓘ
+                <th
+                  scope="col"
+                  title="Entrada del motor de riesgo: similitud de los check-ins de 7 días con la ventana de 21 días que usa ese motor. No es la señal de cambio y no es el nivel de alerta. Si falta, no es cero ni ausencia de riesgo."
+                >
+                  Similitud del motor ⓘ
                 </th>
               )}
               {canSeeClinicalColumns && <th scope="col">Check-ins</th>}
@@ -161,10 +164,8 @@ export default function ProfessionalDashboard() {
                 )}
                 {canSeeClinicalColumns && (
                   <td className="meta">
-                    {BAND_LABELS[p.latest_confidence_band || ""] || p.latest_confidence_band || "—"}
-                    {p.latest_structural_score != null
-                      ? ` · ${Number(p.latest_structural_score).toFixed(2)}`
-                      : ""}
+                    <div>{riskEngineScoreText(p.latest_structural_score)}</div>
+                    <div>{riskEngineBandText(p.latest_confidence_band)}</div>
                   </td>
                 )}
                 {canSeeClinicalColumns && <td>{p.checkin_count ?? "—"}</td>}

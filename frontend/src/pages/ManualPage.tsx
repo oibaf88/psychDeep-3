@@ -487,8 +487,10 @@ score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
                 <li>No incluye nada del diario ni del chat.</li>
                 <li>No incluye hechos confirmados.</li>
                 <li>
-                  Un score alto significa «sin cambios respecto a su normalidad», <strong>nunca</strong> «sin
-                  riesgo». Un paciente con ideación estable y crónica puede tener 0.95.
+                  Un score alto significa que los check-ins se parecen a la ventana que usa el motor de
+                  riesgo, <strong>nunca</strong> «sin riesgo» y nunca que la señal de cambio esté ausente o en
+                  cero. Un paciente con ideación estable y crónica puede tener 0.95. La señal de cambio está
+                  en otra lectura.
                 </li>
               </ul>
             </>
@@ -937,9 +939,10 @@ score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
                   <tbody>
                     {(
                       [
-                        ["«Score 0.9 = paciente bien»", "Score 0.9 = paciente igual que siempre. Su «siempre» puede ser malo."],
-                        ["«Score bajo = está peor»", "Score bajo = ha cambiado. Mira los z-scores: puede haber mejorado mucho."],
-                        ["«Nivel 1 = riesgo bajo»", "Nivel 1 puede ser falta de datos. Si la banda es insufficient_data, el sistema no sabe."],
+                        ["«Score 0.9 = paciente bien»", "Score 0.9 = los check-ins se parecen a la ventana del motor. Su referencia puede ser mala, y no es la señal de cambio."],
+                        ["«Score bajo = está peor»", "Score bajo = la similitud del motor bajó. Mira los z-scores: puede haber mejorado. No es la señal de cambio."],
+                        ["«La banda estable del score es la señal de cambio»", "La banda del score es la similitud del motor de riesgo. La señal de cambio es otra lectura. Si esa señal falta, no es cero ni ausencia de riesgo."],
+                        ["«Nivel 1 = riesgo bajo»", "Nivel 1 es del motor de riesgo y puede ser falta de datos. No es la banda de la señal de cambio."],
                         ["«El nivel 2 me lo notifican»", "No. El nivel 2 no crea alerta. Aparece en la ficha y en la lista de pacientes."],
                         ["«La IA decidió el nivel 4»", "El nivel lo decidió una regla fija. La IA solo aportó la lectura de un texto."],
                         ["«Si no hay alerta, no hace falta mirar»", "El historial completo está disponible sin alerta y ése es su uso normal."],
