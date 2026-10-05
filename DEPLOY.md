@@ -61,7 +61,9 @@ MODEL_ALLOW_COMMERCIAL=true
 LLM_ALLOW_RUNTIME_OVERRIDE=true
 ```
 
-`MODEL_DEPLOYMENT_ALIAS` defines the default. With runtime override enabled, only the `admin_clinical` role may explicitly select Anthropic or the approved OpenAI-compatible local/tunnel endpoint from Settings. The change is written to the audit trail. No patient or ordinary professional account can redirect inference.
+`MODEL_DEPLOYMENT_ALIAS` defines the default. With `LLM_ALLOW_RUNTIME_OVERRIDE=true` and personal mode off, only `admin_clinical` may select Anthropic or the approved OpenAI-compatible endpoint through `/api/v1/settings/llm`. That write is an audited `llm_endpoint_configs` row.
+
+With `LLM_PERSONAL_MODE=true`, the product screen is **Mis modelos** (`/api/v1/settings/llm/personal`). Only `admin_clinical` can open it. Local, Anthropic, and Codex / ChatGPT are the choices. A saved Codex or Anthropic row is the inference connection for every account. A saved local row uses that admin's LM Studio key and is not applied to other accounts. This screen does not write `llm_endpoint_configs`. No patient, therapist, or supervisor account can change either store.
 
 `ANTHROPIC_API_KEY`, `MODEL_LOCAL_API_KEY` and equivalent credentials remain Render/server secrets. The UI never receives the Anthropic key. The local endpoint may reuse the deployment token when the runtime selection row contains no token.
 
@@ -91,7 +93,7 @@ After the database expand migration and green CI:
 3. monitor both deploys to completion;
 4. check `GET /api/v1/health`;
 5. authenticate a test user and verify: check-in, diary without linguistic consent, consent grant/revoke, Trends, safety plan, deterministic safety evaluation and model status;
-6. sign in as `admin_clinical`, verify the Settings provider switch, test both configured providers, and confirm the audit event;
+6. sign in as `admin_clinical`, open **Mis modelos** when `LLM_PERSONAL_MODE=true` (otherwise the runtime provider API), test the configured provider with a synthetic prompt, and confirm the audit event;
 7. verify a local-model outage does not prevent saving data or displaying crisis resources and does not silently route to Anthropic;
 8. inspect logs for schema errors and accidental PHI/secrets.
 

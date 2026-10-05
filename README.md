@@ -45,9 +45,16 @@ Only the LLM inference server may be local. There is **no supported local clinic
 - `cloud-tuned`: a private/managed compatible endpoint for a reviewed tuned model.
 - `commercial-approved`: approved commercial deployment profile.
 
-Production sets `LLM_ALLOW_RUNTIME_OVERRIDE=true`, allowing only the `admin_clinical` role to explicitly switch between the approved Anthropic provider and the local/OpenAI-compatible endpoint from **Modelos/Ajustes**. Every change is audited and affects new model calls only; it does not change consent, storage, risk rules or historical provenance.
+Two selection stores exist. They are not the same screen.
 
-There is no primary/fallback provider chain. If the selected provider is unavailable, model-dependent functionality fails safely while data entry, deterministic risk/safety and crisis resources remain available. Model credentials remain server-side secrets. The admin may edit a compatible endpoint URL, but it is validated before activation and is redacted from non-admin users.
+| Mode | Who writes it | What inference uses |
+| --- | --- | --- |
+| `LLM_PERSONAL_MODE` off, `LLM_ALLOW_RUNTIME_OVERRIDE=true` | `admin_clinical` via `/api/v1/settings/llm` | The active `llm_endpoint_configs` row, or the deployment default |
+| `LLM_PERSONAL_MODE` on | `admin_clinical` via **Mis modelos** (`/api/v1/settings/llm/personal`) | That account's saved connection. See below |
+
+**Mis modelos** is limited to `admin_clinical`. The choices are Local, Anthropic, and Codex / ChatGPT. Local does not ask for a model id: inference uses the single model loaded in LM Studio through the tunnel. Codex and Anthropic copy server model ids and server keys (`OPENAI_*`, `ANTHROPIC_*`). When the newest active clinical-admin row is Codex or Anthropic, patient chat, analysis and the copilot use that row. A local LM Studio row stays on the account that saved the key and is not applied to other accounts. The screen does not write `llm_endpoint_configs`.
+
+There is no primary/fallback provider chain. If the selected provider is unavailable, model-dependent functionality fails safely while data entry, deterministic risk/safety and crisis resources remain available. Model credentials remain server-side secrets. Details and the 403 probe are in [docs/integrations/per-user-model-credentials.md](docs/integrations/per-user-model-credentials.md).
 
 ## Data migration
 
@@ -80,7 +87,21 @@ The migration backfills canonical compatibility rows with references to legacy s
 
 A failed refresh logs the exception type and rolls back the analytics transaction. The check-in and observation dual-write stay, because they were already committed. Previous baseline rows for the same algorithm are marked `superseded` rather than deleted.
 
-Hoy charts the 30-day self-report series. Tendencias reads `/api/v1/timeline`, `/api/v1/baselines/current` and `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
+Hoy charts the 30-day self-report series and reads `longitudinal` from `GET /api/v1/state` for change versus the personal baseline. Tendencias reads `/api/v1/timeline`, `/api/v1/baselines/current` and `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
+
+`GET /api/v1/review/weekly` returns a 7-day timeline plus two separate objects: `safety` (latest `RiskAssessment.alert_level`) and `longitudinal` (persisted baseline and change signals, plus the limit that a missing change signal is not evidence of no risk). It does not recompute analytics or call a model.
+
+Authorised professional summaries keep the same split. `latest_alert_level` and `latest_structural_score` / `latest_confidence_band` come from the risk engine. `latest_structural_score` is check-in similarity stored on the assessment, not a `ChangeSignal` band. `longitudinal` is the canonical baseline and change signals. A missing change stays null / `insufficient_data` and is not rendered as zero or as “sin riesgo”.
+
+`admin_clinical` roster rows are the exception: they list assignment links and set `longitudinal` to null, alert fields to null, and `checkin_count` to 0. That null is “this response has no chart”, not a score.
+
+## Assignment reads
+
+`GET /api/v1/assignments/mine` returns links the caller may see. `group=pending` is `status=pending`. `group=done` is every other status (active, paused, ended, rejected). `patient_id` narrows the list for therapist, supervisor and `admin_clinical`. A patient filter cannot read another person’s links; a therapist still only sees links they own.
+
+`GET /api/v1/assignments/all` is supervisor and `admin_clinical` only. `POST /api/v1/assignments/request` is refused for `admin_clinical` (403): that role manages the roster and does not request a clinical link.
+
+`GET /api/v1/professional/patients` for `admin_clinical` attaches `assignments` and a summary `assignment_status`. Summary priority is pending, then active, paused, ended, rejected. No links yields `none`. Pending wins when a patient has both a waiting request and an older link. The same response omits alerts, structural score and `ChangeSignal`. Therapist and supervisor summaries still include the clinical fields for patients they may read.
 
 ## Curated knowledge
 
@@ -111,7 +132,7 @@ Agent 1 reads the table directly. `agent1_context._knowledge_block` loads every 
 
 ## Patient information architecture
 
-- **Hoy** — low-burden check-in, current context, and a 30-day chart of recorded values.
+- **Hoy** — low-burden check-in, current context, change versus the personal baseline, and a 30-day chart of recorded values.
 - **Tendencias** — personal baseline, missingness, and a plain-language reading of change signals. An uncalculated comparison is described as missing data.
 - **Regular** — urge-surfing wave, guided breathing, STOP and non-harmful grounding.
 - **Diario** — free/structured entries; linguistic analysis requires separate consent.
