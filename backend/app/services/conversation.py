@@ -48,7 +48,7 @@ from app.content.safety_resources import (
     LEVEL4_PATIENT_MESSAGE,
 )
 from app.models import AlfaSignal, ChatMessage, PatientProfessionalAssignment, User
-from app.services import agent1_context, llm_config, profile as profile_service, psychosocial, risk_engine
+from app.services import agent1_context, clinical_memory, llm_config, profile as profile_service, psychosocial, risk_engine
 from app.services import agent2_trace
 from app.services.llm import ChatResult, ProviderMetadata, StructuredAnalysisError, get_llm_provider
 
@@ -145,6 +145,7 @@ def analyze_text_and_store(
     # patient with no profile is analysed exactly as before this existed.
     patient_profile = profile_service.get(db, user_id)
     system_prompt = ANALYZER_SYSTEM_PROMPT + profile_service.analyzer_context_block(patient_profile)
+    system_prompt += clinical_memory.formulation_for_analyzer(db, user_id)
 
     try:
         provider_result = get_llm_provider(db, provider_override=provider_override).analyze_structured(
@@ -449,7 +450,7 @@ def get_reply(
     # the confirmed facts it must not contradict, and whether a safety plan
     # exists to suggest reviewing.
     context_block = agent1_context.build(
-        db, user.id, assessment, in_crisis=assessment.alert_level >= 3
+        db, user.id, assessment, in_crisis=assessment.alert_level >= 3, query=user_message
     )
     agent1_instruction = AGENT1_SYSTEM_PROMPT + (
         AGENT1_CRISIS_INSTRUCTION if level >= 3 else ""
@@ -560,6 +561,16 @@ def get_reply(
         )
     )
     db.commit()
+
+    clinical_memory.commit_turn(
+        db,
+        user_id=user.id,
+        text=user_message,
+        channel="chat",
+        source_id=source_message.id,
+        correlation_id=correlation_id,
+        alert_level=level,
+    )
 
     return {
         "reply": reply_text,

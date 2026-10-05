@@ -128,6 +128,8 @@ This is the largest current product gap. Do not confuse navigation changes with 
   - A new page links assignments, consent, trends and facts.
   - Required completion: actual consultation preparation summary/export/share package, correction review and clear authorised-recipient scope.
 - [ ] **Confirmed fact / inference correction as a first-class patient flow.**
+- [~] **Clinical memory stays immutable for the patient.**
+  - Chat and diary can commit a discourse fact, a psychological reading and a versioned formulation when linguistic-analysis consent is current. The patient cannot edit or delete that record, and the formulation is not shown in the patient account. User-declared `ConfirmedFact` rows keep their existing correction flow.
 - [ ] **Intervention feedback as a visible product loop.**
   - Canonical feedback endpoint/data exists; the product experience is not yet integrated.
 
@@ -138,6 +140,8 @@ Why G4 is **not complete**: the patient still experiences much of the old applic
 - [~] Preserve assignment-based authorised access and professional roles.
   - `admin_clinical` can read each patient's assignment lifecycle, split into pending and done, from the roster, Asignaciones and the selected user. That read stays free of clinical signals, alerts and dossier access. Negative tests cover a patient or therapist using the same filter to read someone else's links. Chart access for `admin_clinical` stays closed.
 - [~] Preserve longitudinal patient history access for authorised clinicians.
+- [~] Assigned clinicians can read clinical memory and receive a separate in-app attention notice.
+  - The patient chart has a Memoria y lectura section: formulation, discourse facts, readings, professional notes and open notices. Notices are deterministic rules over stored memory. They do not write `ProfessionalAlert` or change `alert_level`. `admin_clinical` remains excluded. Negative tests cover an unassigned therapist and `admin_clinical`.
 - [ ] Redesign the professional patient view around longitudinal trajectory, baseline, ChangeSignals, evidence, uncertainty, assessment trace, interventions and outcomes.
 - [ ] Implement a structured **session preparation summary** derived from authorised structured data, with evidence and limitations.
 - [ ] Allow professionals to add context and confirm/correct facts with versioned history rather than silent edits.
@@ -217,6 +221,8 @@ The following changes were made during the transition and must not be casually u
 - [x] ~~Added deterministic safety-text materialisation independent of model availability.~~
 - [x] ~~Added Model Gateway and runtime provider-switch regression coverage.~~
 - [x] ~~Added release checklist, runbooks and cloud-first/model-gateway ADR documentation.~~
+- [x] ~~Added clinical long-term memory for models: discourse facts, versioned formulations and therapist attention notices separate from risk (ADR-0002).~~
+  - The patient cannot edit or delete this memory. World claims inside speech stay unconfirmed. G4 and G5 stay partial: the patient does not see the formulation, and the professional home is still the historical dashboard.
 
 These completed items are **foundations**. They are not sufficient reasons to call G4/G5/G7/G8 complete.
 
@@ -256,6 +262,8 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [ ] PM-021 Session preparation summary.
 - [ ] PM-022 Alert outcome feedback loop.
 - [ ] PM-023 Export/share package.
+- [~] PM-031 Clinical long-term memory for the models.
+  - Discourse facts record what was said. Psychological readings stay inferences. Formulations are versioned L0/L1/L2. The patient cannot modify this memory. Assigned clinicians get an in-app attention notice that is not a risk alert. Embeddings, when stored, come only from the selected OpenAI-compatible deployment. This is not a governed training pipeline and does not complete G4 or G5.
 
 ### P2 — research / scale
 
@@ -285,6 +293,9 @@ Keep these concepts technically and semantically separate:
 
 - `ChangeSignal != RiskAssessment`.
 - `ConfirmedFact` is user/human confirmed and is never overwritten by an LLM inference.
+- A discourse fact records that a conversation with the model happened: the words, the channel, the time and the manner of speech. It is not a `ConfirmedFact` about the world. Saying that a medication was taken does not establish the act.
+- A psychological reading is a versioned inference about why the person is speaking this way. It is not a diagnosis and not an alert level.
+- Clinical memory of this kind is immutable for the patient. A professional note explains a row and does not replace it. See ADR-0002.
 - `Inference` is provisional, evidence-linked, contradiction-aware and expirable/versioned.
 - Missing data is explicit; never map missingness to zero, health or negative evidence.
 - Baseline is personal and versioned; crisis/relevant episodes are not silently absorbed into baseline updates.

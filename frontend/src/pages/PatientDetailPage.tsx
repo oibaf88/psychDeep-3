@@ -34,11 +34,13 @@ import PsychosocialPanel from "../components/PsychosocialPanel";
 import DailyStatisticsPanel from "../components/DailyStatisticsPanel";
 import PsychDeepLoader from "../components/PsychDeepLoader";
 import LongitudinalChangePanel from "../components/LongitudinalChangePanel";
+import ClinicalMemoryPanel from "../components/ClinicalMemoryPanel";
 
 type Tab =
   | "resumen"
   | "metricas"
   | "psicosocial"
+  | "memoria"
   | "evidencia"
   | "copiloto"
   | "chat"
@@ -203,6 +205,7 @@ export default function PatientDetailPage() {
       id: "psicosocial",
       label: `Contexto psicosocial (${dossier.psychosocial_explanation.active_count})`,
     },
+    { id: "memoria", label: "Memoria y lectura" },
     { id: "evidencia", label: `Evidencia (${dossier.evidence.length})` },
     { id: "copiloto", label: "Copiloto clínico" },
     { id: "chat", label: `Chat del paciente (${patientChat.length})` },
@@ -349,6 +352,21 @@ export default function PatientDetailPage() {
               no encaja.
             </p>
             <PatientProfilePanel patientId={p.id} canEdit={isTherapist} />
+          </section>
+        )}
+
+        {tab === "memoria" && (
+          <section className="card">
+            <h2>Memoria y lectura</h2>
+            <p className="subtitle">
+              Lo que la persona ha dicho a lo largo del tiempo, cómo lo ha dicho y qué lectura provisional
+              saca el sistema. El paciente no puede borrar ni corregir este registro. Un aviso de aquí no
+              cambia el nivel de riesgo.
+            </p>
+            <ClinicalMemoryPanel
+              patientId={p.id}
+              canAnnotate={user?.role === "therapist" || user?.role === "supervisor"}
+            />
           </section>
         )}
 

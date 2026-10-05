@@ -41,9 +41,10 @@ the conversational model.
 Longitudinal memory can therefore grow indefinitely in storage without
 forcing the prompt to grow linearly with it.
 
-## Next evolution
+## Retrieval now in use
 
-The architecture leaves room for a later retrieval layer over approved,
-versioned longitudinal memory. That layer should select evidence relevant to
-the current turn under the same context budget rather than increasing the
-budget when the patient's history grows.
+Clinical memory (ADR-0002) is the first retrieval layer. Agent 1, the analyser
+and the copilot receive the current formulation's L0/L1 and a clipped L2
+excerpt, plus the discourse facts and readings that overlap the turn. The
+context budget is unchanged. A missing embedding is not treated as evidence,
+and the full L2 body is not copied into the prompt.

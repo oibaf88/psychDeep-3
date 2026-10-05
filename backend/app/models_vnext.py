@@ -2,7 +2,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, func
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -204,3 +204,123 @@ class MobileInferenceEvent(Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MemoryCommit(Base):
+    """One archive of a chat or diary span. Content rows point here. Nothing is rewritten."""
+
+    __tablename__ = "memory_commits"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    archive_abstract: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    archive_overview: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_ids: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    diff: Mapped[dict] = mapped_column(JSON_DOC, nullable=False, default=dict)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    prompt_version: Mapped[str] = mapped_column(String(96), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(96), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class DiscourseFact(Base):
+    """The conversation happened. The quote is the stored text, not a claim about the world."""
+
+    __tablename__ = "discourse_facts"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    quote: Mapped[str] = mapped_column(Text, nullable=False)
+    spoken_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    manner: Mapped[dict] = mapped_column(JSON_DOC, nullable=False, default=dict)
+    chat_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_messages.id", ondelete="SET NULL"))
+    diary_entry_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("diary_entries.id", ondelete="SET NULL"))
+    memory_commit_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("memory_commits.id", ondelete="SET NULL"))
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PsychReading(Base):
+    """Uncertain reading of why the person spoke this way. Not a diagnosis and not an alert."""
+
+    __tablename__ = "psych_readings"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    hypothesis: Mapped[str] = mapped_column(Text, nullable=False)
+    uncertainty: Mapped[str] = mapped_column(String(16), nullable=False)
+    kind: Mapped[str] = mapped_column(String(48), nullable=False)
+    evidence_refs: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("psych_readings.id", ondelete="SET NULL"))
+    memory_commit_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("memory_commits.id", ondelete="SET NULL"))
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FormulationVersion(Base):
+    """Versioned longitudinal formulation. The previous version stays."""
+
+    __tablename__ = "formulation_versions"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    l0: Mapped[str] = mapped_column(Text, nullable=False)
+    l1: Mapped[str] = mapped_column(Text, nullable=False)
+    l2: Mapped[str] = mapped_column(Text, nullable=False)
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("formulation_versions.id", ondelete="SET NULL"))
+    prompt_version: Mapped[str] = mapped_column(String(96), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(96), nullable=False)
+    memory_commit_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("memory_commits.id", ondelete="SET NULL"))
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    acute_episode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MemoryAnnotation(Base):
+    """Professional note. It explains a memory row and does not replace it."""
+
+    __tablename__ = "memory_annotations"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    author_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    target_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ClinicalAttentionNotice(Base):
+    """A request that a human look. Separate from ProfessionalAlert and alert_level."""
+
+    __tablename__ = "clinical_attention_notices"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(String(48), nullable=False)
+    evidence_refs: Mapped[dict] = mapped_column(JSON_DOC, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MemoryEmbedding(Base):
+    """Optional vector from the already selected OpenAI-compatible deployment."""
+
+    __tablename__ = "memory_embeddings"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    embedding: Mapped[list | None] = mapped_column(JSON_DOC)
+    provider: Mapped[str] = mapped_column(String(96), nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(192), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

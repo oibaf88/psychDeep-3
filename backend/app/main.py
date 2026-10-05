@@ -22,6 +22,7 @@ from app.routers import (
     facts,
     knowledge,
     llm_settings,
+    memory,
     mobile,
     notifications,
     professional,
@@ -248,6 +249,7 @@ app.include_router(chat.chatgpt_router)
 app.include_router(safety.router)
 app.include_router(facts.router)
 app.include_router(knowledge.router)
+app.include_router(memory.router)
 app.include_router(assignments.router)
 app.include_router(professional.router)
 app.include_router(notifications.router)
