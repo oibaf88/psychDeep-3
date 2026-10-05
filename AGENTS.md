@@ -128,7 +128,7 @@ This is the largest current product gap. Do not confuse navigation changes with 
   - Required completion: actual consultation preparation summary/export/share package, correction review and clear authorised-recipient scope.
 - [ ] **Confirmed fact / inference correction as a first-class patient flow.**
 - [~] **Clinical memory stays immutable for the patient.**
-  - Chat and diary can commit a discourse fact, a psychological reading and a versioned formulation when linguistic-analysis consent is current. The patient cannot edit or delete that record, and the formulation is not shown in the patient account. User-declared `ConfirmedFact` rows keep their existing correction flow.
+  - Chat and diary can commit a discourse fact, a psychological reading and a versioned formulation when linguistic-analysis consent is current. The patient cannot edit or delete that record, and the formulation is not shown in the patient account. User-declared `ConfirmedFact` rows keep their existing correction flow. A failed memory read releases the database transaction, so the chat reply still returns.
 - [ ] **Intervention feedback as a visible product loop.**
   - Canonical feedback endpoint/data exists; the product experience is not yet integrated.
 
@@ -262,7 +262,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [ ] PM-022 Alert outcome feedback loop.
 - [ ] PM-023 Export/share package.
 - [~] PM-031 Clinical long-term memory for the models.
-  - Discourse facts record what was said. Psychological readings stay inferences. Formulations are versioned L0/L1/L2. The patient cannot modify this memory. Assigned clinicians get an in-app attention notice that is not a risk alert. Embeddings, when stored, come only from the selected OpenAI-compatible deployment. This is not a governed training pipeline and does not complete G4 or G5.
+  - Discourse facts record what was said. Psychological readings stay inferences. Formulations are versioned L0/L1/L2. The patient cannot modify this memory. Assigned clinicians get an in-app attention notice that is not a risk alert. Embeddings, when stored, come only from the selected OpenAI-compatible deployment. A failed memory read releases the database transaction so chat still answers. This is not a governed training pipeline and does not complete G4 or G5.
 
 ### P2 — research / scale
 
