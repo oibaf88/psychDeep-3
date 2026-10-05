@@ -111,40 +111,30 @@ export default function PatientDashboard() {
   }, [form.craving, form.self_efficacy]);
 
   return (
-    <main className="page" aria-label="Panel del paciente">
-      <section
-        className="patient-home-hero"
-        role="region"
-        aria-label="Resumen del cambio respecto a tu línea de base"
-      >
-        <div className="patient-home-hero__copy">
-          <p className="patient-action-card__eyebrow">Hoy</p>
-          <h1>{heroHeadline}</h1>
-          <p>{heroExplanation}</p>
-          {framing?.missingNotice && <p>{framing.missingNotice}</p>}
-        </div>
-
-        <div className="patient-home-hero__state patient-home-hero__state--facts">
-          <span className="patient-home-hero__state-label">Respecto a ti</span>
-          {framing ? (
-            <dl className="patient-home-hero__facts">
-              <div>
-                <dt className="patient-home-hero__fact-label">Referencia</dt>
-                <dd className="patient-home-hero__fact-value">{framing.baselineStatus}</dd>
-              </div>
-              <div>
-                <dt className="patient-home-hero__fact-label">Calidad</dt>
-                <dd className="patient-home-hero__fact-value">{framing.referenceQuality}</dd>
-              </div>
-              <div>
-                <dt className="patient-home-hero__fact-label">Cobertura</dt>
-                <dd className="patient-home-hero__fact-value">{framing.coverage}</dd>
-              </div>
-            </dl>
-          ) : (
-            <span className="meta">{heroMeta}</span>
-          )}
-        </div>
+    <main className="page hoy" aria-label="Panel del paciente">
+      <section className="hoy-lead" role="region" aria-label="Resumen del cambio respecto a tu línea de base">
+        <p className="hoy-kicker">Hoy</p>
+        <h1>{heroHeadline}</h1>
+        <p className="hoy-lead__explain">{heroExplanation}</p>
+        {framing?.missingNotice && <p className="hoy-missing">{framing.missingNotice}</p>}
+        {framing ? (
+          <dl className="hoy-facts">
+            <div>
+              <dt>Referencia</dt>
+              <dd>{framing.baselineStatus}</dd>
+            </div>
+            <div>
+              <dt>Calidad</dt>
+              <dd>{framing.referenceQuality}</dd>
+            </div>
+            <div>
+              <dt>Cobertura</dt>
+              <dd>{framing.coverage}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="hoy-lead__waiting">{heroMeta}</p>
+        )}
       </section>
 
       {pendingLinks.length > 0 && (
@@ -161,15 +151,15 @@ export default function PatientDashboard() {
         </section>
       )}
 
-      <section className="patient-home-actions" aria-label="Siguiente paso">
+      <section className="hoy-next" aria-label="Siguiente paso">
         {showSuggestedAction ? (
-          <article className="card patient-action-card">
+          <article className="hoy-next__card">
             <div>
-              <p className="patient-action-card__eyebrow">Una opción para ahora</p>
-              <h2 className="patient-action-card__title">{suggestedAction.title}</h2>
-              <p className="patient-action-card__body">{suggestedAction.body}</p>
+              <p className="hoy-kicker">Una opción para ahora</p>
+              <h2 className="hoy-next__title">{suggestedAction.title}</h2>
+              <p className="hoy-next__body">{suggestedAction.body}</p>
             </div>
-            <div className="patient-action-card__controls">
+            <div className="hoy-next__controls">
               <button type="button" onClick={() => navigate(suggestedAction.route)}>
                 {suggestedAction.button}
               </button>
@@ -184,15 +174,15 @@ export default function PatientDashboard() {
             </div>
           </article>
         ) : (
-          <article className="card patient-action-card patient-action-card--quiet">
+          <article className="hoy-next__card hoy-next__card--quiet">
             <div>
-              <p className="patient-action-card__eyebrow">Sin siguiente paso</p>
-              <h2 className="patient-action-card__title">Puedes dejarlo aquí</h2>
-              <p className="patient-action-card__body">
+              <p className="hoy-kicker">Sin siguiente paso</p>
+              <h2 className="hoy-next__title">Puedes dejarlo aquí</h2>
+              <p className="hoy-next__body">
                 La aplicación no necesita que hagas nada más ahora. Puedes continuar cuando te resulte útil.
               </p>
             </div>
-            <div className="patient-action-card__controls">
+            <div className="hoy-next__controls">
               <button type="button" className="btn-secondary" onClick={() => setShowSuggestedAction(true)}>
                 Mostrar una opción
               </button>
@@ -201,16 +191,18 @@ export default function PatientDashboard() {
         )}
       </section>
 
-      <section className="card" aria-labelledby="checkin-heading">
-        <div className="today-separator">1 · Observa</div>
+      <section className="hoy-checkin" aria-labelledby="checkin-heading">
         <h2 id="checkin-heading">Check-in de hoy</h2>
-        <p className="subtitle">
+        <p className="hoy-checkin__intro">
           Una lectura rápida de cuatro señales. Puedes corregirlas antes de guardar; no hay puntuación ni racha que mantener.
         </p>
 
-        <form onSubmit={onSubmit} className="checkin-form">
-          <div className="range-container">
-            <label htmlFor="checkin-mood">Estado de ánimo: {form.mood}</label>
+        <form onSubmit={onSubmit} className="checkin-form hoy-checkin__form">
+          <div className="hoy-scale">
+            <div className="hoy-scale__head">
+              <label htmlFor="checkin-mood">Estado de ánimo</label>
+              <output className="hoy-scale__value" htmlFor="checkin-mood">{form.mood}</output>
+            </div>
             <input
               id="checkin-mood"
               type="range"
@@ -229,8 +221,11 @@ export default function PatientDashboard() {
             </div>
           </div>
 
-          <div className="range-container">
-            <label htmlFor="checkin-craving">Craving / deseo de consumo: {form.craving}</label>
+          <div className="hoy-scale">
+            <div className="hoy-scale__head">
+              <label htmlFor="checkin-craving">Craving / deseo de consumo</label>
+              <output className="hoy-scale__value" htmlFor="checkin-craving">{form.craving}</output>
+            </div>
             <input
               id="checkin-craving"
               type="range"
@@ -249,10 +244,11 @@ export default function PatientDashboard() {
             </div>
           </div>
 
-          <div className="range-container">
+          <div className="hoy-scale hoy-scale--sleep">
             <label htmlFor="checkin-sleep">Horas de sueño anoche</label>
             <input
               id="checkin-sleep"
+              className="hoy-scale__number"
               type="number"
               step="0.5"
               min={0}
@@ -262,8 +258,11 @@ export default function PatientDashboard() {
             />
           </div>
 
-          <div className="range-container">
-            <label htmlFor="checkin-efficacy">Confianza para manejar hoy: {form.self_efficacy}</label>
+          <div className="hoy-scale">
+            <div className="hoy-scale__head">
+              <label htmlFor="checkin-efficacy">Confianza para manejar hoy</label>
+              <output className="hoy-scale__value" htmlFor="checkin-efficacy">{form.self_efficacy}</output>
+            </div>
             <input
               id="checkin-efficacy"
               type="range"
@@ -282,7 +281,7 @@ export default function PatientDashboard() {
             </div>
           </div>
 
-          <div className="range-container range-container--full">
+          <div className="hoy-scale hoy-scale--notes">
             <label htmlFor="checkin-notes">Notas (opcional)</label>
             <textarea
               id="checkin-notes"
@@ -304,8 +303,7 @@ export default function PatientDashboard() {
         )}
       </section>
 
-      <section className="card" aria-labelledby="trend-heading">
-        <div className="today-separator">2 · Contexto</div>
+      <section className="card hoy-panel" aria-labelledby="trend-heading">
         <div className="trends-hero">
           <div>
             <h2 id="trend-heading">Tu trayectoria</h2>
@@ -352,8 +350,7 @@ export default function PatientDashboard() {
         )}
       </section>
 
-      <section className="card longitudinal-change" aria-label="Cambio respecto a tu línea de base">
-        <div className="today-separator">Comparación personal</div>
+      <section className="card hoy-panel longitudinal-change" aria-label="Cambio respecto a tu línea de base">
         <h2 id="baseline-change-heading">Respecto a lo habitual en ti</h2>
         <p className="longitudinal-change__distinction">
           Esta lectura sale de tu línea de base y de las señales de cambio. No es un nivel de alerta ni una valoración
