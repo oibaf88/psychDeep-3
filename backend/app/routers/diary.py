@@ -8,7 +8,7 @@ from app.database import get_db
 from app.models import DiaryEntry, User
 from app.schemas import DiaryIn, DiaryOut
 from app.security import require_patient
-from app.services import audit, conversation, risk_engine
+from app.services import audit, clinical_memory, conversation, risk_engine
 from app.services.canonical_data import record_diary
 from app.services.consent import CORE_PROCESSING, require_granted
 from app.services.deterministic_safety_text import materialize_user_declaration
@@ -56,6 +56,16 @@ def create_entry(payload: DiaryIn, db: Session = Depends(get_db), user: User = D
         correlation_id=correlation_id,
         agent2_trace_id=analysis.trace_id,
         linguistic_signal_id=analysis.signal_id,
+    )
+
+    clinical_memory.commit_turn(
+        db,
+        user_id=user.id,
+        text=payload.content,
+        channel="diary",
+        source_id=entry.id,
+        correlation_id=correlation_id,
+        alert_level=assessment.alert_level,
     )
 
     if assessment.alert_level == 4:

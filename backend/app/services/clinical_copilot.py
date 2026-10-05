@@ -313,6 +313,13 @@ def build_dossier_text(db: Session, patient: User, window_days: int = DEFAULT_WI
         parts.append("## PLAN DE SEGURIDAD\nEl paciente no ha guardado ninguno.")
         counts["safety_plan"] = 0
 
+    from app.services import clinical_memory
+
+    memory = clinical_memory.dossier_section(db, patient.id)
+    if memory:
+        parts.append(memory)
+        counts["clinical_memory"] = 1
+
     return "\n\n".join(parts), counts
 
 

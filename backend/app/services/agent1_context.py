@@ -39,6 +39,7 @@ from app.models import CheckIn, ConfirmedFact, SafetyPlan
 from app.models_vnext import KnowledgeItem
 
 from app.config import get_settings
+from app.services import clinical_memory
 from app.services import profile as profile_service
 from app.services import psychosocial
 from app.services.context_budget import fit_context_block
@@ -253,7 +254,7 @@ def _psychosocial_block(db: Session, user_id) -> str:
     return block
 
 
-def build(db: Session, user_id, assessment, *, in_crisis: bool) -> str:
+def build(db: Session, user_id, assessment, *, in_crisis: bool, query: str | None = None) -> str:
     """The read-only context block appended to Agent 1's system prompt.
 
     ``in_crisis`` drops the conversational agenda entirely. At level 3 or 4
@@ -294,6 +295,10 @@ def build(db: Session, user_id, assessment, *, in_crisis: bool) -> str:
         social = _psychosocial_block(db, user_id)
         if social:
             sections.append(social.strip())
+
+        memory = clinical_memory.prompt_block(db, user_id, query or "", in_crisis=in_crisis)
+        if memory:
+            sections.append(memory)
 
         knowledge = _knowledge_block(db)
         if knowledge:

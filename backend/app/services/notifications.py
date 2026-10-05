@@ -121,3 +121,32 @@ def dispatch_for_alert(db: Session, alert: ProfessionalAlert) -> None:
     )
     db.add(patient_notif)
     db.commit()
+
+
+def dispatch_memory_attention(db: Session, *, patient_id, title: str, body: str) -> None:
+    """In-app notice for an assigned professional. Not an email and not a risk alert."""
+    assignments = (
+        db.query(PatientProfessionalAssignment)
+        .filter(
+            PatientProfessionalAssignment.patient_id == patient_id,
+            PatientProfessionalAssignment.status == "active",
+        )
+        .all()
+    )
+    for assignment in assignments:
+        professional = db.get(User, assignment.professional_id)
+        if professional is None:
+            continue
+        db.add(
+            Notification(
+                professional_id=professional.id,
+                recipient_type="professional",
+                channel="in_app",
+                alert_level=None,
+                template_code="memory_attention_v1",
+                title=title,
+                body=body,
+                status="sent",
+            )
+        )
+    db.commit()
