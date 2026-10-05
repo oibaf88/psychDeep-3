@@ -1,21 +1,7 @@
 // VITE_API_BASE_URL is the only deployed API source. Legacy localStorage
 // overrides are ignored so a bad saved host cannot lock users out.
-const API_BASE_KEY = "psychapp_api_base";
-
 export function getApiBase(): string {
   return (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
-}
-
-export function getLegacyApiBaseOverride(): string {
-  return (localStorage.getItem(API_BASE_KEY) || "").trim();
-}
-
-export function clearLegacyApiBaseOverride() {
-  localStorage.removeItem(API_BASE_KEY);
-}
-
-export function setApiBase(_url: string | null) {
-  clearLegacyApiBaseOverride();
 }
 
 export function getToken(): string | null {
@@ -182,11 +168,53 @@ export interface SafetyPlanOut {
   updated_at: string;
 }
 
+export interface LongitudinalChangeOut {
+  signal_id: string;
+  feature: string;
+  window?: { start?: string | null; end?: string | null };
+  change?: number | null;
+  band: string;
+  uncertainty?: Record<string, unknown>;
+  evidence_refs?: unknown[];
+  contradictions?: unknown[];
+  baseline_version?: string | null;
+  algorithm_version?: string;
+}
+
+export interface LongitudinalStateOut {
+  baseline: {
+    status: string;
+    baseline: null | {
+      id: string;
+      feature?: string | null;
+      window?: { start?: string | null; end?: string | null };
+      stats?: Record<string, unknown>;
+      stability?: string;
+      data_coverage?: number | null;
+      algorithm_version?: string;
+    };
+  };
+  changes: LongitudinalChangeOut[];
+  limits?: string[];
+}
+
+export interface AssignmentLinkOut {
+  id: string;
+  professional_id: string;
+  professional_display_name?: string | null;
+  professional_email?: string | null;
+  status: string;
+  requested_at: string;
+  updated_at?: string | null;
+}
+
 export interface PatientSummaryOut {
   id: string;
   display_name: string;
   email: string;
   assignment_status: string;
+  /** Pending and done professional links. Absent or empty is not a clinical score. */
+  assignments?: AssignmentLinkOut[];
   latest_alert_level?: number | null;
   latest_structural_score?: number | null;
   latest_confidence_band?: string | null;
@@ -195,6 +223,8 @@ export interface PatientSummaryOut {
   open_alerts: number;
   checkin_count?: number;
   last_checkin_at?: string | null;
+  /** Canonical baseline + ChangeSignal. Null when this response has no clinical read. */
+  longitudinal?: LongitudinalStateOut | null;
 }
 
 export interface RiskRuleEvaluation {
@@ -489,27 +519,6 @@ export interface PsychosocialExplanationOut {
   active_count: number;
   confirmed_count: number;
   refuted_count: number;
-}
-
-export interface PsychosocialObservationOut {
-  id: string;
-  domain: string;
-  domain_label: string;
-  category: string;
-  category_label: string;
-  valence: "risk" | "protective" | "neutral";
-  intensity: number;
-  confidence: number;
-  is_change: boolean;
-  status: "inferred" | "confirmed" | "refuted";
-  summary: string;
-  evidence_quote: string;
-  source_type: string;
-  source_label: string;
-  source_id?: string | null;
-  adjudication_note?: string | null;
-  adjudicated_at?: string | null;
-  observed_at?: string | null;
 }
 
 export interface PsychosocialPoint {
@@ -842,6 +851,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 };
 
 export const ASSIGNMENT_STATUS_LABELS: Record<string, string> = {
+  none: "Sin asignación",
   pending: "Pendiente de aceptación",
   active: "Activa",
   paused: "Pausada",
@@ -902,88 +912,6 @@ export const FACT_CATEGORIES = [
   { value: "planning", label: "Planificación (autodeclarada)" },
   { value: "other", label: "Otro hecho" },
 ];
-
-// ------------------------------------------------ runtime LLM endpoint ----
-// Claude is the connected-service default; Gemma 2 through an
-// OpenAI-compatible endpoint remains the local/offline alternative.
-
-export interface LLMEndpointSummary {
-  provider: "anthropic" | "openai_compatible" | string;
-  provider_label: string;
-  label: string;
-  base_url: string | null;
-  chat_model: string;
-  analysis_model: string;
-  /** Agent 3, resolved — falls back to chat_model. For display. */
-  copilot_model: string;
-  /** What was actually configured. Empty means "follows chat". For the form. */
-  copilot_model_explicit: string;
-  copilot_model_is_inherited: boolean;
-  max_tokens: number;
-  timeout_seconds: number;
-  source: "environment" | "runtime" | string;
-  config_id: string | null;
-  updated_at: string | null;
-  has_api_key: boolean;
-  uses_server_api_key?: boolean;
-  backend_runtime?: "cloud" | "local" | string;
-  backend_runtime_label?: string;
-  local_endpoint_supported?: boolean;
-}
-
-export interface LLMEndpointStatusOut {
-  active: LLMEndpointSummary;
-  environment_default: LLMEndpointSummary;
-  /** The deployment permits a runtime override at all. */
-  override_allowed: boolean;
-  /** ...and this account may perform one. Only admin_clinical may. */
-  can_edit: boolean;
-  is_local: boolean;
-  notice: string | null;
-  backend_runtime?: "cloud" | "local" | string;
-  backend_runtime_label?: string;
-  local_endpoint_supported?: boolean;
-  ignored_override?: LLMEndpointSummary | null;
-}
-
-export interface LLMEndpointConfigIn {
-  provider: "anthropic" | "openai_compatible";
-  base_url?: string | null;
-  chat_model: string;
-  analysis_model: string;
-  /** Blank means "same model as chat" — the backend applies the fallback. */
-  copilot_model?: string | null;
-  /** null keeps the stored key; "" clears it. It is never sent back out. */
-  api_key?: string | null;
-  max_tokens: number;
-  timeout_seconds: number;
-  label?: string | null;
-}
-
-export interface LLMEndpointTestIn {
-  provider: "anthropic" | "openai_compatible";
-  base_url?: string | null;
-  chat_model: string;
-  analysis_model?: string | null;
-  copilot_model?: string | null;
-  api_key?: string | null;
-  timeout_seconds: number;
-}
-
-export interface LLMEndpointTestOut {
-  ok: boolean;
-  detail: string;
-  sample?: string | null;
-  error_code?: string | null;
-  base_url?: string | null;
-}
-
-export const llmSettingsApi = {
-  read: () => api.get<LLMEndpointStatusOut>("/api/v1/settings/llm"),
-  save: (body: LLMEndpointConfigIn) => api.put<LLMEndpointStatusOut>("/api/v1/settings/llm", body),
-  reset: () => api.del<LLMEndpointStatusOut>("/api/v1/settings/llm"),
-  test: (body: LLMEndpointTestIn) => api.post<LLMEndpointTestOut>("/api/v1/settings/llm/test", body),
-};
 
 /**
  * How one stored interaction names the model behind it.

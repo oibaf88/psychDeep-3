@@ -73,6 +73,7 @@ export default function NavBar() {
   }
 
   const role = user.role as UserRole;
+  const isAdmin = role === "admin_clinical";
 
   return (
     <nav className="navbar" aria-label="Navegación principal">
@@ -87,7 +88,7 @@ export default function NavBar() {
         ))}
 
         <MenuLink to="/account">Mi cuenta</MenuLink>
-        <MenuLink to="/settings">Mis modelos</MenuLink>
+        {isAdmin && <MenuLink to="/settings">Mis modelos</MenuLink>}
       </div>
 
       <div className="navbar-user">

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.services import personal_llm
 from app.services.llm import build_provider
+from app.services.local_model_catalog import Catalog, LocalModel
 from app.routers.personal_llm import PersonalLLMSettingsIn
 
 
@@ -51,6 +52,7 @@ def settings(**overrides):
         anthropic_api_key="server-anthropic-test-key",
         anthropic_chat_model="claude-test",
         anthropic_analysis_model="claude-test",
+        anthropic_copilot_model="",
         openai_api_key="test-openai-key",
         openai_chat_model="test-openai-model",
         openai_analysis_model="test-openai-model",
@@ -75,8 +77,16 @@ class PersonalGatewayTests(unittest.TestCase):
         self.env_patch.start()
         self.fake_settings = patch.object(personal_llm, "get_settings", return_value=settings())
         self.mock_settings = self.fake_settings.start()
+        # Keep unit tests off the live tunnel. An unreachable catalog preserves
+        # the id the account stored.
+        self.catalog_patch = patch.object(
+            personal_llm, "fetch_catalog",
+            return_value=Catalog((LocalModel("loaded-on-computer", True),), True),
+        )
+        self.catalog_patch.start()
 
     def tearDown(self):
+        self.catalog_patch.stop()
         self.fake_settings.stop()
         self.env_patch.stop()
 
@@ -198,12 +208,159 @@ class PersonalGatewayTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             PersonalLLMSettingsIn.model_validate({**safe, "lm_api_key": "x" * 8193})
 
+    def test_stale_stored_model_is_replaced_by_the_loaded_one(self):
+        personal_llm.save(self.db, self.a, payload(key="alice-key"))
+        self.db.rows[self.a].chat_model = "gemma-2-2b-it"
+        catalog = Catalog((LocalModel("loaded-model", True), LocalModel("other-model", False)), True)
+        with patch.object(personal_llm, "fetch_catalog", return_value=catalog):
+            resolved = personal_llm.resolve(self.db, self.a)
+            state = personal_llm.status(self.db, self.a)
+        self.assertEqual(resolved.chat_model, "loaded-model")
+        self.assertEqual(resolved.analysis_model, "loaded-model")
+        self.assertEqual(state["chat_model"], "")
+        self.assertEqual(state["effective_local_model"], "loaded-model")
+        self.assertEqual(state["default_local_chat_model"], "loaded-model")
+        self.assertEqual(state["local_models"][0]["id"], "loaded-model")
+        self.assertNotIn("gemma-2-2b-it", str(state["local_models"]))
+
+    def test_a_requested_model_id_is_discarded_for_the_loaded_one(self):
+        personal_llm.save(self.db, self.a, payload(model="kept-model", key="alice-key"))
+        self.assertEqual(self.db.rows[self.a].chat_model, "")
+        self.assertEqual(self.db.rows[self.a].analysis_model, "")
+        catalog = Catalog((LocalModel("kept-model", False), LocalModel("loaded-model", True)), True)
+        with patch.object(personal_llm, "fetch_catalog", return_value=catalog):
+            resolved = personal_llm.resolve(self.db, self.a)
+        self.assertEqual(resolved.chat_model, "loaded-model")
+        self.assertEqual(resolved.analysis_model, "loaded-model")
+
+    def test_commercial_providers_ignore_a_client_model_name(self):
+        personal_llm.save(self.db, self.a, payload(provider="anthropic", model="not-a-choice", key="alice-key"))
+        resolved = personal_llm.resolve(self.db, self.a)
+        self.assertEqual(resolved.provider, "anthropic")
+        self.assertEqual(resolved.chat_model, "claude-test")
+        personal_llm.save(self.db, self.a, payload(provider="openai", model="also-not-a-choice"))
+        resolved = personal_llm.resolve(self.db, self.a)
+        self.assertEqual(resolved.provider, "openai")
+        self.assertEqual(resolved.chat_model, "test-openai-model")
+
+    def test_several_models_and_no_choice_does_not_invent_one(self):
+        personal_llm.save(self.db, self.a, payload(key="alice-key"))
+        self.db.rows[self.a].chat_model = "gemma-2-2b-it"
+        catalog = Catalog((LocalModel("one", False), LocalModel("two", False)), True)
+        with patch.object(personal_llm, "fetch_catalog", return_value=catalog):
+            with self.assertRaises(personal_llm.LocalModelUnavailable):
+                personal_llm.resolve(self.db, self.a)
+            self.assertEqual(personal_llm.status(self.db, self.a)["chat_model"], "")
+
+    def test_codex_status_does_not_ask_the_local_tunnel(self):
+        personal_llm.save(self.db, self.a, payload(provider="openai"))
+        personal_llm.fetch_catalog.assert_not_called()
+        self.assertEqual(personal_llm.status(self.db, self.a)["provider"], "openai")
+
+    def test_patient_inference_follows_the_clinical_admin_codex_connection(self):
+        personal_llm.save(self.db, self.a, payload(key="patient-key"))
+        personal_llm.save(self.db, self.b, payload(provider="openai"))
+        personal_llm.fetch_catalog.reset_mock()
+        self.db.info["authenticated_user_id"] = self.a
+        from app.services import llm_config
+
+        with patch.object(personal_llm, "_admin_owner_id", return_value=self.b), patch(
+            "app.services.personal_resolution.personal_mode_enabled", return_value=True
+        ):
+            resolved = personal_llm.resolve_active(self.db, self.a)
+            active = llm_config.resolve(self.db)
+        personal_llm.fetch_catalog.assert_not_called()
+        self.assertEqual(resolved.provider, "openai")
+        self.assertEqual(resolved.chat_model, "test-openai-model")
+        self.assertEqual(resolved.api_key, "test-openai-key")
+        self.assertEqual(active.provider, "openai")
+        self.assertEqual(active.api_key, "test-openai-key")
+        own = personal_llm.resolve(self.db, self.a)
+        self.assertEqual(own.provider, "openai_compatible")
+        self.assertEqual(own.api_key, "patient-key")
+
+    def test_patient_inference_follows_the_clinical_admin_anthropic_connection(self):
+        personal_llm.save(self.db, self.a, payload(key="patient-key"))
+        personal_llm.save(self.db, self.b, payload(provider="anthropic", model="claude-test"))
+        with patch.object(personal_llm, "_admin_owner_id", return_value=self.b):
+            resolved = personal_llm.resolve_active(self.db, self.a)
+        self.assertEqual(resolved.provider, "anthropic")
+        self.assertEqual(resolved.api_key, "server-anthropic-test-key")
+
+    def test_a_local_admin_connection_does_not_replace_another_account(self):
+        personal_llm.save(self.db, self.a, payload(key="patient-key"))
+        personal_llm.save(self.db, self.b, payload(key="admin-key"))
+        with patch.object(personal_llm, "_admin_owner_id", return_value=self.b):
+            resolved = personal_llm.resolve_active(self.db, self.a)
+        self.assertEqual(resolved.api_key, "patient-key")
+
+    def test_personal_mode_chat_uses_the_active_codex_connection(self):
+        from app.models import User
+        from app.services.llm import get_llm_provider
+
+        personal_llm.save(self.db, self.a, payload(key="patient-key"))
+        personal_llm.save(self.db, self.b, payload(provider="openai"))
+        patient = SimpleNamespace(id=self.a, role="patient", is_active=True, local_llm_approved=False)
+        stored_get = self.db.get
+
+        def get(model, key):
+            if model is User and key == self.a:
+                return patient
+            return stored_get(model, key)
+
+        self.db.get = get
+        self.db.info["authenticated_user_id"] = self.a
+        with patch.object(personal_llm, "_admin_owner_id", return_value=self.b), patch(
+            "app.services.personal_resolution.personal_mode_enabled", return_value=True
+        ), patch("app.services.llm.build_provider", side_effect=lambda config: config):
+            provider = get_llm_provider(self.db)
+        self.assertEqual(provider.provider, "openai")
+        self.assertEqual(provider.api_key, "test-openai-key")
+
+    def test_chat_analysis_continues_when_the_local_connection_is_down(self):
+        from app.services import conversation
+
+        with patch.object(
+            conversation.agent2_trace, "start", side_effect=personal_llm.LocalModelUnavailable("down")
+        ):
+            outcome = conversation.analyze_text_and_store(
+                SimpleNamespace(),
+                uuid.uuid4(),
+                "hola",
+                source_type="chat_message",
+                source_id=uuid.uuid4(),
+                correlation_id=uuid.uuid4(),
+            )
+        self.assertEqual(outcome.status, "inference_unavailable")
+        self.assertIsNone(outcome.trace_id)
+        self.assertIsNone(outcome.value)
+
     def test_rejects_invalid_new_token_without_changing_other_accounts(self):
         personal_llm.save(self.db, self.b, payload(key="bob-key"))
         with self.assertRaises(ValueError):
             personal_llm.save(self.db, self.a, payload(key="not-valid\r\nheader"))
         self.assertEqual(personal_llm.resolve(self.db, self.b).api_key, "bob-key")
         self.assertNotIn(self.a, self.db.rows)
+
+
+class PersonalSettingsAuthorizationTests(unittest.TestCase):
+    def test_every_personal_route_requires_admin_clinical(self):
+        import inspect
+
+        from fastapi.params import Depends
+
+        from app.routers import personal_llm as routes
+        from app.security import require_admin
+
+        for endpoint in (
+            routes.read_personal_settings,
+            routes.update_personal_settings,
+            routes.delete_personal_settings,
+            routes.test_personal_settings,
+        ):
+            dependency = inspect.signature(endpoint).parameters["user"].default
+            self.assertIsInstance(dependency, Depends)
+            self.assertIs(dependency.dependency, require_admin)
 
 
 if __name__ == "__main__":

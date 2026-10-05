@@ -1,7 +1,7 @@
-/* Layered dynamic urge-surfing visual.
- * The important cue is not “one wave”: it is the changing relationship
- * between several wave fields. Intensity controls amplitude, waterline
- * movement and speed so the same intensity still rises and falls strongly.
+/* Urge-surfing stage.
+ * Geometry lives in waveMotion.ts. This sheet only sets the room the
+ * breath needs, and lets surge/tension recolor the sky and the crest
+ * so the top of the breath feels tight and the trough feels open.
  */
 
 .wave-ride-progress {
@@ -18,14 +18,30 @@
   transition: width 0.1s linear;
 }
 
-.wave-visual.wave-visual--swell {
+.wave-visual.wave-visual--swell,
+.wave-visual.wave-visual--swell.wave-visual--storm,
+.wave-visual.wave-visual--swell.wave-visual--rising,
+.wave-visual.wave-visual--swell.wave-visual--calm {
   position: relative;
-  height: 230px;
+  height: clamp(300px, 46vw, 440px);
   overflow: hidden;
   border-radius: 14px;
   background:
-    radial-gradient(circle at 50% 105%, rgba(108, 152, 244, 0.10), transparent 58%),
-    linear-gradient(180deg, rgba(32, 44, 61, 0.18), rgba(15, 20, 25, 0.02));
+    radial-gradient(
+      ellipse at 50% 0%,
+      rgba(214, 232, 255, calc(0.05 + (1 - var(--wave-surge, 0)) * 0.16)),
+      transparent 42%
+    ),
+    linear-gradient(
+      180deg,
+      hsl(214, calc(24% + var(--wave-tension, 0) * 14%), calc(24% - var(--wave-surge, 0) * 10%)),
+      hsl(218, calc(28% + var(--wave-tension, 0) * 8%), calc(14% - var(--wave-surge, 0) * 4%)) 55%,
+      hsl(222, 32%, 8%)
+    );
+  box-shadow:
+    inset 0 calc(10px + var(--wave-surge, 0) * 36px) calc(28px + var(--wave-surge, 0) * 48px)
+      rgba(5, 12, 24, calc(0.12 + var(--wave-surge, 0) * 0.38)),
+    0 24px 60px rgba(0, 0, 0, 0.16);
 }
 
 .wave-visual.wave-visual--swell .wave-svg {
@@ -38,52 +54,43 @@
 
 .wave-visual.wave-visual--swell .wave-back,
 .wave-visual.wave-visual--swell .wave-mid,
-.wave-visual.wave-visual--swell .wave-front {
-  vector-effect: non-scaling-stroke;
-  transform-box: fill-box;
-  transform-origin: center bottom;
+.wave-visual.wave-visual--swell .wave-front,
+.wave-visual.wave-visual--swell .wave-foam {
+  animation: none;
+  transform: none;
 }
 
 .wave-visual.wave-visual--swell .wave-back {
   fill: url(#waveBackGradient);
-  opacity: 0.64;
+  opacity: 0.72;
 }
 
 .wave-visual.wave-visual--swell .wave-mid {
   fill: url(#waveMidGradient);
-  opacity: 0.78;
+  opacity: 0.84;
 }
 
-.wave-visual.wave-visual--swell .wave-front {
+.wave-visual.wave-visual--swell .wave-front,
+.wave-visual.wave-visual--swell.wave-visual--storm .wave-front {
   fill: url(#waveFrontGradient);
   opacity: 0.97;
+  filter: contrast(calc(1.02 + var(--wave-tension, 0) * 0.22))
+    saturate(calc(1.02 + var(--wave-tension, 0) * 0.28));
 }
 
-.wave-visual.wave-visual--swell .wave-foam {
+.wave-visual.wave-visual--swell .wave-foam,
+.wave-visual.wave-visual--swell.wave-visual--storm .wave-foam,
+.wave-visual.wave-visual--swell.wave-visual--rising .wave-foam,
+.wave-visual.wave-visual--swell.wave-visual--riding .wave-foam {
   fill: none;
-  stroke: rgba(232, 244, 255, 0.82);
-  stroke-width: 2.6;
+  stroke: var(--wave-foam-color, #d7e8f8);
+  stroke-width: var(--wave-foam-width, 2px);
+  stroke-dasharray: var(--wave-foam-dash, 10 8);
+  opacity: var(--wave-foam-opacity, 0.7);
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-dasharray: 10 8;
-  opacity: 0.72;
   vector-effect: non-scaling-stroke;
-}
-
-/* Intensity is deliberately visible in the visual weight as well as in
-   geometry: the crest line becomes sharper and more present at the peak. */
-.wave-visual.wave-visual--swell.wave-visual--riding .wave-foam {
-  stroke-width: calc(2.4px + var(--wave-intensity, 0) * 2.8px);
-  opacity: calc(0.68 + var(--wave-intensity, 0) * 0.30);
-}
-
-.wave-visual.wave-visual--swell.wave-visual--storm .wave-front {
-  opacity: 1;
-}
-
-.wave-visual.wave-visual--swell.wave-visual--storm .wave-foam {
-  stroke: rgba(245, 251, 255, 0.98);
-  stroke-width: 4.8;
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
+  ASSIGNMENT_STATUS_LABELS,
   Agent2TraceOut,
   api,
   FACT_CATEGORIES,
@@ -28,9 +29,11 @@ import {
 } from "../components/ClinicalExplain";
 import CopilotPanel from "../components/CopilotPanel";
 import PatientProfilePanel from "../components/PatientProfilePanel";
+import { partitionAssignments } from "./assignmentGroups";
 import PsychosocialPanel from "../components/PsychosocialPanel";
 import DailyStatisticsPanel from "../components/DailyStatisticsPanel";
 import PsychDeepLoader from "../components/PsychDeepLoader";
+import LongitudinalChangePanel from "../components/LongitudinalChangePanel";
 
 type Tab =
   | "resumen"
@@ -189,6 +192,7 @@ export default function PatientDetailPage() {
   if (!dossier) return <div className="loading"><PsychDeepLoader size="md" label="Cargando historial clínico…" /></div>;
 
   const p = dossier.patient;
+  const assignmentGroups = partitionAssignments(p.assignments ?? []);
   const metrics = dossier.metrics;
   const patientChat = dossier.chat_messages ?? [];
 
@@ -225,8 +229,13 @@ export default function PatientDetailPage() {
       </h1>
       <p className="subtitle">
         Historial clínico completo — <strong>no requiere alerta</strong> para consultar. Asignación:{" "}
-        {p.assignment_status}. Check-ins: {p.checkin_count ?? dossier.checkins.length}. Alertas abiertas:{" "}
-        {p.open_alerts}.
+        {ASSIGNMENT_STATUS_LABELS[p.assignment_status] || p.assignment_status}.
+        {(p.assignments?.length ?? 0) > 0 && (
+          <>
+            {" "}Pendientes: {assignmentGroups.pending.length}. Hechas: {assignmentGroups.done.length}.
+          </>
+        )}{" "}
+        Check-ins: {p.checkin_count ?? dossier.checkins.length}. Alertas abiertas: {p.open_alerts}.
       </p>
 
       <LevelExplanationCard
@@ -237,6 +246,7 @@ export default function PatientDetailPage() {
           </button>
         }
       />
+      <LongitudinalChangePanel longitudinal={p.longitudinal} />
       {message && <p className="info">{message}</p>}
       {error && <p className="error">{error}</p>}
 

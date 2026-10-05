@@ -8,6 +8,7 @@ import {
   api,
   formatDateTime,
 } from "../api";
+import { useAuth } from "../auth/AuthContext";
 import CopilotPanel from "../components/CopilotPanel";
 import PsychDeepLoader from "../components/PsychDeepLoader";
 
@@ -19,6 +20,7 @@ import PsychDeepLoader from "../components/PsychDeepLoader";
  * both read and write the same per-(professional, patient) thread.
  */
 export default function CopilotPage() {
+  const { user } = useAuth();
   const [patients, setPatients] = useState<PatientSummaryOut[]>([]);
   const [selected, setSelected] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -28,14 +30,18 @@ export default function CopilotPage() {
     api
       .get<PatientSummaryOut[]>("/api/v1/professional/patients")
       .then((rows) => {
-        // Only patients whose record this professional may actually read.
-        const readable = rows.filter((row) => row.assignment_status !== "pending");
+        // Therapists may open the copilot only after the patient accepts.
+        // Supervisors keep chart access for the whole roster, including a
+        // patient whose newest operational label is still "pending".
+        const readable = rows.filter(
+          (row) => user?.role === "supervisor" || row.assignment_status !== "pending",
+        );
         setPatients(readable);
         if (readable.length > 0) setSelected(readable[0].id);
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [user?.role]);
 
   const patient = useMemo(
     () => patients.find((row) => row.id === selected) || null,

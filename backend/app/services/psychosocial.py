@@ -98,10 +98,6 @@ from app.models import PsychosocialObservation
 
 logger = logging.getLogger("psychapp.psychosocial")
 
-# The role its traces carried while it was a separate agent. Kept so the
-# rows already in the database still name something the code knows about;
-# new traces use the merged analyzer's role.
-LEGACY_AGENT_ROLE = "agent4_psychosocial"
 MAX_QUOTE_CHARS = 300
 MAX_SUMMARY_CHARS = 400
 MAX_OBSERVATIONS_PER_TEXT = 8
@@ -131,7 +127,6 @@ MIN_TEXT_CHARS_FOR_EXTRACTION = 15
 # Index thresholds. Named here, consumed by the risk engine, rendered in the
 # panel, so a therapist reading "apoyo bajo" can find the number behind it.
 SUPPORT_LOW_MAX = 0.34
-SUPPORT_MODERATE_MAX = 0.60
 MATERIAL_ADVERSITY_HIGH_MIN = 0.50
 INTERPERSONAL_RISK_HIGH_MIN = 0.66
 RELAPSE_CONTEXT_HIGH_MIN = 0.60

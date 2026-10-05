@@ -61,6 +61,10 @@ from app.services.llm.base import (
 logger = logging.getLogger("psychapp.llm.local")
 
 PROVIDER_NAME = "openai_compatible"
+# Cloudflare Bot Fight Mode challenges the default python-httpx user agent
+# before the request reaches LM Studio. This name is not a browser impersonation;
+# it is the application client, and the tunnel accepts it.
+API_USER_AGENT = "PsychDeep-API/1"
 
 # Local servers are slower than a hosted API — a 7B model on CPU can take a
 # while for a long diary entry — but the patient is waiting on Agent 1, so
@@ -227,10 +231,6 @@ class OpenAICompatibleProvider(LLMProvider):
         return self._effective_base_url or self._base_url
 
     @property
-    def copilot_model(self) -> str:
-        return self._copilot_model
-
-    @property
     def copilot_effort(self) -> str:
         """No local runtime implements Anthropic's effort control.
 
@@ -240,7 +240,7 @@ class OpenAICompatibleProvider(LLMProvider):
         return ""
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "User-Agent": API_USER_AGENT}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
@@ -307,6 +307,14 @@ class OpenAICompatibleProvider(LLMProvider):
         latency_ms = round((time.perf_counter() - started) * 1000)
         current_base_url = self.base_url
         if response.status_code >= 400:
+            header_map = getattr(response, "headers", None) or {}
+            content_type = str(header_map.get("content-type") or "").lower()
+            # A managed challenge is HTML, not an LM Studio JSON error. Do not
+            # read or log the body: it is an interstitial, not a model result.
+            if response.status_code == 403 and "html" in content_type:
+                error_code = "cloudflare_challenge"
+            else:
+                error_code = f"http_{response.status_code}"
             safe_kind = "configuration_error" if response.status_code in (401, 403, 404) else "provider_error"
             raise StructuredAnalysisError(
                 safe_kind,
@@ -316,7 +324,7 @@ class OpenAICompatibleProvider(LLMProvider):
                     base_url=current_base_url,
                     latency_ms=latency_ms,
                 ),
-                error_code=f"http_{response.status_code}",
+                error_code=error_code,
                 http_status=response.status_code,
             )
         try:

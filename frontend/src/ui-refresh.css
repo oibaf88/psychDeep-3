@@ -175,7 +175,8 @@ main {
 }
 
 .patient-home-hero__state {
-  min-width: 170px;
+  min-width: 200px;
+  max-width: 280px;
   padding: 16px;
   border-radius: 16px;
   background: rgba(12, 19, 28, 0.28);
@@ -197,6 +198,63 @@ main {
   font-size: 2rem;
   font-weight: 700;
   color: var(--ink);
+}
+
+.patient-home-hero__state-value--prose {
+  font-size: 1.15rem;
+  line-height: 1.35;
+  font-weight: 650;
+  text-wrap: balance;
+}
+
+.patient-home-hero__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+}
+
+.longitudinal-change {
+  margin: 18px 0;
+}
+
+.longitudinal-change__distinction {
+  margin: 0 0 14px;
+  color: var(--ink-soft);
+}
+
+.longitudinal-change__headline {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+.longitudinal-change__list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.longitudinal-change__item {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(11, 18, 27, 0.25);
+  border: 1px solid rgba(118, 205, 189, 0.2);
+}
+
+.longitudinal-change__item h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.longitudinal-change__band {
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-weight: 650;
 }
 
 .patient-home-actions {
@@ -399,32 +457,6 @@ select:focus-visible {
   font-weight: 650;
 }
 
-.wave-phase {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 8px 11px;
-  border-radius: 999px;
-  background: rgba(126, 168, 247, 0.08);
-  color: var(--ink-soft);
-  border: 1px solid rgba(126, 168, 247, 0.12);
-  font-size: 0.82rem;
-}
-
-.wave-phase__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--pd-calm-teal);
-  box-shadow: 0 0 0 4px rgba(118, 205, 189, 0.08);
-}
-
-.wave-phase--crest .wave-phase__dot {
-  background: var(--pd-calm-warm);
-  box-shadow: 0 0 0 4px rgba(233, 201, 130, 0.10);
-}
-
 .wave-visual.wave-visual--swell {
   margin-top: 18px;
   height: clamp(230px, 34vw, 320px);
@@ -497,7 +529,8 @@ select:focus-visible {
 
   .patient-home-hero__state,
   .trends-baseline {
-    width: fit-content;
+    width: 100%;
+    max-width: none;
     min-width: 0;
   }
 }

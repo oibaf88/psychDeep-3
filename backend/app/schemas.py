@@ -2,9 +2,13 @@ import uuid
 from datetime import date, datetime
 from typing import Annotated, Any, Optional
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_serializer, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, PlainSerializer, StringConstraints, field_serializer, field_validator
 
-from app.datetime_utils import utc_iso as _utc_iso
+from app.utils import utc_iso as _utc_iso
+
+# Legacy naive DB timestamps are serialized explicitly as UTC ISO-8601 strings.
+UtcDateTime = Annotated[datetime, PlainSerializer(lambda value: _utc_iso(value) or "", return_type=str)]
+OptionalUtcDateTime = Annotated[datetime | None, PlainSerializer(_utc_iso, return_type=str | None)]
 
 
 # ---------------------------------------------------------------- auth ----
@@ -86,8 +90,6 @@ class GoogleLoginRequest(BaseModel):
     role: str = "patient"
 
 
-
-
 # ------------------------------------------------------------- consents ----
 class ConsentIn(BaseModel):
     consent_type: str
@@ -103,7 +105,6 @@ class ConsentOut(BaseModel):
     revoked_at: Optional[datetime]
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 # ------------------------------------------------------------- check-ins ---
@@ -300,11 +301,76 @@ class AlertDismissIn(BaseModel):
     dismiss_reason: str
 
 
+class LongitudinalWindowOut(BaseModel):
+    start: Optional[datetime] = None
+    end: Optional[datetime] = None
+
+    @field_serializer("start", "end")
+    def serialize_window(self, value: datetime | None) -> str | None:
+        return _utc_iso(value)
+
+
+class LongitudinalBaselineDetailOut(BaseModel):
+    id: str
+    feature: Optional[str] = None
+    window: LongitudinalWindowOut
+    stats: dict[str, Any] = Field(default_factory=dict)
+    stability: str
+    data_coverage: Optional[float] = None
+    algorithm_version: str
+
+
+class LongitudinalBaselineOut(BaseModel):
+    """Personal baseline. ``insufficient_data`` means no usable row, not a zero baseline."""
+
+    status: str
+    baseline: Optional[LongitudinalBaselineDetailOut] = None
+
+
+class LongitudinalChangeOut(BaseModel):
+    """One ChangeSignal. ``band`` is a change band. ``change`` stays null when unknown."""
+
+    signal_id: str
+    feature: str
+    window: LongitudinalWindowOut
+    change: Optional[float] = None
+    band: str
+    uncertainty: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs: list[Any] = Field(default_factory=list)
+    contradictions: list[Any] = Field(default_factory=list)
+    baseline_version: Optional[str] = None
+    algorithm_version: str
+
+
+class LongitudinalStateOut(BaseModel):
+    """Persisted baseline and latest ChangeSignals. Not a RiskAssessment."""
+
+    baseline: LongitudinalBaselineOut
+    changes: list[LongitudinalChangeOut] = Field(default_factory=list)
+    limits: list[str] = Field(default_factory=list)
+
+
+class AssignmentLinkOut(BaseModel):
+    """One patient–professional link. Operational status only: no chart data."""
+
+    id: uuid.UUID
+    professional_id: uuid.UUID
+    professional_display_name: Optional[str] = None
+    professional_email: Optional[str] = None
+    status: str
+    requested_at: datetime
+    updated_at: Optional[datetime] = None
+
+
 class PatientSummaryOut(BaseModel):
     id: uuid.UUID
     display_name: str
     email: EmailStr
     assignment_status: str
+    # Pending and done links. Empty when this response is a therapist's own
+    # row (that row already carries assignment_status) or when the patient
+    # has no links. Not a RiskAssessment and not a ChangeSignal.
+    assignments: list[AssignmentLinkOut] = Field(default_factory=list)
     latest_alert_level: Optional[int] = None
     latest_structural_score: Optional[float] = None
     latest_confidence_band: Optional[str] = None
@@ -313,6 +379,10 @@ class PatientSummaryOut(BaseModel):
     open_alerts: int = 0
     checkin_count: int = 0
     last_checkin_at: Optional[datetime] = None
+    # Authorised clinical reads only. None means this response does not include
+    # the canonical trajectory (for example the admin roster). It is not a
+    # zero score and it is not an alert level.
+    longitudinal: Optional[LongitudinalStateOut] = None
 
 
 class RiskAssessmentOut(BaseModel):
@@ -324,7 +394,7 @@ class RiskAssessmentOut(BaseModel):
     confidence: Optional[float] = None
     assessment_reason: str
     model_version: str
-    calculated_at: datetime
+    calculated_at: UtcDateTime
     generated_alert_id: Optional[uuid.UUID] = None
     correlation_id: Optional[uuid.UUID] = None
     agent2_trace_id: Optional[uuid.UUID] = None
@@ -336,24 +406,16 @@ class RiskAssessmentOut(BaseModel):
     # production startup stays warning-free.
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
-    @field_serializer("calculated_at")
-    def serialize_calculated_at(self, value: datetime) -> str:
-        return _utc_iso(value) or ""
-
 
 class SignalOut(BaseModel):
     id: uuid.UUID
     signal_type: str
     value: Any
     confidence_band: Optional[str] = None
-    timestamp: datetime
+    timestamp: UtcDateTime
     agent2_trace_id: Optional[uuid.UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("timestamp")
-    def serialize_timestamp(self, value: datetime) -> str:
-        return _utc_iso(value) or ""
 
 
 class Agent2AnalysisTraceOut(BaseModel):
@@ -388,16 +450,12 @@ class Agent2AnalysisTraceOut(BaseModel):
     error_code: Optional[str] = None
     http_status: Optional[int] = None
     app_release: str
-    started_at: datetime
-    completed_at: Optional[datetime] = None
+    started_at: UtcDateTime
+    completed_at: OptionalUtcDateTime = None
     analysis: Optional[Any] = None
     signal_id: Optional[uuid.UUID] = None
     risk_assessment_id: Optional[uuid.UUID] = None
     used_by_risk_engine: bool = False
-
-    @field_serializer("started_at", "completed_at")
-    def serialize_trace_timestamps(self, value: datetime | None) -> str | None:
-        return _utc_iso(value)
 
 
 # ------------------------------------------------- clinical explanations ---
@@ -420,13 +478,9 @@ class PatientChatMessageOut(BaseModel):
     prompt_sha256: Optional[str] = None
     context_version: Optional[str] = None
     context_sha256: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("created_at")
-    def serialize_created_at(self, value: datetime) -> str:
-        return _utc_iso(value) or ""
 
 
 class LevelExplanationOut(BaseModel):
@@ -733,13 +787,9 @@ class CopilotMessageOut(BaseModel):
     context_window_days: Optional[int] = None
     context_counts: Optional[dict[str, Any]] = None
     error_kind: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("created_at")
-    def serialize_created_at(self, value: datetime) -> str:
-        return _utc_iso(value) or ""
 
 
 class PatientDossierOut(BaseModel):

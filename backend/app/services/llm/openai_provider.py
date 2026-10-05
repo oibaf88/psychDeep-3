@@ -110,14 +110,6 @@ class OpenAIProvider(LLMProvider):
             latency_ms=latency_ms,
         )
 
-    def _record(self, **kwargs) -> None:
-        if self._usage_recorder is not None:
-            self._usage_recorder(**kwargs)
-
-    @property
-    def copilot_model(self) -> str:
-        return self._copilot_model
-
     @property
     def copilot_effort(self) -> str:
         return self._chat_effort

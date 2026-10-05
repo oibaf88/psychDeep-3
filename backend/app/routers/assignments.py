@@ -42,6 +42,43 @@ def _enrich_many(db: Session, rows: list[PatientProfessionalAssignment]) -> list
     return [_enrich(db, a) for a in rows]
 
 
+def _apply_assignment_scope(query, user: User, patient_id: uuid.UUID | None):
+    """Restrict a link query to what this role may see.
+
+    A patient always sees only their own links. A supplied ``patient_id``
+    cannot widen that. Therapists stay limited to links they own.
+    """
+    if user.role == "patient":
+        return query.filter(PatientProfessionalAssignment.patient_id == user.id)
+    if user.role == "therapist":
+        query = query.filter(PatientProfessionalAssignment.professional_id == user.id)
+    if patient_id is not None and user.role != "patient":
+        query = query.filter(PatientProfessionalAssignment.patient_id == patient_id)
+    return query
+
+
+def _apply_assignment_group(query, group: str | None):
+    if group is None:
+        return query
+    if group == "pending":
+        return query.filter(PatientProfessionalAssignment.status == "pending")
+    if group == "done":
+        return query.filter(PatientProfessionalAssignment.status != "pending")
+    raise HTTPException(status_code=400, detail="group must be pending or done")
+
+
+def _visible_assignments(
+    db: Session,
+    user: User,
+    *,
+    patient_id: uuid.UUID | None = None,
+    group: str | None = None,
+) -> list[PatientProfessionalAssignment]:
+    query = _apply_assignment_scope(db.query(PatientProfessionalAssignment), user, patient_id)
+    query = _apply_assignment_group(query, group)
+    return query.order_by(PatientProfessionalAssignment.requested_at.desc()).all()
+
+
 @router.post("/request", response_model=AssignmentOut, status_code=201)
 def request_assignment(payload: AssignmentRequestIn, db: Session = Depends(get_db), professional: User = Depends(require_professional)):
     if professional.role == "admin_clinical":
@@ -75,36 +112,35 @@ def request_assignment(payload: AssignmentRequestIn, db: Session = Depends(get_d
 
 
 @router.get("/mine", response_model=list[AssignmentOut])
-def my_assignments(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role == "patient":
-        rows = (
-            db.query(PatientProfessionalAssignment)
-            .filter(PatientProfessionalAssignment.patient_id == user.id)
-            .order_by(PatientProfessionalAssignment.requested_at.desc())
-            .all()
-        )
-    elif user.role in ("supervisor", "admin_clinical"):
-        rows = db.query(PatientProfessionalAssignment).order_by(PatientProfessionalAssignment.requested_at.desc()).all()
-    else:
-        rows = (
-            db.query(PatientProfessionalAssignment)
-            .filter(PatientProfessionalAssignment.professional_id == user.id)
-            .order_by(PatientProfessionalAssignment.requested_at.desc())
-            .all()
-        )
-    return _enrich_many(db, rows)
+def my_assignments(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    patient_id: uuid.UUID | None = None,
+    group: str | None = None,
+):
+    """Links this account may see.
+
+    ``group=pending`` is waiting for the patient. ``group=done`` is every
+    other status (active, paused, ended, rejected). ``patient_id`` narrows
+    the list for therapist, supervisor and admin_clinical. A patient cannot
+    use it to read another person's links.
+    """
+    return _enrich_many(db, _visible_assignments(db, user, patient_id=patient_id, group=group))
 
 
 @router.get("/all", response_model=list[AssignmentOut])
 def all_assignments(
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("supervisor", "admin_clinical")),
+    user: User = Depends(require_roles("supervisor", "admin_clinical")),
     status: str | None = None,
+    patient_id: uuid.UUID | None = None,
+    group: str | None = None,
 ):
-    q = db.query(PatientProfessionalAssignment)
+    query = _apply_assignment_scope(db.query(PatientProfessionalAssignment), user, patient_id)
     if status:
-        q = q.filter(PatientProfessionalAssignment.status == status)
-    rows = q.order_by(PatientProfessionalAssignment.requested_at.desc()).all()
+        query = query.filter(PatientProfessionalAssignment.status == status)
+    query = _apply_assignment_group(query, group)
+    rows = query.order_by(PatientProfessionalAssignment.requested_at.desc()).all()
     return _enrich_many(db, rows)
 
 

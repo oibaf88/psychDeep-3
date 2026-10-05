@@ -203,6 +203,10 @@ hacerlo visible al motor determinista, no ocultarlo ni suavizarlo.
 alarmismo, en español.
 5. Si el texto no aporta señal relevante (p. ej. una nota logística), \
 devuelve valores bajos/neutros en todos los campos.
+6. En la actualización del perfil (`profile_update`), no conviertas \
+un estado transitorio o una crisis puntual en un rasgo permanente \
+de la persona. Distingue entre un cambio duradero y cómo se siente \
+hoy. Mantén siempre abierta la posibilidad de corrección o mejora.
 
 Devuelve SIEMPRE un único objeto JSON que cumpla exactamente el esquema \
 solicitado, con un valor para cada campo. No añadas texto, explicaciones \

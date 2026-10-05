@@ -22,7 +22,6 @@ from app.content.safety_resources import (
     LEVEL4_PROFESSIONAL_NOTIFICATION_TEMPLATE,
 )
 from app.database import get_db
-from app.datetime_utils import utc_iso as _iso
 from app.models import (
     Agent2AnalysisTrace,
     AlfaSignal,
@@ -61,17 +60,21 @@ from app.schemas import (
     SignalRefutationOut,
     PsychosocialExplanationOut,
     PsychosocialObservationOut,
+    AssignmentLinkOut,
     PatientSummaryOut,
     RiskAssessmentOut,
     SafetyPlanOut,
     SignalOut,
     StructuralExplanationOut,
     TimelineOut,
+    _utc_iso,
 )
 from app.security import require_professional
 from app.services import agent2_trace, audit, clinical_copilot, clinical_view, psychosocial, risk_engine
 from app.services import profile as profile_service
 from app.services import signals as signals_service
+from app.services.assignment_visibility import AssignmentLink, links_by_patient, summary_status
+from app.services.longitudinal_read import for_clinical_reader, longitudinal_state, longitudinal_states
 from app.services.timeline import build_timeline
 
 router = APIRouter(prefix="/api/v1/professional", tags=["professional"])
@@ -333,17 +336,35 @@ def _alert_out(db: Session, alert: ProfessionalAlert, *, with_evidence: bool = T
     )
 
 
-def _latest_assessment(db: Session, patient_id) -> RiskAssessment | None:
-    return (
-        db.query(RiskAssessment)
-        .filter(RiskAssessment.user_id == patient_id)
-        .order_by(RiskAssessment.calculated_at.desc())
-        .first()
+
+
+
+def _link_out(link: AssignmentLink) -> AssignmentLinkOut:
+    return AssignmentLinkOut(
+        id=link.id,
+        professional_id=link.professional_id,
+        professional_display_name=link.professional_display_name,
+        professional_email=link.professional_email,
+        status=link.status,
+        requested_at=link.requested_at,
+        updated_at=link.updated_at,
     )
 
 
-def _patient_summary(db: Session, patient: User, status_label: str) -> PatientSummaryOut:
-    assessment = _latest_assessment(db, patient.id)
+def _links_out(db: Session, patient_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[AssignmentLinkOut]]:
+    return {
+        patient_id: [_link_out(link) for link in links]
+        for patient_id, links in links_by_patient(db, patient_ids).items()
+    }
+
+
+def _patient_summary(
+    db: Session,
+    patient: User,
+    status_label: str,
+    assignments: list[AssignmentLinkOut] | None = None,
+) -> PatientSummaryOut:
+    assessment = risk_engine.latest_assessment(db, patient.id)
     latest_score = None
     latest_band = None
     if assessment and isinstance(assessment.input_signals, dict):
@@ -381,11 +402,17 @@ def _patient_summary(db: Session, patient: User, status_label: str) -> PatientSu
         open_alerts=len(open_alert_rows),
         checkin_count=checkin_count,
         last_checkin_at=last_ci.created_at if last_ci else None,
+        assignments=assignments or [],
+        longitudinal=for_clinical_reader(longitudinal_state(db, patient.id)),
     )
 
 
 
-def _batch_patient_summaries(db: Session, patients: list[tuple[User, str]]) -> list[PatientSummaryOut]:
+def _batch_patient_summaries(
+    db: Session,
+    patients: list[tuple[User | None, str]],
+    assignment_outs: dict[uuid.UUID, list[AssignmentLinkOut]] | None = None,
+) -> list[PatientSummaryOut]:
     patient_ids = [p.id for p, _ in patients if p]
     if not patient_ids:
         return []
@@ -450,7 +477,10 @@ def _batch_patient_summaries(db: Session, patients: list[tuple[User, str]]) -> l
     last_checkins = db.query(ci_subq.c.user_id, ci_subq.c.max_created_at).all()
     last_checkin_by_user = {row.user_id: row.max_created_at for row in last_checkins}
 
-    # 5. Assemble the summaries
+    # 5. Persisted baseline + ChangeSignal. This read does not recompute or score risk.
+    longitudinal_by_user = longitudinal_states(db, patient_ids)
+
+    # 6. Assemble the summaries
     summaries = []
     for patient, status_label in patients:
         if patient is None:
@@ -479,7 +509,9 @@ def _batch_patient_summaries(db: Session, patients: list[tuple[User, str]]) -> l
                 pending_alert_status=pending.status if pending else None,
                 open_alerts=len(user_alerts),
                 checkin_count=counts_by_user.get(patient.id, 0),
-                last_checkin_at=last_checkin_by_user.get(patient.id)
+                last_checkin_at=last_checkin_by_user.get(patient.id),
+                assignments=(assignment_outs or {}).get(patient.id, []),
+                longitudinal=for_clinical_reader(longitudinal_by_user[patient.id]),
             )
         )
 
@@ -497,13 +529,27 @@ def list_patients(db: Session = Depends(get_db), professional: User = Depends(re
             )
             .all()
         )
-        patients = [(db.get(User, a.patient_id), a.status) for a in assignments]
-    else:
-        patients = [(u, "roster") for u in db.query(User).filter(User.role == "patient").all()]
-
-    if professional.role != "admin_clinical":
+        patient_ids = [assignment.patient_id for assignment in assignments]
+        users = (
+            {user.id: user for user in db.query(User).filter(User.id.in_(patient_ids)).all()}
+            if patient_ids
+            else {}
+        )
+        patients = [(users.get(assignment.patient_id), assignment.status) for assignment in assignments]
         return _batch_patient_summaries(db, patients)
 
+    roster = db.query(User).filter(User.role == "patient").order_by(User.display_name.asc()).all()
+    assignment_outs = _links_out(db, [patient.id for patient in roster])
+    patients = [
+        (patient, summary_status([link.status for link in assignment_outs.get(patient.id, [])]))
+        for patient in roster
+    ]
+
+    if professional.role != "admin_clinical":
+        return _batch_patient_summaries(db, patients, assignment_outs)
+
+    # admin_clinical manages links. The roster carries pending and done
+    # assignments and nothing from the chart: no alerts, scores or ChangeSignal.
     summaries: list[PatientSummaryOut] = []
     for patient, status_label in patients:
         if patient is None:
@@ -514,11 +560,13 @@ def list_patients(db: Session = Depends(get_db), professional: User = Depends(re
                 display_name=patient.display_name,
                 email=patient.email,
                 assignment_status=status_label,
+                assignments=assignment_outs.get(patient.id, []),
                 latest_alert_level=None,
                 pending_alert_level=None,
                 pending_alert_status=None,
                 open_alerts=0,
                 checkin_count=0,
+                longitudinal=None,
             )
         )
     return summaries
@@ -601,13 +649,7 @@ def patient_checkins(
     professional: User = Depends(require_professional),
 ):
     _require_clinical_read(db, professional, patient_id)
-    return (
-        db.query(CheckIn)
-        .filter(CheckIn.user_id == patient_id)
-        .order_by(CheckIn.created_at.desc())
-        .limit(min(limit, 200))
-        .all()
-    )
+    return _recent_for_patient(db, CheckIn, patient_id, CheckIn.created_at, limit, 200)
 
 
 @router.get("/patients/{patient_id}/diary", response_model=list[DiaryOut])
@@ -618,13 +660,7 @@ def patient_diary(
     professional: User = Depends(require_professional),
 ):
     _require_clinical_read(db, professional, patient_id)
-    return (
-        db.query(DiaryEntry)
-        .filter(DiaryEntry.user_id == patient_id)
-        .order_by(DiaryEntry.created_at.desc())
-        .limit(min(limit, 100))
-        .all()
-    )
+    return _recent_for_patient(db, DiaryEntry, patient_id, DiaryEntry.created_at, limit, 100)
 
 
 @router.get("/patients/{patient_id}/assessments", response_model=list[RiskAssessmentOut])
@@ -654,13 +690,7 @@ def patient_signals(
     professional: User = Depends(require_professional),
 ):
     _require_clinical_read(db, professional, patient_id)
-    return (
-        db.query(AlfaSignal)
-        .filter(AlfaSignal.user_id == patient_id)
-        .order_by(AlfaSignal.timestamp.desc())
-        .limit(min(limit, 100))
-        .all()
-    )
+    return _recent_for_patient(db, AlfaSignal, patient_id, AlfaSignal.timestamp, limit, 100)
 
 
 @router.get("/patients/{patient_id}/profile", response_model=PatientProfileOut)
@@ -753,7 +783,7 @@ def refute_linguistic_signal(
     if not signal.is_active:
         raise HTTPException(status_code=409, detail="Esta señal ya estaba refutada")
 
-    before = _latest_assessment(db, patient_id)
+    before = risk_engine.latest_assessment(db, patient_id)
     level_before = before.alert_level if before else 0
 
     try:
@@ -855,12 +885,16 @@ def patient_dossier(
     if not patient or patient.role != "patient":
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
-    status_label = "roster"
+    status_label = "none"
+    dossier_assignments: list[AssignmentLinkOut] = []
     if professional.role == "therapist":
         a = _assignment(db, patient_id, professional.id, statuses=("pending", "active", "paused", "ended"))
         status_label = a.status if a else "none"
+    elif professional.role == "supervisor":
+        dossier_assignments = _links_out(db, [patient_id]).get(patient_id, [])
+        status_label = summary_status([link.status for link in dossier_assignments])
 
-    assessment = _latest_assessment(db, patient_id)
+    assessment = risk_engine.latest_assessment(db, patient_id)
     timeline = build_timeline(db, patient_id, window_days)
     checkins = (
         db.query(CheckIn)
@@ -941,7 +975,7 @@ def patient_dossier(
     }
 
     result = PatientDossierOut(
-        patient=_patient_summary(db, patient, status_label),
+        patient=_patient_summary(db, patient, status_label, dossier_assignments),
         current_risk=RiskAssessmentOut.model_validate(assessment) if assessment else None,
         level_explanation=LevelExplanationOut(
             **clinical_view.level_explanation(
@@ -1074,8 +1108,8 @@ def _psychosocial_observation_out(row: PsychosocialObservation) -> PsychosocialO
         source_label="Chat" if row.source_type == "chat_message" else "Diario",
         source_id=row.chat_message_id or row.diary_entry_id,
         adjudication_note=row.adjudication_note,
-        adjudicated_at=_iso(row.adjudicated_at),
-        observed_at=_iso(row.observed_at),
+        adjudicated_at=_utc_iso(row.adjudicated_at),
+        observed_at=_utc_iso(row.observed_at),
     )
 
 
@@ -1181,7 +1215,7 @@ def patient_level_explanation(
 ):
     """Plain-Spanish answer to 'why is this patient at this level right now'."""
     _require_clinical_read(db, professional, patient_id)
-    assessment = _latest_assessment(db, patient_id)
+    assessment = risk_engine.latest_assessment(db, patient_id)
     return LevelExplanationOut(
         **clinical_view.level_explanation(
             assessment,

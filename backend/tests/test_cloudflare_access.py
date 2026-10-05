@@ -64,6 +64,8 @@ class AccessGatewayTests(unittest.TestCase):
         self.assertEqual(headers["CF-Access-Client-Id"], "test-id")
         self.assertEqual(headers["CF-Access-Client-Secret"], "test-secret")
         self.assertEqual(headers["Authorization"], "Bearer shared-lm-token")
+        self.assertEqual(headers["User-Agent"], "PsychDeep-API/1")
+        self.assertNotIn("python-httpx", headers["User-Agent"])
         self.assertNotIn("obsolete-legacy-token-do-not-forward", str(headers))
 
     def test_fails_closed_when_required_service_token_or_bearer_is_missing(self):

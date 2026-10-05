@@ -31,8 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.services.context_budget import estimate_tokens, fit_recent_messages
-from app.services.llm_usage_context import record_context_budget
+from app.services.context_budget import fit_recent_messages
 
 from app.content.prompts import (
     AGENT1_CRISIS_INSTRUCTION,
@@ -47,7 +46,6 @@ from app.content.safety_resources import (
     LEVEL3_PATIENT_MESSAGE,
     LEVEL3_PATIENT_MESSAGE_WITH_PROFESSIONAL,
     LEVEL4_PATIENT_MESSAGE,
-    LEVEL4_PATIENT_MESSAGE_SECONDARY,
 )
 from app.models import AlfaSignal, ChatMessage, PatientProfessionalAssignment, User
 from app.services import agent1_context, llm_config, profile as profile_service, psychosocial, risk_engine
@@ -133,6 +131,15 @@ def analyze_text_and_store(
     except agent2_trace.TracePersistenceError:
         logger.error("Analysis skipped because its trace could not be persisted")
         return AnalysisOutcome(correlation_id, None, None, "trace_persistence_error", None)
+    except Exception as exc:
+        # Resolving the connection can fail before a trace exists. That must
+        # not abort the turn: the deterministic risk engine still has to run.
+        from app.services.personal_llm import LocalModelUnavailable
+
+        if not isinstance(exc, (LocalModelUnavailable, RuntimeError)):
+            raise
+        logger.error("Analysis skipped because the inference connection is unavailable: %s", type(exc).__name__)
+        return AnalysisOutcome(correlation_id, None, None, "inference_unavailable", None)
 
     # Who the analyser is reading. Read-only, and read without creating: a
     # patient with no profile is analysed exactly as before this existed.
@@ -493,7 +500,8 @@ def get_reply(
                     "http_400": "El proveedor rechazó la solicitud (HTTP 400). Revisa el modelo o los parámetros configurados.",
                     "http_401": "El proveedor rechazó la autenticación (HTTP 401). Revisa la clave API del servidor.",
                     "http_403": "El proveedor denegó el acceso (HTTP 403). Revisa la autorización de la clave API.",
-                    "http_404": "El modelo o la ruta de la API no existe (HTTP 404). Revisa el identificador del modelo.",
+                    "cloudflare_challenge": "Cloudflare ha interceptado la petición al modelo local antes de llegar a LM Studio.",
+                    "http_404": "El modelo o la ruta de la API no existe (HTTP 404). Comprueba que el modelo esté cargado en el ordenador.",
                     "timeout": "El proveedor no respondió dentro del tiempo configurado.",
                     "network_error": "No se pudo establecer conexión con el proveedor LLM.",
                     "empty_output": "El proveedor respondió sin contenido utilizable.",
@@ -512,7 +520,10 @@ def get_reply(
                     reply_text += " Tus datos y check-ins se han guardado con normalidad."
             else:
                 from app.services.local_llm_access import LocalLlmAccessDenied
-                if isinstance(exc, LocalLlmAccessDenied):
+                from app.services.personal_llm import LocalModelUnavailable
+                if isinstance(exc, LocalModelUnavailable):
+                    reply_text = f"{exc} Tus datos y check-ins se han guardado con normalidad."
+                elif isinstance(exc, LocalLlmAccessDenied):
                     reply_text = (
                         "Ahora mismo no puedo generar una respuesta conversacional. "
                         "El fallo queda registrado de forma segura y tus datos y check-ins "

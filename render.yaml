@@ -68,7 +68,8 @@ services:
       # Enable only after two-account, per-key, cross-account and Access tests.
       - key: LLM_PERSONAL_MODE
         sync: false
-      # Use exact model IDs shown by LM Studio /v1/models.
+      # Do not pin a model id. Accounts choose one advertised by LM Studio,
+      # and a single loaded model is used when the account has not chosen.
       - key: MODEL_LOCAL_CHAT_MODEL
         sync: false
       - key: MODEL_LOCAL_ANALYSIS_MODEL
@@ -107,12 +108,13 @@ services:
         value: anthropic
       - key: LLM_OPENAI_COMPATIBLE_BASE_URL
         sync: false
+      # Legacy fallback names. Leave unset so a retired model id is not sent.
       - key: LLM_OPENAI_COMPATIBLE_CHAT_MODEL
-        value: gemma-2-2b-it
+        sync: false
       - key: LLM_OPENAI_COMPATIBLE_ANALYSIS_MODEL
-        value: gemma-2-2b-it
+        sync: false
       - key: LLM_OPENAI_COMPATIBLE_COPILOT_MODEL
-        value: gemma-2-2b-it
+        sync: false
       - key: LLM_OPENAI_COMPATIBLE_TIMEOUT_SECONDS
         value: "45"
       - key: LLM_OPENAI_COMPATIBLE_MAX_TOKENS
@@ -123,8 +125,6 @@ services:
         generateValue: true
       - key: APP_ENV
         value: production
-      - key: APP_LOCALE
-        value: es-ES
       - key: CORS_ORIGINS
         value: https://psychdeep-web.onrender.com,https://psychdeep.bfab.io
       - key: SEED_DEMO_DATA

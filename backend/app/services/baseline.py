@@ -345,17 +345,13 @@ def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
     )
 
 
-def calculate_trend(db: Session, user_id, values: list[float]) -> str:
-    """
-    Very small linear-regression-slope trend classifier, matching the
-    `calcular_tendencia` helper in doc 18 (simple regression, insufficient
-    data below 3 points, thresholded slope -> aumentando/empeorando/estable).
-    """
-    return calculate_trend_detail(values).label
-
-
 def calculate_trend_detail(values: list[float]) -> TrendResult:
-    """Return the label *and* the exact regression inputs used to derive it."""
+    """Small linear-regression-slope trend classifier (doc 18 `calcular_tendencia`).
+
+    Returns the label *and* the exact regression inputs used to derive it:
+    insufficient data below 3 points, thresholded slope ->
+    aumentando/empeorando/estable.
+    """
     if len(values) < 3:
         return TrendResult(label="insuficiente", slope=None, sample_count=len(values))
 

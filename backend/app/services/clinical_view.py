@@ -34,12 +34,11 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.datetime_utils import utc_iso as _utc_iso
 from app.models import (
     Agent2AnalysisTrace,
     AlfaSignal,
@@ -55,6 +54,7 @@ from app.services import agent2_trace
 from app.services import baseline as baseline_service
 from app.services import daily_statistics as daily_statistics_service
 from app.services import psychosocial as psychosocial_service
+from app.utils import utc_iso as _utc_iso
 
 EXCERPT_CHARS = 320
 
@@ -379,6 +379,13 @@ BAND_MEANING = {
     "unstable": "score < 0.35 — los últimos 7 días se alejan mucho de su línea base.",
     "insufficient_data": "no hay línea base personal todavía (mínimo 5 check-ins en 21 días).",
 }
+
+def _indexed(db: Session, model, ids) -> dict:
+    """Load rows by primary key. An empty IN () is not a query."""
+    if not ids:
+        return {}
+    return {row.id: row for row in db.query(model).filter(model.id.in_(list(ids))).all()}
+
 
 def _excerpt(text: str | None, limit: int = EXCERPT_CHARS) -> str:
     if not text:
@@ -1185,12 +1192,8 @@ def build_evidence_feed(db: Session, patient_id, limit: int = 60) -> list[dict[s
     chat_ids = [t.chat_message_id for t in traces if t.chat_message_id]
     diary_ids = [t.diary_entry_id for t in traces if t.diary_entry_id]
 
-    chat_by_id = {
-        row.id: row for row in (db.query(ChatMessage).filter(ChatMessage.id.in_(chat_ids)).all() if chat_ids else [])
-    }
-    diary_by_id = {
-        row.id: row for row in (db.query(DiaryEntry).filter(DiaryEntry.id.in_(diary_ids)).all() if diary_ids else [])
-    }
+    chat_by_id = _indexed(db, ChatMessage, chat_ids)
+    diary_by_id = _indexed(db, DiaryEntry, diary_ids)
 
     signals = (
         db.query(AlfaSignal)
@@ -1213,10 +1216,7 @@ def build_evidence_feed(db: Session, patient_id, limit: int = 60) -> list[dict[s
         assessment_by_trace.setdefault(assessment.agent2_trace_id, assessment)
 
     alert_ids = [a.generated_alert_id for a in assessments if a.generated_alert_id]
-    alert_by_id = {
-        row.id: row
-        for row in (db.query(ProfessionalAlert).filter(ProfessionalAlert.id.in_(alert_ids)).all() if alert_ids else [])
-    }
+    alert_by_id = _indexed(db, ProfessionalAlert, alert_ids)
 
     feed: list[dict[str, Any]] = []
     for trace in traces:
@@ -1313,24 +1313,14 @@ def evidence_for_assessments(
             if assessment.agent2_trace_id:
                 trace_uuids.add(assessment.agent2_trace_id)
 
-    signals_by_id = {
-        s.id: s
-        for s in (db.query(AlfaSignal).filter(AlfaSignal.id.in_(list(signal_uuids))).all() if signal_uuids else [])
-    }
+    signals_by_id = _indexed(db, AlfaSignal, signal_uuids)
 
     # Signals might point to additional trace IDs
     for s in signals_by_id.values():
         if s.agent2_trace_id:
             trace_uuids.add(s.agent2_trace_id)
 
-    traces_by_id = {
-        t.id: t
-        for t in (
-            db.query(Agent2AnalysisTrace).filter(Agent2AnalysisTrace.id.in_(list(trace_uuids))).all()
-            if trace_uuids
-            else []
-        )
-    }
+    traces_by_id = _indexed(db, Agent2AnalysisTrace, trace_uuids)
 
     chat_uuids: set[uuid.UUID] = set()
     diary_uuids: set[uuid.UUID] = set()
@@ -1340,14 +1330,8 @@ def evidence_for_assessments(
         elif trace.source_type != "chat_message" and trace.diary_entry_id:
             diary_uuids.add(trace.diary_entry_id)
 
-    chats_by_id = {
-        c.id: c
-        for c in (db.query(ChatMessage).filter(ChatMessage.id.in_(list(chat_uuids))).all() if chat_uuids else [])
-    }
-    diaries_by_id = {
-        d.id: d
-        for d in (db.query(DiaryEntry).filter(DiaryEntry.id.in_(list(diary_uuids))).all() if diary_uuids else [])
-    }
+    chats_by_id = _indexed(db, ChatMessage, chat_uuids)
+    diaries_by_id = _indexed(db, DiaryEntry, diary_uuids)
 
     results = {}
     for assessment in assessments:
@@ -1412,7 +1396,6 @@ def evidence_for_assessment(
             trace = None
 
         if trace and trace.user_id == assessment.user_id:
-            source_model = ChatMessage if trace.source_type == "chat_message" else DiaryEntry
             source_id = trace.chat_message_id or trace.diary_entry_id
             if source_id:
                 if trace.source_type == "chat_message":
@@ -1550,26 +1533,18 @@ def build_metrics(db: Session, patient_id, window_days: int = 90) -> dict[str, A
         .order_by(CheckIn.created_at.asc())
         .all()
     )
-    structural_signals = (
+    scored_signals = (
         db.query(AlfaSignal)
         .filter(
             AlfaSignal.user_id == patient_id,
-            AlfaSignal.signal_type == "structural_score",
+            AlfaSignal.signal_type.in_(("structural_score", "linguistic_analysis")),
             AlfaSignal.timestamp >= since,
         )
         .order_by(AlfaSignal.timestamp.asc())
         .all()
     )
-    linguistic_signals = (
-        db.query(AlfaSignal)
-        .filter(
-            AlfaSignal.user_id == patient_id,
-            AlfaSignal.signal_type == "linguistic_analysis",
-            AlfaSignal.timestamp >= since,
-        )
-        .order_by(AlfaSignal.timestamp.asc())
-        .all()
-    )
+    structural_signals = [row for row in scored_signals if row.signal_type == "structural_score"]
+    linguistic_signals = [row for row in scored_signals if row.signal_type == "linguistic_analysis"]
     assessments = (
         db.query(RiskAssessment)
         .filter(RiskAssessment.user_id == patient_id, RiskAssessment.calculated_at >= since)
@@ -1592,22 +1567,11 @@ def build_metrics(db: Session, patient_id, window_days: int = 90) -> dict[str, A
     # Map linguistic signals back to the text they came from, so a spike in
     # the chart can be clicked through to the sentence that produced it.
     ling_trace_ids = [s.agent2_trace_id for s in linguistic_signals if s.agent2_trace_id]
-    traces_by_id = {
-        row.id: row
-        for row in (
-            db.query(Agent2AnalysisTrace).filter(Agent2AnalysisTrace.id.in_(ling_trace_ids)).all()
-            if ling_trace_ids
-            else []
-        )
-    }
+    traces_by_id = _indexed(db, Agent2AnalysisTrace, ling_trace_ids)
     chat_ids = [t.chat_message_id for t in traces_by_id.values() if t.chat_message_id]
     diary_ids = [t.diary_entry_id for t in traces_by_id.values() if t.diary_entry_id]
-    chat_by_id = {
-        row.id: row for row in (db.query(ChatMessage).filter(ChatMessage.id.in_(chat_ids)).all() if chat_ids else [])
-    }
-    diary_by_id = {
-        row.id: row for row in (db.query(DiaryEntry).filter(DiaryEntry.id.in_(diary_ids)).all() if diary_ids else [])
-    }
+    chat_by_id = _indexed(db, ChatMessage, chat_ids)
+    diary_by_id = _indexed(db, DiaryEntry, diary_ids)
 
     checkin_series = [
         {

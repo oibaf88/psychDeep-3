@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, AssignmentOut, CheckInIn, PatientTimelineOut, formatDay } from "../api";
-import PatientTimelineChart, { PatientTrendSummary } from "../components/PatientTimelineChart";
+import { PatientTrajectoryChart } from "../components/ClinicalCharts";
+import { PatientTrendSummary } from "../components/PatientTrendSummary";
+import { longitudinalFraming, type PatientStateResponse } from "./longitudinalReading";
 
 const emptyForm: CheckInIn = { mood: 5, craving: 3, sleep_hours: 7, self_efficacy: 5, notes: "" };
 
@@ -15,6 +17,8 @@ type SuggestedAction = {
 export default function PatientDashboard() {
   const navigate = useNavigate();
   const [timeline, setTimeline] = useState<PatientTimelineOut | null>(null);
+  const [patientState, setPatientState] = useState<PatientStateResponse | null>(null);
+  const [stateError, setStateError] = useState<string | null>(null);
   const [form, setForm] = useState<CheckInIn>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -26,8 +30,21 @@ export default function PatientDashboard() {
     setTimeline(data);
   }
 
+  async function loadState() {
+    try {
+      const data = await api.get<PatientStateResponse>("/api/v1/state");
+      setPatientState(data);
+      setStateError(null);
+    } catch {
+      setStateError(
+        "No se pudo cargar la comparación con tu línea de base. Esa falta no significa que no haya cambio ni que no haya riesgo.",
+      );
+    }
+  }
+
   useEffect(() => {
     loadTimeline().catch(() => setMessage("No se pudo cargar tu historial."));
+    loadState().catch(() => undefined);
     api
       .get<AssignmentOut[]>("/api/v1/assignments/mine")
       .then((rows) => setPendingLinks(rows.filter((r) => r.status === "pending")))
@@ -44,7 +61,7 @@ export default function PatientDashboard() {
       setMessage("Check-in registrado.");
       setForm(emptyForm);
       setShowSuggestedAction(true);
-      await loadTimeline();
+      await Promise.all([loadTimeline(), loadState()]);
     } catch (err) {
       setMessage((err as Error).message);
     } finally {
@@ -53,6 +70,13 @@ export default function PatientDashboard() {
   }
 
   const latestPoint = timeline?.points?.length ? timeline.points[timeline.points.length - 1] : null;
+  const framing = patientState ? longitudinalFraming(patientState) : null;
+  const heroHeadline = framing?.headline ?? (stateError ? "No disponible" : "Leyendo tu referencia");
+  const heroMeta = framing
+    ? `${framing.baselineStatus} · ${framing.coverage}`
+    : stateError
+      ? "Comparación no disponible"
+      : "Leyendo tu línea de base";
 
   const suggestedAction = useMemo<SuggestedAction>(() => {
     if (form.craving >= 7) {
@@ -88,15 +112,23 @@ export default function PatientDashboard() {
           <p className="patient-action-card__eyebrow">Hoy</p>
           <h1>Un momento para observarte</h1>
           <p>
-            PsychDeep recoge cómo estás ahora y lo coloca junto a tu propia trayectoria. No tienes que interpretar
-            todo de una vez: empieza por una observación breve y decide después qué necesitas.
+            PsychDeep coloca cómo estás ahora junto a tu propia línea de base. La comparación de esta pantalla sale
+            de tus señales de cambio: un cambio no es un nivel de alerta. Puedes empezar por una observación breve y
+            decidir después qué necesitas.
           </p>
         </div>
 
-        <div className="patient-home-hero__state" aria-label="Estado del check-in actual">
-          <span className="patient-home-hero__state-label">Ahora</span>
-          <span className="patient-home-hero__state-value">{form.mood}/10</span>
-          <span className="meta">ánimo registrado en pantalla</span>
+        <div className="patient-home-hero__state" role="region" aria-label="Resumen del cambio respecto a tu línea de base">
+          <span className="patient-home-hero__state-label">Respecto a ti</span>
+          <span className="patient-home-hero__state-value patient-home-hero__state-value--prose">{heroHeadline}</span>
+          {framing ? (
+            <span className="patient-home-hero__meta">
+              <span>{framing.baselineStatus}</span>
+              <span>{framing.coverage}</span>
+            </span>
+          ) : (
+            <span className="meta">{heroMeta}</span>
+          )}
         </div>
       </section>
 
@@ -168,6 +200,65 @@ export default function PatientDashboard() {
             </button>
           </div>
         </article>
+      </section>
+
+      <section className="card longitudinal-change" aria-label="Cambio respecto a tu línea de base">
+        <div className="today-separator">Comparación personal</div>
+        <h2 id="baseline-change-heading">Respecto a lo habitual en ti</h2>
+        <p className="longitudinal-change__distinction">
+          Esta lectura sale de tu línea de base y de las señales de cambio. No es un nivel de alerta ni una valoración
+          de riesgo. Si necesitas ayuda, la línea 024, el 112 y tu plan de seguridad siguen disponibles.
+        </p>
+
+        {stateError && (
+          <p className="error" role="alert">
+            {stateError}
+          </p>
+        )}
+
+        {!patientState && !stateError && <p>Leyendo tu línea de base…</p>}
+
+        {framing && (
+          <>
+            <div className="trend-summary" aria-label="Calidad de la línea de base">
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Referencia</span>
+                <span className="trend-summary__value">{framing.baselineStatus}</span>
+              </div>
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Calidad</span>
+                <span className="trend-summary__value">{framing.referenceQuality}</span>
+              </div>
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Cobertura</span>
+                <span className="trend-summary__value">{framing.coverage}</span>
+              </div>
+            </div>
+
+            <p className="longitudinal-change__headline">{framing.headline}</p>
+            <p>{framing.explanation}</p>
+
+            {framing.featureLines.length > 0 && (
+              <ul className="longitudinal-change__list">
+                {framing.featureLines.map((line) => (
+                  <li className="longitudinal-change__item" key={line.signalId}>
+                    <h3>{line.label}</h3>
+                    <p className="longitudinal-change__band">{line.bandLabel}</p>
+                    <p>{line.detail}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {framing.pendingNotice && <p>{framing.pendingNotice}</p>}
+            {framing.missingNotice && <p>{framing.missingNotice}</p>}
+            {framing.limits.map((limit) => (
+              <p className="chart-reading-note" key={limit}>
+                {limit}
+              </p>
+            ))}
+          </>
+        )}
       </section>
 
       <section className="card" aria-labelledby="checkin-heading">
@@ -279,7 +370,8 @@ export default function PatientDashboard() {
           <div>
             <h2 id="trend-heading">Tu trayectoria</h2>
             <p className="subtitle">
-              Últimos 30 días. El gráfico es para observar patrones; la ausencia de datos no se interpreta como que todo vaya bien.
+              Últimos 30 días de registros. El gráfico muestra observaciones; no calcula el cambio ni rellena los huecos
+              con ceros. La comparación con tu línea de base está en la sección anterior.
             </p>
           </div>
           {latestPoint && (
@@ -299,14 +391,16 @@ export default function PatientDashboard() {
               ariaLabel="Resumen del último registro"
             />
 
-            <PatientTimelineChart
-              points={timeline.points}
-              height={300}
-              margin={{ top: 8, right: 8, bottom: 4, left: -16 }}
-              primaryDotRadius={2.5}
-              sleepTicksWithUnit
-              ariaLabel="Tendencia de ánimo, craving y autoeficacia"
-            />
+            <div className="chart-shell" aria-label="Tendencia de ánimo, craving y autoeficacia" role="region">
+              <PatientTrajectoryChart
+                points={timeline.points}
+                height={300}
+                margin={{ top: 8, right: 8, bottom: 4, left: -16 }}
+                dotRadius={2.5}
+                sleepDotRadius={2}
+                formatSleepTicks
+              />
+            </div>
 
             <p className="chart-reading-note">
               <strong>Cómo leerlo:</strong> busca relaciones entre variables a lo largo del tiempo. Un cambio aislado
@@ -314,7 +408,7 @@ export default function PatientDashboard() {
             </p>
           </>
         ) : (
-          <p>Sin datos todavía.</p>
+          <p>Todavía no hay registros en esta ventana.</p>
         )}
       </section>
     </main>

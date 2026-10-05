@@ -7,12 +7,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.models import uuid_pk
 
 JSON_DOC = JSON().with_variant(JSONB, "postgresql")
-
-
-def uuid_pk():
-    return mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
 
 class Observation(Base):
@@ -140,7 +137,7 @@ class InterventionEvent(Base):
 
 
 class KnowledgeItem(Base):
-    """Versioned, curated content registry; not yet wired into model prompts."""
+    """Versioned curated content. Active, unexpired rows are copied into Agent 1 context."""
 
     __tablename__ = "knowledge_items"
 

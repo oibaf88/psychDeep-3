@@ -81,11 +81,9 @@ describe("NavBar role navigation", () => {
         link.textContent,
         link.getAttribute("href"),
       ]);
-      expect(links).toEqual([
-        ...roleLinks[role],
-        ["Mi cuenta", "/account"],
-        ["Mis modelos", "/settings"],
-      ]);
+      const account = [["Mi cuenta", "/account"]] as Array<[string, string]>;
+      const models = role === "admin_clinical" ? [["Mis modelos", "/settings"] as [string, string]] : [];
+      expect(links).toEqual([...roleLinks[role], ...account, ...models]);
       expect(screen.getByRole("button", { name: "Salir" })).toBeInTheDocument();
     });
   }

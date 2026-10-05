@@ -121,6 +121,17 @@ class LLMProvider(ABC):
     them and the call uses what the provider was constructed with.
     """
 
+    _copilot_model: str = ""
+    _usage_recorder: Any = None
+
+    @property
+    def copilot_model(self) -> str:
+        return self._copilot_model
+
+    def _record(self, **kwargs) -> None:
+        if self._usage_recorder is not None:
+            self._usage_recorder(**kwargs)
+
     @abstractmethod
     def chat(
         self,

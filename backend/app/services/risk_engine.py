@@ -13,12 +13,12 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from app.datetime_utils import utc_iso as _utc_iso
 from app.models import AlfaSignal, ConfirmedFact, ProfessionalAlert, RiskAssessment
 from app.services import baseline as baseline_service
 from app.services import notifications as notification_service
 from app.services import profile as profile_service
 from app.services import psychosocial as psychosocial_service
+from app.utils import utc_iso as _utc_iso
 
 MODEL_VERSION = "risk-engine-v1.5"
 
@@ -73,6 +73,7 @@ SUBTLE_NEGATIVE_VALENCE_MIN = 0.70
 PERSONAL_DEVIATION_SIGMA = 1.5
 # Do not spam professionals with duplicate open alerts at the same level.
 ALERT_DEDUPE_HOURS = 24
+
 
 @dataclass
 class RiskDecision:
@@ -280,190 +281,6 @@ def _persistence_detail(db: Session, user_id, band: str, days_minimum: int) -> d
     }
 
 
-def _convergencia_critica_extrema(
-    adverse_composite_z: float | None, rumination: float | None, sleep_worsening: bool
-) -> bool:
-    if adverse_composite_z is None:
-        return False
-    rumination_extreme = rumination is not None and rumination > 0.85
-    return adverse_composite_z > 2.4 and (rumination_extreme or sleep_worsening)
-
-
-def _calculate_risk_level_legacy(db: Session, user_id) -> RiskDecision:
-    """Pre-trace implementation retained temporarily for migration comparison tests."""
-    structural = baseline_service.compute_structural_score(db, user_id)
-    ling_flags = _linguistic_flags(db, user_id)
-    linguistic = ling_flags.get("raw") or _latest_linguistic_signal(db, user_id)
-    rumination = ling_flags.get("rumination_score")
-    if rumination is None:
-        rumination = linguistic.get("rumination_score")
-
-    from app.models import CheckIn
-
-    recent_checkins = (
-        db.query(CheckIn).filter(CheckIn.user_id == user_id).order_by(CheckIn.created_at.desc()).limit(7).all()
-    )
-    sleep_values = [c.sleep_hours for c in reversed(recent_checkins)]
-    sleep_trend = baseline_service.calculate_trend(db, user_id, sleep_values)
-    sleep_worsening = sleep_trend == "empeorando"
-    rumination_trend = "aumentando" if (rumination or 0) > 0.6 else "estable"
-
-    n4_facts = _facts_in_categories(db, user_id, N4_FACT_CATEGORIES, CRITICAL_DECLARATION_WINDOW_HOURS)
-    n3_facts = _facts_in_categories(db, user_id, N3_FACT_CATEGORIES, CRITICAL_DECLARATION_WINDOW_HOURS)
-
-    input_signals = {
-        "structural_score": structural.score,
-        "confidence_band": structural.confidence_band,
-        "z_scores": structural.z_scores,
-        "linguistic": linguistic,
-        "linguistic_flags": {
-            "ideation_direct": ling_flags["ideation_direct"],
-            "consumption_crisis": ling_flags["consumption_crisis"],
-        },
-        "sleep_trend": sleep_trend,
-    }
-    input_facts = {
-        "n4_declarations": n4_facts,
-        "n3_declarations": n3_facts,
-        # backward-compatible key used in older UI
-        "critical_declarations": n4_facts + n3_facts,
-    }
-
-    triggering_rules: list[str] = []
-
-    # ---------------- Nivel 4 (Emergencia) ----------------
-    # Only true emergency declarations / direct ideation / extreme multi-signal convergence.
-    if n4_facts:
-        triggering_rules.append("N4_declaracion_ideacion_o_plan")
-        return RiskDecision(
-            level=4,
-            triggering_rules=triggering_rules,
-            reason="Declaración confirmada de ideación activa o planificación (hecho, no inferencia)",
-            input_signals=input_signals,
-            input_facts=input_facts,
-        )
-
-    if ling_flags["ideation_direct"]:
-        triggering_rules.append("N4_senal_linguistica_ideacion_directa")
-        return RiskDecision(
-            level=4,
-            triggering_rules=triggering_rules,
-            reason="Señal lingüística reciente de ideación directa (inferencia Agent 2; revisión humana prioritaria)",
-            input_signals=input_signals,
-            input_facts=input_facts,
-        )
-
-    # (El bloque de convergencia extrema fue corregido y movido al Nivel 3)
-
-    # ---------------- Nivel 3 (Alarma profesional) ----------------
-    if _convergencia_critica_extrema(
-        structural.adverse_composite_z, rumination if isinstance(rumination, (int, float)) else None, sleep_worsening
-    ):
-        triggering_rules.append("N3_convergencia_critica_extrema")
-        return RiskDecision(
-            level=3,
-            triggering_rules=triggering_rules,
-            reason="Deterioro concurrente estadístico: requiere revisión profesional prospectiva (sin evidencia causal validada)",
-            input_signals=input_signals,
-            input_facts=input_facts,
-        )
-    if ling_flags.get("ideation_indirect"):
-        triggering_rules.append("N3_senal_linguistica_ideacion_indirecta")
-        return RiskDecision(
-            level=3,
-            triggering_rules=triggering_rules,
-            reason="Posible ideación no explicitada: requiere valoración clínica prioritaria",
-            input_signals=input_signals,
-            input_facts=input_facts,
-        )
-
-    if n3_facts:
-        triggering_rules.append("N3_declaracion_crisis_consumo")
-        return RiskDecision(
-            level=3,
-            triggering_rules=triggering_rules,
-            reason="Declaración de crisis de consumo (alarma profesional, no emergencia 112 automática)",
-            input_signals=input_signals,
-            input_facts=input_facts,
-        )
-
-    if ling_flags["consumption_crisis"]:
-        triggering_rules.append("N3_senal_linguistica_crisis_consumo")
-        return RiskDecision(
-            level=3,
-            triggering_rules=triggering_rules,
-            reason="Señal lingüística de crisis de consumo (inferencia; revisión profesional)",
-            input_signals=input_signals,
-            input_facts=input_facts,
-        )
-
-    if (
-        structural.confidence_band == "unstable"
-        and _persistence_band(db, user_id, "unstable", STRUCTURAL_PERSISTENCE_DAYS_N3_CONVERGENT)
-        and (sleep_worsening or rumination_trend == "aumentando")
-    ):
-        triggering_rules.append("N3_unstable_persistente_con_convergencia")
-        return RiskDecision(
-            level=3,
-            triggering_rules=triggering_rules,
-            reason="Desviación estructural persistente (≥3 días inestable) con convergencia de señales",
-            input_signals=input_signals,
-            input_facts=input_facts,
-        )
-
-    if structural.confidence_band == "unstable" and _persistence_band(
-        db, user_id, "unstable", STRUCTURAL_PERSISTENCE_DAYS_N3_ALONE
-    ):
-        triggering_rules.append("N3_unstable_persistente")
-        return RiskDecision(
-            level=3,
-            triggering_rules=triggering_rules,
-            reason="structural_score en banda inestable de forma sostenida (≥5 días)",
-            input_signals=input_signals,
-            input_facts=input_facts,
-        )
-
-    # ---------------- Nivel 2 (Prevención) ----------------
-    if structural.confidence_band == "transition" or (
-        structural.confidence_band == "unstable" and _persistence_band(db, user_id, "unstable", 1)
-    ):
-        triggering_rules.append("N2_desviacion_moderada")
-        return RiskDecision(
-            level=2,
-            triggering_rules=triggering_rules,
-            reason="Desviación moderada o inicio de inestabilidad (prevención, sin alerta profesional automática)",
-            input_signals=input_signals,
-            input_facts=input_facts,
-        )
-
-    # ---------------- Nivel 0-1 (Autogestión) ----------------
-    if structural.confidence_band == "stable" or structural.confidence_band == "insufficient_data":
-        level = 0 if structural.confidence_band == "stable" else 1
-        rule = "N0_estable" if level == 0 else "N1_datos_insuficientes_o_sin_criterios"
-        reason = (
-            "Situación estable respecto a la línea base personal"
-            if level == 0
-            else "Sin criterios de nivel superior (datos insuficientes o sin desviación clara)"
-        )
-        triggering_rules.append(rule)
-        return RiskDecision(
-            level=level,
-            triggering_rules=triggering_rules,
-            reason=reason,
-            input_signals=input_signals,
-            input_facts=input_facts,
-        )
-
-    triggering_rules.append("N1_sin_criterios_superiores")
-    return RiskDecision(
-        level=1,
-        triggering_rules=triggering_rules,
-        reason="Situación dentro de parámetros de autogestión",
-        input_signals=input_signals,
-        input_facts=input_facts,
-    )
-
-
 def _trace_condition(label: str, actual, operator: str, expected, passed: bool | None) -> dict:
     return {
         "label": label,
@@ -488,11 +305,11 @@ def _trace_rule(code: str, level: int, label: str, conditions: list[dict], match
 
 
 def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> RiskDecision:
-    """Evaluate every deterministic rule and persistable intermediate.
+    """Evaluate every deterministic rule and keep the intermediate results.
 
-    Unlike the legacy early-return cascade, this function records all rule
-    outcomes and then selects the first match.  The ordering and final level
-    remain identical, while clinicians can inspect the complete calculation.
+    Rather than returning at the first matching rule, this function records
+    all rule outcomes and then selects the first match, so clinicians can
+    inspect the complete calculation.
     """
 
     evaluated_at = datetime.utcnow()
@@ -1335,6 +1152,15 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
         input_facts=input_facts,
         calculation_trace=calculation_trace,
         linguistic_signal_id=ling["_signal_uuid"],
+    )
+
+
+def latest_assessment(db: Session, user_id) -> RiskAssessment | None:
+    return (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.user_id == user_id)
+        .order_by(RiskAssessment.calculated_at.desc())
+        .first()
     )
 
 

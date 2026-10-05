@@ -296,6 +296,19 @@ def active_row(db: Session) -> LLMEndpointConfig | None:
     )
 
 
+def _personal_account(db: Session | None):
+    """Account id when personal mode applies to this request; otherwise None."""
+    from app.services.personal_resolution import personal_mode_enabled
+
+    if not personal_mode_enabled() or db is None:
+        return None
+    info = getattr(db, "info", None)
+    user_id = info.get("authenticated_user_id") if isinstance(info, dict) else None
+    if user_id is None:
+        raise RuntimeError("Inferencia bloqueada: no existe identidad de cuenta verificada.")
+    return user_id
+
+
 def stored_override(db: Session | None) -> ResolvedConfig | None:
     if db is None:
         return None
@@ -309,11 +322,20 @@ def stored_override(db: Session | None) -> ResolvedConfig | None:
 def resolve(db: Session | None = None) -> ResolvedConfig:
     """Return the model configuration currently selected for inference.
 
+    With personal mode on, an authenticated request uses that account's
+    selection and never the process-wide cache. Without a request session,
+    callers still receive the deployment selection.
+
     Database lookup failures fall back to the deployment default because the
-override cannot be established. A *valid stored selection*, however, is
-never silently replaced by the other provider merely because its endpoint
-is unavailable.
+    override cannot be established. A valid stored selection is never silently
+    replaced by the other provider merely because its endpoint is unavailable.
     """
+    account_id = _personal_account(db)
+    if account_id is not None:
+        from app.services import personal_llm
+
+        return personal_llm.resolve_active(db, account_id)
+
     global _cached
     settings = get_settings()
     if not settings.llm_allow_runtime_override:

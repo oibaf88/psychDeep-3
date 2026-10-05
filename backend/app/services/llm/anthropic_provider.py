@@ -107,10 +107,6 @@ class AnthropicProvider(LLMProvider):
             self._client = anthropic.Anthropic(api_key=self._api_key)
 
     @property
-    def copilot_model(self) -> str:
-        return self._copilot_model
-
-    @property
     def copilot_effort(self) -> str:
         return self._copilot_effort
 
@@ -157,10 +153,6 @@ class AnthropicProvider(LLMProvider):
             web_fetch_requests=_field(server_tool_use, "web_fetch_requests"),
             latency_ms=latency_ms,
         )
-
-    def _record(self, **kwargs) -> None:
-        if self._usage_recorder is not None:
-            self._usage_recorder(**kwargs)
 
     def chat(
         self,

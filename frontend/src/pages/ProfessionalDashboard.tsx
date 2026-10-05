@@ -9,6 +9,8 @@ import {
   UserRole,
 } from "../api";
 import { useAuth } from "../auth/AuthContext";
+import { joinAssignmentLabels, partitionAssignments } from "./assignmentGroups";
+import { dashboardChangeDetail, dashboardChangeHeadline } from "./professionalChange";
 
 export default function ProfessionalDashboard() {
   const { user } = useAuth();
@@ -22,6 +24,7 @@ export default function ProfessionalDashboard() {
   const canSeeClinicalColumns = role !== "admin_clinical";
   const isAdmin = role === "admin_clinical";
   const isSupervisor = role === "supervisor";
+  const showsAssignmentGroups = isAdmin || isSupervisor;
 
   async function load() {
     setPatients(await api.get<PatientSummaryOut[]>("/api/v1/professional/patients"));
@@ -61,7 +64,7 @@ export default function ProfessionalDashboard() {
           " · Abre la ficha de cualquier paciente con asignación activa/pausada para ver el historial completo (check-ins, diario, hechos, evaluaciones). No hace falta que haya alerta."}
         {isSupervisor && " · Visibilidad de roster y alertas; puede finalizar asignaciones."}
         {isAdmin &&
-          " · Sin visibilidad de señales clínicas ni gestión de alertas (RBAC). Gestiona asignaciones y auditoría."}
+          " · Ves las asignaciones clínicas pendientes y hechas de cada paciente. No ves señales, expediente ni alertas (RBAC)."}
       </p>
 
       {canRequestAccess && (
@@ -94,6 +97,14 @@ export default function ProfessionalDashboard() {
               <th scope="col">Asignación</th>
               {canSeeClinicalColumns && <th scope="col">Nivel operativo</th>}
               {canSeeClinicalColumns && (
+                <th
+                  scope="col"
+                  title="Cambio respecto a su línea de base personal. No es el nivel de alerta ni el score del motor de riesgo."
+                >
+                  Cambio vs su referencia
+                </th>
+              )}
+              {canSeeClinicalColumns && (
                 <th scope="col" title="Similitud de sus check-ins de 7 días con su línea base de 21 días. 1.00 = sin cambios. NO es una escala de riesgo.">
                   Estabilidad de check-ins ⓘ
                 </th>
@@ -108,7 +119,13 @@ export default function ProfessionalDashboard() {
               <tr key={p.id}>
                 <td>{p.display_name}</td>
                 <td>{p.email}</td>
-                <td>{ASSIGNMENT_STATUS_LABELS[p.assignment_status] || p.assignment_status}</td>
+                <td>
+                  {showsAssignmentGroups ? (
+                    <AssignmentGroups assignments={p.assignments} />
+                  ) : (
+                    ASSIGNMENT_STATUS_LABELS[p.assignment_status] || p.assignment_status
+                  )}
+                </td>
                 {canSeeClinicalColumns && (
                   <td>
                     {p.pending_alert_level != null ? (
@@ -137,6 +154,12 @@ export default function ProfessionalDashboard() {
                   </td>
                 )}
                 {canSeeClinicalColumns && (
+                  <td>
+                    <strong className="change-band">{dashboardChangeHeadline(p.longitudinal)}</strong>
+                    <div className="meta">{dashboardChangeDetail(p.longitudinal)}</div>
+                  </td>
+                )}
+                {canSeeClinicalColumns && (
                   <td className="meta">
                     {BAND_LABELS[p.latest_confidence_band || ""] || p.latest_confidence_band || "—"}
                     {p.latest_structural_score != null
@@ -148,18 +171,26 @@ export default function ProfessionalDashboard() {
                 {canSeeClinicalColumns && <td>{p.open_alerts}</td>}
                 <td>
                   {role === "admin_clinical" ? (
-                    <Link to="/professional/assignments">Asignaciones</Link>
+                    <Link to={assignmentHref(p)}>Ver asignaciones</Link>
                   ) : p.assignment_status === "pending" && role === "therapist" ? (
                     <span className="meta">Esperando aceptación</span>
                   ) : (
-                    <Link to={`/professional/patients/${p.id}`}>Ver historial</Link>
+                    <>
+                      <Link to={`/professional/patients/${p.id}`}>Ver historial</Link>
+                      {role === "supervisor" && (
+                        <>
+                          {" · "}
+                          <Link to={assignmentHref(p)}>Asignaciones</Link>
+                        </>
+                      )}
+                    </>
                   )}
                 </td>
               </tr>
             ))}
             {patients.length === 0 && (
               <tr>
-                <td colSpan={canSeeClinicalColumns ? 8 : 4}>
+                <td colSpan={canSeeClinicalColumns ? 9 : 4}>
                   {role === "therapist"
                     ? "Aún no tienes pacientes. Solicita acceso por email."
                     : "No hay pacientes en el sistema."}
@@ -170,5 +201,24 @@ export default function ProfessionalDashboard() {
         </table>
       </div>
     </main>
+  );
+}
+
+function assignmentHref(patient: PatientSummaryOut) {
+  const params = new URLSearchParams({ patient: patient.id, nombre: patient.display_name });
+  return `/professional/assignments?${params.toString()}`;
+}
+
+function AssignmentGroups({ assignments }: { assignments: PatientSummaryOut["assignments"] }) {
+  const { pending, done } = partitionAssignments(assignments ?? []);
+  return (
+    <>
+      <div>
+        <strong>Pendientes:</strong> {joinAssignmentLabels(pending)}
+      </div>
+      <div>
+        <strong>Hechas:</strong> {joinAssignmentLabels(done)}
+      </div>
+    </>
   );
 }
