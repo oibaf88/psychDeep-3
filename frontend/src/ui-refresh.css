@@ -216,6 +216,39 @@ main {
   font-size: 0.8rem;
 }
 
+.patient-home-hero__state--facts {
+  max-width: 280px;
+  text-align: left;
+}
+
+.patient-home-hero__facts {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+
+.patient-home-hero__fact-label,
+.patient-home-hero__fact-value {
+  margin: 0;
+}
+
+.patient-home-hero__fact-label {
+  display: block;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.patient-home-hero__fact-value {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink);
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
 .longitudinal-change {
   margin: 18px 0;
 }
@@ -259,7 +292,7 @@ main {
 
 .patient-home-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(250px, 0.7fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-items: stretch;
 }

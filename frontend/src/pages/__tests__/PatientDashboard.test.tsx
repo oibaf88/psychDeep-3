@@ -110,10 +110,17 @@ describe("PatientDashboard longitudinal change", () => {
     expect(region).not.toHaveTextContent("assessment-should-not-render");
     expect(region).not.toHaveTextContent("unstable");
     expect(region.className).not.toMatch(/alert-level|level-pill/);
-    expect(screen.getByRole("region", { name: "Resumen del cambio respecto a tu línea de base" })).toHaveTextContent(
-      "Bastante distinto de lo habitual en ti",
-    );
+    const summary = screen.getByRole("region", { name: "Resumen del cambio respecto a tu línea de base" });
+    expect(summary).toHaveTextContent("Bastante distinto de lo habitual en ti");
+    expect(summary).toHaveTextContent("Sirve como referencia");
+    expect(summary).toHaveTextContent("Cubre las áreas del registro");
+    expect(summary).toHaveTextContent("100% de las áreas con referencia");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bastante distinto de lo habitual en ti");
     expect(screen.getByRole("button", { name: "Ocultar sugerencia por ahora" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Abrir Tendencias" })).not.toBeInTheDocument();
+    const checkin = screen.getByRole("heading", { name: "Check-in de hoy" });
+    const detail = screen.getByRole("heading", { name: "Respecto a lo habitual en ti" });
+    expect(checkin.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText("Nivel 4")).not.toBeInTheDocument();
   });
 

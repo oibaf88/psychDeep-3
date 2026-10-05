@@ -77,6 +77,11 @@ export default function PatientDashboard() {
     : stateError
       ? "Comparación no disponible"
       : "Leyendo tu línea de base";
+  const heroExplanation = framing
+    ? framing.explanation
+    : stateError
+      ? "No se pudo cargar la comparación. Esa falta no significa que no haya cambio ni que no haya riesgo."
+      : "Leyendo cómo está tu registro reciente respecto a lo habitual en ti.";
 
   const suggestedAction = useMemo<SuggestedAction>(() => {
     if (form.craving >= 7) {
@@ -107,25 +112,35 @@ export default function PatientDashboard() {
 
   return (
     <main className="page" aria-label="Panel del paciente">
-      <section className="patient-home-hero">
+      <section
+        className="patient-home-hero"
+        role="region"
+        aria-label="Resumen del cambio respecto a tu línea de base"
+      >
         <div className="patient-home-hero__copy">
           <p className="patient-action-card__eyebrow">Hoy</p>
-          <h1>Un momento para observarte</h1>
-          <p>
-            PsychDeep coloca cómo estás ahora junto a tu propia línea de base. La comparación de esta pantalla sale
-            de tus señales de cambio: un cambio no es un nivel de alerta. Puedes empezar por una observación breve y
-            decidir después qué necesitas.
-          </p>
+          <h1>{heroHeadline}</h1>
+          <p>{heroExplanation}</p>
+          {framing?.missingNotice && <p>{framing.missingNotice}</p>}
         </div>
 
-        <div className="patient-home-hero__state" role="region" aria-label="Resumen del cambio respecto a tu línea de base">
+        <div className="patient-home-hero__state patient-home-hero__state--facts">
           <span className="patient-home-hero__state-label">Respecto a ti</span>
-          <span className="patient-home-hero__state-value patient-home-hero__state-value--prose">{heroHeadline}</span>
           {framing ? (
-            <span className="patient-home-hero__meta">
-              <span>{framing.baselineStatus}</span>
-              <span>{framing.coverage}</span>
-            </span>
+            <dl className="patient-home-hero__facts">
+              <div>
+                <dt className="patient-home-hero__fact-label">Referencia</dt>
+                <dd className="patient-home-hero__fact-value">{framing.baselineStatus}</dd>
+              </div>
+              <div>
+                <dt className="patient-home-hero__fact-label">Calidad</dt>
+                <dd className="patient-home-hero__fact-value">{framing.referenceQuality}</dd>
+              </div>
+              <div>
+                <dt className="patient-home-hero__fact-label">Cobertura</dt>
+                <dd className="patient-home-hero__fact-value">{framing.coverage}</dd>
+              </div>
+            </dl>
           ) : (
             <span className="meta">{heroMeta}</span>
           )}
@@ -183,81 +198,6 @@ export default function PatientDashboard() {
               </button>
             </div>
           </article>
-        )}
-
-        <article className="card patient-action-card patient-action-card--quiet">
-          <div>
-            <p className="patient-action-card__eyebrow">Tu trayectoria</p>
-            <h2 className="patient-action-card__title">Mira el contexto, no solo el número</h2>
-            <p className="patient-action-card__body">
-              Las tendencias se leen respecto a tu propia línea de base y no convierten por sí solas un cambio en
-              riesgo clínico.
-            </p>
-          </div>
-          <div className="patient-action-card__controls">
-            <button type="button" className="btn-secondary" onClick={() => navigate("/trends")}>
-              Abrir Tendencias
-            </button>
-          </div>
-        </article>
-      </section>
-
-      <section className="card longitudinal-change" aria-label="Cambio respecto a tu línea de base">
-        <div className="today-separator">Comparación personal</div>
-        <h2 id="baseline-change-heading">Respecto a lo habitual en ti</h2>
-        <p className="longitudinal-change__distinction">
-          Esta lectura sale de tu línea de base y de las señales de cambio. No es un nivel de alerta ni una valoración
-          de riesgo. Si necesitas ayuda, la línea 024, el 112 y tu plan de seguridad siguen disponibles.
-        </p>
-
-        {stateError && (
-          <p className="error" role="alert">
-            {stateError}
-          </p>
-        )}
-
-        {!patientState && !stateError && <p>Leyendo tu línea de base…</p>}
-
-        {framing && (
-          <>
-            <div className="trend-summary" aria-label="Calidad de la línea de base">
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Referencia</span>
-                <span className="trend-summary__value">{framing.baselineStatus}</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Calidad</span>
-                <span className="trend-summary__value">{framing.referenceQuality}</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Cobertura</span>
-                <span className="trend-summary__value">{framing.coverage}</span>
-              </div>
-            </div>
-
-            <p className="longitudinal-change__headline">{framing.headline}</p>
-            <p>{framing.explanation}</p>
-
-            {framing.featureLines.length > 0 && (
-              <ul className="longitudinal-change__list">
-                {framing.featureLines.map((line) => (
-                  <li className="longitudinal-change__item" key={line.signalId}>
-                    <h3>{line.label}</h3>
-                    <p className="longitudinal-change__band">{line.bandLabel}</p>
-                    <p>{line.detail}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {framing.pendingNotice && <p>{framing.pendingNotice}</p>}
-            {framing.missingNotice && <p>{framing.missingNotice}</p>}
-            {framing.limits.map((limit) => (
-              <p className="chart-reading-note" key={limit}>
-                {limit}
-              </p>
-            ))}
-          </>
         )}
       </section>
 
@@ -371,7 +311,7 @@ export default function PatientDashboard() {
             <h2 id="trend-heading">Tu trayectoria</h2>
             <p className="subtitle">
               Últimos 30 días de registros. El gráfico muestra observaciones; no calcula el cambio ni rellena los huecos
-              con ceros. La comparación con tu línea de base está en la sección anterior.
+              con ceros. La comparación detallada con tu línea de base está más abajo.
             </p>
           </div>
           {latestPoint && (
@@ -409,6 +349,65 @@ export default function PatientDashboard() {
           </>
         ) : (
           <p>Todavía no hay registros en esta ventana.</p>
+        )}
+      </section>
+
+      <section className="card longitudinal-change" aria-label="Cambio respecto a tu línea de base">
+        <div className="today-separator">Comparación personal</div>
+        <h2 id="baseline-change-heading">Respecto a lo habitual en ti</h2>
+        <p className="longitudinal-change__distinction">
+          Esta lectura sale de tu línea de base y de las señales de cambio. No es un nivel de alerta ni una valoración
+          de riesgo. Si necesitas ayuda, la línea 024, el 112 y tu plan de seguridad siguen disponibles.
+        </p>
+
+        {stateError && (
+          <p className="error" role="alert">
+            {stateError}
+          </p>
+        )}
+
+        {!patientState && !stateError && <p>Leyendo tu línea de base…</p>}
+
+        {framing && (
+          <>
+            <div className="trend-summary" aria-label="Calidad de la línea de base">
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Referencia</span>
+                <span className="trend-summary__value">{framing.baselineStatus}</span>
+              </div>
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Calidad</span>
+                <span className="trend-summary__value">{framing.referenceQuality}</span>
+              </div>
+              <div className="trend-summary__item">
+                <span className="trend-summary__label">Cobertura</span>
+                <span className="trend-summary__value">{framing.coverage}</span>
+              </div>
+            </div>
+
+            <p className="longitudinal-change__headline">{framing.headline}</p>
+            <p>{framing.explanation}</p>
+
+            {framing.featureLines.length > 0 && (
+              <ul className="longitudinal-change__list">
+                {framing.featureLines.map((line) => (
+                  <li className="longitudinal-change__item" key={line.signalId}>
+                    <h3>{line.label}</h3>
+                    <p className="longitudinal-change__band">{line.bandLabel}</p>
+                    <p>{line.detail}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {framing.pendingNotice && <p>{framing.pendingNotice}</p>}
+            {framing.missingNotice && <p>{framing.missingNotice}</p>}
+            {framing.limits.map((limit) => (
+              <p className="chart-reading-note" key={limit}>
+                {limit}
+              </p>
+            ))}
+          </>
         )}
       </section>
     </main>
