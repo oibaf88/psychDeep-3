@@ -50,7 +50,6 @@ from app.models import (
     PsychosocialObservation,
     RiskAssessment,
 )
-from app.schemas import _utc_iso
 from app.services import agent2_trace
 from app.services import baseline as baseline_service
 from app.services import daily_statistics as daily_statistics_service
@@ -380,7 +379,6 @@ BAND_MEANING = {
     "unstable": "score < 0.35 — los últimos 7 días se alejan mucho de su línea base.",
     "insufficient_data": "no hay línea base personal todavía (mínimo 5 check-ins en 21 días).",
 }
-
 
 def _indexed(db: Session, model, ids) -> dict:
     """Load rows by primary key. An empty IN () is not a query."""

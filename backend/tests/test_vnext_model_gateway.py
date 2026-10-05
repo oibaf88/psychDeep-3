@@ -1,6 +1,7 @@
 import pytest
 
 from app.config import get_settings
+from app.services import llm_config
 from app.services.model_gateway import ModelGateway, ModelUnavailable
 
 
@@ -55,3 +56,24 @@ def test_local_tunnel_does_not_need_commercial_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     provider = ModelGateway().provider()
     assert provider is not None
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("http://localhost:1234", "http://localhost:1234/v1"),
+        ("http://localhost:1234/v1", "http://localhost:1234/v1"),
+        ("http://localhost:1234/v1/chat/completions", "http://localhost:1234/v1"),
+        ("https://model.example.test/api/v1/chat", "https://model.example.test/v1"),
+        ("https://model.example.test/api/v1", "https://model.example.test/v1"),
+        ("https://model.example.test/openai", "https://model.example.test/openai"),
+    ],
+)
+def test_gateway_and_runtime_config_normalize_compatible_urls_identically(monkeypatch, raw, expected):
+    monkeypatch.setenv("MODEL_DEPLOYMENT_ALIAS", "local-tunnel")
+    monkeypatch.setenv("MODEL_LOCAL_BASE_URL", raw)
+    monkeypatch.setenv("MODEL_LOCAL_CHAT_MODEL", "test-model")
+    monkeypatch.setenv("MODEL_LOCAL_ANALYSIS_MODEL", "test-model")
+
+    assert ModelGateway().deployment().base_url == expected
+    assert llm_config.normalise_base_url(raw) == expected

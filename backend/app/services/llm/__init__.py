@@ -100,17 +100,15 @@ def get_llm_provider(db=None, provider_override: str | None = None) -> LLMProvid
         settings = get_settings()
         if not settings.openai_api_key.strip():
             raise RuntimeError("OPENAI_API_KEY_NOT_CONFIGURED")
-        from app.services.llm_usage import record_usage_safely
-        return OpenAIProvider(
+        return build_provider(llm_config.ResolvedConfig(
+            provider="openai",
             chat_model=settings.openai_chat_model,
             analysis_model=settings.openai_analysis_model,
             copilot_model=settings.openai_copilot_model or settings.openai_chat_model,
+            api_key=settings.openai_api_key,
             max_tokens=settings.openai_max_tokens,
-            timeout_seconds=float(settings.openai_timeout_seconds),
-            chat_effort=settings.openai_chat_effort,
-            analysis_effort=settings.openai_analysis_effort,
-            usage_recorder=record_usage_safely,
-        )
+            timeout_seconds=settings.openai_timeout_seconds,
+        ))
 
     user = local_llm_access.request_user(db)
     if personal_mode_enabled():

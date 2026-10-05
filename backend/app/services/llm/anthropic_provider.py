@@ -20,6 +20,8 @@ from app.services.llm.base import (
     ProviderMetadata,
     StructuredAnalysisError,
     StructuredAnalysisResult,
+    UNSUPPORTED_JSON_SCHEMA_CONSTRAINTS,
+    normalize_json_schema,
 )
 
 ANTHROPIC_API_BASE_URL = "https://api.anthropic.com"
@@ -34,36 +36,9 @@ LEGACY_MODEL_ALIASES = {
 def _normalize_model(model: str) -> str:
     return LEGACY_MODEL_ALIASES.get(model, model)
 
-_UNSUPPORTED_SCHEMA_KEYS = {
-    "minimum",
-    "maximum",
-    "exclusiveMinimum",
-    "exclusiveMaximum",
-    "multipleOf",
-    "minLength",
-    "maxLength",
-    "minItems",
-    "maxItems",
-    "pattern",
-}
-
-
 def _to_output_schema(node: Any) -> Any:
     """Convert a tool input_schema into Anthropic structured-output schema."""
-    if isinstance(node, list):
-        return [_to_output_schema(item) for item in node]
-    if not isinstance(node, dict):
-        return node
-
-    converted = {
-        key: _to_output_schema(value)
-        for key, value in node.items()
-        if key not in _UNSUPPORTED_SCHEMA_KEYS
-    }
-    if converted.get("type") == "object" and "properties" in converted:
-        converted["required"] = list(converted["properties"].keys())
-        converted["additionalProperties"] = False
-    return converted
+    return normalize_json_schema(node, UNSUPPORTED_JSON_SCHEMA_CONSTRAINTS)
 
 
 def _field(value: Any, name: str, default=None):

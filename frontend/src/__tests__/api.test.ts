@@ -6,7 +6,7 @@ import {
   formatDateTime,
   formatDay,
   modelProvenanceLabel,
-  errorDetail
+  errorDetail,
 } from '../api';
 
 describe('api base functions', () => {

@@ -17,7 +17,6 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.utils import utc_iso as _iso
 from app.content.safety_resources import (
     LEVEL3_PROFESSIONAL_NOTIFICATION_TEMPLATE,
     LEVEL4_PROFESSIONAL_NOTIFICATION_TEMPLATE,

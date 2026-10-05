@@ -14,7 +14,6 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.models import AlfaSignal, ConfirmedFact, ProfessionalAlert, RiskAssessment
-from app.schemas import _utc_iso
 from app.services import baseline as baseline_service
 from app.services import notifications as notification_service
 from app.services import profile as profile_service

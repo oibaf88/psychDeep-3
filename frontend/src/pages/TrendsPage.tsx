@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, formatDay, PatientTimelineOut } from "../api";
 import { PatientTrajectoryChart } from "../components/ClinicalCharts";
+import { PatientTrendSummary } from "../components/PatientTrendSummary";
 import {
   baselineCoverage,
   baselineHero,
@@ -87,22 +88,11 @@ export default function TrendsPage() {
 
         {timeline?.points.length ? (
           <>
-            <div className="trend-summary">
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Ánimo actual</span>
-                <span className="trend-summary__value">{latest?.mood ?? "—"}/10</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Craving actual</span>
-                <span className="trend-summary__value">{latest?.craving ?? "—"}/10</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Sueño</span>
-                <span className="trend-summary__value">
-                  {latest?.sleep_hours == null ? "—" : latest.sleep_hours + " h"}
-                </span>
-              </div>
-            </div>
+            <PatientTrendSummary
+              point={latest}
+              moodLabel="Ánimo actual"
+              cravingLabel="Craving actual"
+            />
 
             <div className="chart-shell" aria-label="Tendencia longitudinal" role="region">
               <PatientTrajectoryChart

@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, AssignmentOut, CheckInIn, PatientTimelineOut, formatDay } from "../api";
 import { PatientTrajectoryChart } from "../components/ClinicalCharts";
+import { PatientTrendSummary } from "../components/PatientTrendSummary";
 import { longitudinalFraming, type PatientStateResponse } from "./longitudinalReading";
 
 const emptyForm: CheckInIn = { mood: 5, craving: 3, sleep_hours: 7, self_efficacy: 5, notes: "" };
@@ -383,22 +384,12 @@ export default function PatientDashboard() {
 
         {timeline && timeline.points.length > 0 ? (
           <>
-            <div className="trend-summary" aria-label="Resumen del último registro">
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Ánimo</span>
-                <span className="trend-summary__value">{latestPoint?.mood ?? "—"}/10</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Craving</span>
-                <span className="trend-summary__value">{latestPoint?.craving ?? "—"}/10</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Sueño</span>
-                <span className="trend-summary__value">
-                  {latestPoint?.sleep_hours == null ? "—" : latestPoint.sleep_hours + " h"}
-                </span>
-              </div>
-            </div>
+            <PatientTrendSummary
+              point={latestPoint}
+              moodLabel="Ánimo"
+              cravingLabel="Craving"
+              ariaLabel="Resumen del último registro"
+            />
 
             <div className="chart-shell" aria-label="Tendencia de ánimo, craving y autoeficacia" role="region">
               <PatientTrajectoryChart

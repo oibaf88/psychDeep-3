@@ -15,36 +15,15 @@ from app.services.llm.base import (
     ProviderMetadata,
     StructuredAnalysisError,
     StructuredAnalysisResult,
+    UNSUPPORTED_JSON_SCHEMA_CONSTRAINTS,
+    normalize_json_schema,
 )
 
 OPENAI_API_BASE_URL = "https://api.openai.com"
 OPENAI_RESPONSES_URL = f"{OPENAI_API_BASE_URL}/v1/responses"
 
-_UNSUPPORTED_SCHEMA_KEYS = {
-    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
-    "multipleOf", "minLength", "maxLength", "minItems", "maxItems", "pattern",
-    "default",
-}
-
-
 def _to_strict_schema(node: Any) -> Any:
-    if isinstance(node, list):
-        return [_to_strict_schema(item) for item in node]
-    if not isinstance(node, dict):
-        return node
-    converted = {
-        key: _to_strict_schema(value)
-        for key, value in node.items()
-        if key not in _UNSUPPORTED_SCHEMA_KEYS
-    }
-    if converted.get("type") == "object" and "properties" in converted:
-        converted["properties"] = {
-            key: _to_strict_schema(value)
-            for key, value in converted["properties"].items()
-        }
-        converted["required"] = list(converted["properties"].keys())
-        converted["additionalProperties"] = False
-    return converted
+    return normalize_json_schema(node, UNSUPPORTED_JSON_SCHEMA_CONSTRAINTS | {"default"})
 
 
 def _extract_text(body: dict[str, Any]) -> str:
