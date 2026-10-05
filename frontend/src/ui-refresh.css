@@ -848,6 +848,11 @@ select:focus-visible {
   background: rgba(26, 35, 50, 0.55);
 }
 
+.hoy .trend-summary__value {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
 @media (max-width: 700px) {
   .hoy-facts,
   .hoy-next__card,
