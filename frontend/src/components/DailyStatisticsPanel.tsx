@@ -100,9 +100,9 @@ export default function DailyStatisticsPanel({
       </p>
       {!rows.length ? <p>Sin observaciones en esta ventana.</p> : (
         <>
-          <label className="statistics-filter">
+          <label htmlFor="statistics-filter-input" className="statistics-filter">
             Filtrar variables
-            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ánimo, valencia, ideación, rumiación…" />
+            <input id="statistics-filter-input" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ánimo, valencia, ideación, rumiación…" />
           </label>
           <h4>Resumen del período</h4>
           <div className="table-wrap">
