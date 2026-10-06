@@ -44,7 +44,7 @@ Set actual model IDs to the precise `/models` response; do not use the Hugging F
 ## Two inference paths and credential isolation
 
 - `ModelGateway` already supports alias `cloud-tuned`. The `llm_config` runtime row can separately override via the Supabase configuration; the `runpod_routing` allowlist attaches a Runpod key only if the runtime URL exactly matches the operator-pinned Runpod URL and all requested model IDs belong to its allowlist. It must not leak Cloudflare credentials to Runpod.
-- `LLM_ALLOW_RUNTIME_OVERRIDE=true` means an active `psychdeep_v12.llm_endpoint_configs` row can supersede Render defaults. Previously observed active provider was Anthropic; recheck before production changes. Changing only Render's alias is insufficient. Use authenticated audited `admin_clinical` Settings only after integration tests. `LLM_PERSONAL_MODE=true` uses separate account-scoped LM Studio resolution and will not automatically switch to Runpod. Test cross-account isolation and determine an explicit personal-mode transition; do not silently disable it.
+- `LLM_ALLOW_RUNTIME_OVERRIDE=true` means an active `psychdeep_v12.llm_endpoint_configs` row can supersede Render defaults when personal mode is off. The deployed API currently has `LLM_PERSONAL_MODE=true`: authenticated inference follows **Mis modelos**. A clinical-admin Codex / ChatGPT or Anthropic connection is the path for patient chat, analysis and the copilot. A local LM Studio key stays on the account that saved it and will not automatically switch to Runpod. Changing only Render's alias is insufficient. Do not silently disable personal mode.
 
 ## Promotion gates (ALL required)
 

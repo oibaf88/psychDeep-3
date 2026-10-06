@@ -30,13 +30,13 @@ y cómo auditar cualquier decisión del sistema hasta la frase que la produjo.
 | **Check-ins** | El paciente puntúa a diario ánimo, craving, sueño y autoeficacia. | Paciente |
 | **Diario** | Texto libre del paciente. | Paciente |
 | **Chat** | Conversación del paciente con el Agente 1. | Paciente |
-| **Agente 1** | Responde al paciente. Nunca calcula riesgo. | LLM (Claude por defecto; Gemma 2 local) |
-| **Agente 2** | Lee cada texto (diario y chat) y devuelve señales estructuradas. | LLM (Claude por defecto; Gemma 2 local) |
+| **Agente 1** | Responde al paciente. Nunca calcula riesgo. | LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio) |
+| **Agente 2** | Lee cada texto (diario y chat) y devuelve señales estructuradas. | LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio) |
 | **Score estructural** | Compara los últimos 7 días de check-ins con la línea base de 21 días del propio paciente. | Estadística local, sin IA |
 | **Motor de riesgo** | Decide el nivel 0–4 aplicando reglas fijas en orden. | **Código determinista, sin IA** |
 | **Alertas** | Se crean automáticamente en niveles 3 y 4. | Motor determinista |
-| **Agente 3 (copiloto)** | Te resume y responde preguntas sobre un paciente. Solo lectura. | LLM (Claude por defecto; Gemma 2 local) |
-| **Agente 4** | Extrae determinantes sociales (vivienda, apoyo, dinero, pérdidas…) de lo que el paciente escribe. | LLM (Claude por defecto; Gemma 2 local) |
+| **Agente 3 (copiloto)** | Te resume y responde preguntas sobre un paciente. Solo lectura. | LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio) |
+| **Agente 4** | Extrae determinantes sociales (vivienda, apoyo, dinero, pérdidas…) de lo que el paciente escribe. | LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio) |
 | **Índice psicosocial** | Pondera esos determinantes con pesos fijos. | Aritmética local, sin IA |
 
 Lo importante: **ningún modelo de lenguaje decide el nivel de alarma**. Los
@@ -57,6 +57,7 @@ decide. El Agente 3 no puede escribir nada en el historial clínico.
 - La asignación la solicita el profesional por email y **la tiene que
   aceptar el paciente** (consentimiento `professional_sharing`).
 - Una asignación `pending` no da acceso al historial.
+- El administrador clínico ve, en el roster y en Asignaciones, las solicitudes pendientes y las hechas (activas, pausadas, finalizadas o rechazadas). Esa vista no incluye señales, expediente ni alertas.
 - Todo acceso al historial, a la evidencia, al chat del paciente y al
   copiloto queda registrado en el log de auditoría con tu identidad, el
   paciente y la hora.
@@ -460,6 +461,8 @@ disparar.
 |---|---|
 | **Resumen** | Tarjeta de nivel con su explicación, score estructural explicado y desglosado, gráficas de nivel y de score, línea de tiempo de alertas y hechos. |
 | **Métricas** | Las cinco gráficas: nivel de alarma, score estructural, z-scores por variable, check-ins crudos y señales del Agente 2. Cada gráfica lleva su propia nota de «cómo se lee». |
+| **Contexto psicosocial** | Vivienda, convivencia, apoyo, familia, dinero, ocupación, pérdidas y vínculo con el tratamiento, con la frase literal y la opción de confirmar o refutar. |
+| **Memoria y lectura** | Lo dicho en el chat y el diario, la lectura provisional y la formulación. El paciente no puede editarlo ni borrarlo. Un aviso de esta pestaña no cambia el nivel de riesgo ni crea una alerta profesional. `admin_clinical` no entra en esta ficha. |
 | **Evidencia** | Una tarjeta por texto analizado: lo que escribió, lo que leyó el Agente 2, qué nivel salió y si generó alerta. Filtrable por chat / diario / con bandera. |
 | **Copiloto clínico** | Conversación con el Agente 3 sobre este paciente. |
 | **Chat del paciente** | Transcripción completa de su conversación con el Agente 1. |
@@ -529,8 +532,11 @@ como no verificada.** Es un modelo de lenguaje: puede equivocarse al leer.
 - Los datos viven en tu propia infraestructura (Supabase/Postgres). El
   esquema no está expuesto vía PostgREST y las tablas sensibles tienen
   `FORCE ROW LEVEL SECURITY` con acceso solo para el rol del backend.
-- Lo único que sale a un tercero es el **texto que se envía al proveedor LLM
-  seleccionado**: Claude por la API de Anthropic (predeterminado conectado) o Gemma 2 mediante LM Studio y un endpoint compatible con OpenAI (alternativa local/túnel). Ambas rutas se autentican y quedan sujetas a la arquitectura indicada en README.
+- Lo único que sale a un tercero es el **texto que se envía a la conexión de
+  inferencia** guardada por el administrador clínico en Mis modelos: Anthropic,
+  Codex / ChatGPT (API de OpenAI en el servidor) o el modelo que LM Studio
+  tiene cargado, a través del túnel HTTPS. La pantalla no elige un nombre de
+  modelo. Si ese proveedor no responde, el texto no se envía a otro.
 - Las trazas del Agente 2 **no duplican** el texto: apuntan al mensaje o
   entrada original.
 - Los mensajes de error del proveedor nunca se guardan en crudo: solo una

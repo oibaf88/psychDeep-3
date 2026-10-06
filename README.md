@@ -20,9 +20,10 @@ Render FastAPI ───────────────► Supabase Postgre
   ├── audit/governance               └── model runs/audit/history
   │
   └── replaceable inference boundary
-       ├── local-tunnel ──HTTPS──► local OpenAI-compatible LLM (LM Studio/Ollama/etc.)
+       ├── local-tunnel ──HTTPS──► local OpenAI-compatible LLM (the model loaded in LM Studio)
        ├── cloud-tuned ──────────► approved private managed inference endpoint
-       └── Anthropic ────────────► approved commercial provider
+       ├── Anthropic ────────────► approved commercial provider
+       └── Codex / ChatGPT ──────► OpenAI API with the server key
 ```
 
 Only the LLM inference server may be local. There is **no supported local clinical PostgreSQL, local product API/frontend, bidirectional clinical sync, or SymmetricDS path in vNext**. The historical implementation is preserved on branch `past/local-offline-sync-20260913`.
@@ -45,15 +46,23 @@ Only the LLM inference server may be local. There is **no supported local clinic
 - `cloud-tuned`: a private/managed compatible endpoint for a reviewed tuned model.
 - `commercial-approved`: approved commercial deployment profile.
 
-Production sets `LLM_ALLOW_RUNTIME_OVERRIDE=true`, allowing only the `admin_clinical` role to explicitly switch between the approved Anthropic provider and the local/OpenAI-compatible endpoint from **Modelos/Ajustes**. Every change is audited and affects new model calls only; it does not change consent, storage, risk rules or historical provenance.
+The running API has personal mode on (`LLM_PERSONAL_MODE`) and `LLM_ALLOW_RUNTIME_OVERRIDE=true`. Only `admin_clinical` opens **Mis modelos** (`/settings`). Patient, therapist and supervisor accounts do not. The screen saves one connection:
 
-There is no primary/fallback provider chain. If the selected provider is unavailable, model-dependent functionality fails safely while data entry, deterministic risk/safety and crisis resources remain available. Model credentials remain server-side secrets. The admin may edit a compatible endpoint URL, but it is validated before activation and is redacted from non-admin users.
+- **Local** — that account's LM Studio API key, encrypted in `llm_user_preferences`. PsychDeep does not accept a model name. Inference uses the single model LM Studio reports as loaded. If several models are advertised and none is uniquely loaded, local inference stops.
+- **Anthropic** — the server-side Anthropic key and model id. The blueprint sets `ANTHROPIC_CHAT_MODEL=claude-sonnet-4-6`.
+- **Codex / ChatGPT** — the server-side OpenAI key and model id. The blueprint sets `OPENAI_CHAT_MODEL=gpt-5.6-luna`.
+
+When the clinical admin saves Anthropic or Codex / ChatGPT, patient chat, text analysis and the professional copilot use that connection. A local LM Studio key stays on the account that saved it. Every save is audited and affects later model calls only. It does not change consent, storage, risk rules or historical provenance.
+
+There is no primary/fallback provider chain. If the selected provider is unavailable, model-dependent functionality fails safely while data entry, deterministic risk/safety and crisis resources remain available. Model credentials remain server-side secrets. **Mis modelos** does not accept an endpoint URL or a model id. The tunnel URL and Cloudflare Access credentials stay in Render.
 
 ## Data migration
 
 vNext uses expand-and-migrate. Existing `psychdeep_v12` records are never rebuilt or reinterpreted in place. Canonical tables are additive and legacy rows remain readable while endpoints move gradually:
 
 `observations`, `feature_definitions`, `feature_values`, `baseline_versions`, `change_signals`, `inferences`, `model_runs`, `intervention_events`, `knowledge_items`, `fine_tune_runs`, `model_deployments`.
+
+Clinical memory (ADR-0002) adds `memory_commits`, `discourse_facts`, `psych_readings`, `formulation_versions`, `memory_annotations`, `clinical_attention_notices` and `memory_embeddings`. A chat or diary turn can append a discourse fact, a provisional reading and a formulation version when linguistic-analysis consent is current. The patient cannot edit or delete those rows. Assigned therapists and supervisors read them on the chart under **Memoria y lectura**. An attention notice is not a risk alert and is not shown to `admin_clinical`. See [ADR-0002](docs/adr/0002-model-memory.md).
 
 The migration backfills canonical compatibility rows with references to legacy sources; original clinical rows remain untouched.
 
@@ -80,7 +89,7 @@ The migration backfills canonical compatibility rows with references to legacy s
 
 A failed refresh logs the exception type and rolls back the analytics transaction. The check-in and observation dual-write stay, because they were already committed. Previous baseline rows for the same algorithm are marked `superseded` rather than deleted.
 
-Hoy charts the 30-day self-report series. Tendencias reads `/api/v1/timeline`, `/api/v1/baselines/current` and `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
+Hoy reads `longitudinal` from that state payload: change versus the personal baseline, with a missing comparison described as missing data, kept apart from `safety.alert_level`. Hoy also charts the 30-day self-report series. That chart shows observations and does not calculate the change. Tendencias reads `/api/v1/timeline`, `/api/v1/baselines/current` and `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
 
 ## Curated knowledge
 
@@ -111,7 +120,7 @@ Agent 1 reads the table directly. `agent1_context._knowledge_block` loads every 
 
 ## Patient information architecture
 
-- **Hoy** — low-burden check-in, current context, and a 30-day chart of recorded values.
+- **Hoy** — low-burden check-in, change versus the personal baseline (separate from the alert level), and a 30-day chart of recorded values.
 - **Tendencias** — personal baseline, missingness, and a plain-language reading of change signals. An uncalculated comparison is described as missing data.
 - **Regular** — urge-surfing wave, guided breathing, STOP and non-harmful grounding.
 - **Diario** — free/structured entries; linguistic analysis requires separate consent.
