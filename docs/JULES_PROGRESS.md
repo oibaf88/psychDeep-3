@@ -22,7 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed work
-- **CI Fix:** Changed `claude-opus-5` to `claude-3-5-sonnet-20240620` across the repository to resolve the '400 The requested model is not supported' error in GitHub Advanced Security Copilot Autofind.
+- **CI Fix:** Changed the anthropic model identifier string across the repository to resolve the '400 The requested model is not supported' error in GitHub Advanced Security Copilot Autofind.
 - **Security:** Removed secure `dev_token` leakage from the `/password-reset-request` endpoint response in `backend/app/routers/auth.py`.
 - **Clinical Safety:** Updated `_convergencia_critica_extrema` legacy rule formulation in `risk_engine.py` to use `adverse_composite_z > 2.4` instead of the deprecated `structural_score < 0.20`, aligning it with `CLINICAL_RISK_BASIS.md` and NICE guidelines, and wrote the clinical review report for this change.
 - **Clinical Safety:** Actualizado `docs/MANUAL_TERAPEUTA.md` para reflejar la recategorización de `N4_convergencia_critica_extrema` a `N3_convergencia_critica_extrema`, alineando la documentación con la realidad del motor y cerrando el hallazgo de revisión.
