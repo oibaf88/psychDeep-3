@@ -171,6 +171,7 @@ function DomainCard({
             type="button"
             disabled={busy || domain.status === "confirmed"}
             onClick={() => onAdjudicate(domain.observation_id, "confirmed")}
+            aria-label={`Confirmar observación sobre ${domain.label}`}
           >
             Confirmar
           </button>
@@ -179,6 +180,7 @@ function DomainCard({
             className="btn-secondary"
             disabled={busy || domain.status === "refuted"}
             onClick={() => onAdjudicate(domain.observation_id, "refuted")}
+            aria-label={`Refutar observación sobre ${domain.label}`}
           >
             Refutar
           </button>
@@ -188,6 +190,7 @@ function DomainCard({
               className="linkish"
               disabled={busy}
               onClick={() => onAdjudicate(domain.observation_id, "inferred")}
+              aria-label={`Deshacer adjudicación sobre ${domain.label}`}
             >
               Deshacer
             </button>
