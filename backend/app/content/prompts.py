@@ -12,10 +12,10 @@ deliberately separate roles with separate, narrow contracts:
     (AlfaSignal) and fed into the deterministic risk engine.
 
 Both prompts are transcribed from the docs almost verbatim (originally
-written for a locally fine-tuned open model per doc 8/19) and adapted
-here for Claude by the server-only Anthropic API or for Gemma 2 through the
-authenticated OpenAI-compatible endpoint defined by the Local · Offline · Tunnel · Sync architecture. See README for the
-of the fine-tuned local model the docs originally sketched.
+written for a locally fine-tuned open model per doc 8/19) and adapted for
+the current inference connection: Anthropic, Codex / ChatGPT, or the model
+loaded in LM Studio through the authenticated tunnel. See README. The
+retired local clinical stack is not a runtime path.
 """
 
 import copy

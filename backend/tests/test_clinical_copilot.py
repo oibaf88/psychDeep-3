@@ -321,6 +321,7 @@ class AskTests(unittest.TestCase):
         self.assertEqual(answer.error_kind, "RuntimeError")
         self.assertIn("No he podido generar la respuesta", answer.content)
         self.assertIn("check-ins, diario, chat", answer.content)
+        self.assertNotIn("Gemma", answer.content)
 
     def test_empty_reply_is_treated_as_a_failure(self):
         db = _populated_db()

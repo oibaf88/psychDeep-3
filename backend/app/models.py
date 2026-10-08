@@ -549,22 +549,24 @@ class Agent2AnalysisTrace(Base):
 class LLMEndpointConfig(Base):
     """Which model actually serves this deployment, changeable at runtime.
 
-    PsychDeep 3 uses Claude by default and Gemma 2 through authenticated LM Studio endpoints as the local alternative. This
-    table records an authorized local/tunnel endpoint without redeploying.
+    Legacy audited runtime-selection rows. The running product path is Mis
+    modelos (personal mode): Local uses the model loaded in LM Studio, and
+    Anthropic or Codex / ChatGPT use server keys. This table still records an
+    authorized local/tunnel endpoint for the non-personal path.
 
     Exactly one row is active at a time. Superseded rows are kept, never
     updated in place: a patient's history can span several models, and
     "which model produced this analysis" has to stay answerable long after
     the endpoint was changed. ``api_key`` is write-only from the API's point
-    of view — it is never serialised back out — and is usually empty, since
-    local runtimes rarely authenticate.
+    of view — it is never serialised back out. Personal-mode Local keys live
+    in ``llm_user_preferences``, not in this row.
     """
 
     __tablename__ = "llm_endpoint_configs"
 
     id: Mapped[uuid.UUID] = uuid_pk()
     provider: Mapped[str] = mapped_column(String(32), nullable=False, default="openai_compatible")
-    # Both Claude/Anthropic and Gemma/OpenAI-compatible rows are valid.
+    # Anthropic rows and OpenAI-compatible rows are both valid.
     label: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     chat_model: Mapped[str] = mapped_column(String(160), nullable=False)
@@ -586,8 +588,8 @@ class LLMEndpointConfig(Base):
 
     __table_args__ = (
         CheckConstraint("provider IN ('anthropic','openai_compatible')", name="ck_llm_endpoint_provider"),
-        # Gemma 2 endpoints require a URL; Claude is server-keyed and has none.
-        # accepted solely so historical rows never become unreadable.
+        # A local/tunnel row requires a URL. Anthropic is server-keyed and has none,
+        # so a NULL URL stays valid and historical rows remain readable.
         CheckConstraint(
             "(provider = 'anthropic' AND base_url IS NULL) OR "
             "(provider = 'openai_compatible' AND base_url IS NOT NULL)",

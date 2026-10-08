@@ -336,6 +336,69 @@ class ClinicalMemoryTests(unittest.TestCase):
         )
         self.assertIn("sin palabras en común", block)
 
+    def test_reply_survives_when_memory_tables_are_missing(self):
+        for model in (
+            MemoryEmbedding,
+            ClinicalAttentionNotice,
+            PsychReading,
+            DiscourseFact,
+            FormulationVersion,
+            MemoryCommit,
+        ):
+            model.__table__.drop(self.engine, checkfirst=True)
+        self._grant()
+
+        with patch.object(
+            conversation,
+            "analyze_text_and_store",
+            return_value=AnalysisOutcome(uuid.uuid4(), None, None, "inference_unavailable", None),
+        ), patch("app.services.conversation.get_llm_provider", side_effect=RuntimeError("down")):
+            reply = conversation.get_reply(self.db, self.patient, "hola, hoy estoy regular")
+
+        self.assertTrue(reply["reply"])
+        self.assertEqual(self.db.query(User).filter(User.id == self.patient.id).count(), 1)
+
+    def test_a_failed_memory_read_releases_the_transaction(self):
+        class Gone(Exception):
+            pass
+
+        class Session:
+            def __init__(self):
+                self.released = False
+
+            def query(self, *_args, **_kwargs):
+                if self.released:
+                    return self
+                raise Gone("relation does not exist")
+
+            def filter(self, *_args, **_kwargs):
+                return self
+
+            def order_by(self, *_args, **_kwargs):
+                return self
+
+            def limit(self, *_args, **_kwargs):
+                return self
+
+            def all(self):
+                return []
+
+            def first(self):
+                return None
+
+            def rollback(self):
+                self.released = True
+
+        db = Session()
+        self.assertEqual(clinical_memory.prompt_block(db, uuid.uuid4(), "hola"), "")
+        self.assertTrue(db.released)
+        db.released = False
+        self.assertEqual(clinical_memory.formulation_for_analyzer(db, uuid.uuid4()), "")
+        self.assertTrue(db.released)
+        db.released = False
+        self.assertEqual(clinical_memory.dossier_section(db, uuid.uuid4()), "")
+        self.assertTrue(db.released)
+
 
 if __name__ == "__main__":
     unittest.main()
