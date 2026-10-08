@@ -229,6 +229,14 @@ def _policy_version() -> str:
         return "unspecified"
 
 
+def _release_failed_read(db: Session) -> None:
+    """A failed read aborts the Postgres transaction. Chat still has to answer."""
+    try:
+        db.rollback()
+    except Exception:  # noqa: BLE001
+        logger.warning("Clinical memory could not release the database session")
+
+
 def _latest_formulation(db: Session, user_id) -> FormulationVersion | None:
     return (
         db.query(FormulationVersion)
@@ -787,6 +795,7 @@ def prompt_block(
             .all()
         )
     except Exception as exc:  # noqa: BLE001
+        _release_failed_read(db)
         logger.warning("Clinical memory prompt skipped safely: %s", type(exc).__name__)
         return ""
     if formulation is None and not facts:
@@ -847,6 +856,7 @@ def formulation_for_analyzer(db: Session, user_id) -> str:
     try:
         row = _latest_formulation(db, user_id)
     except Exception:  # noqa: BLE001
+        _release_failed_read(db)
         return ""
     if row is None:
         return ""
@@ -884,6 +894,7 @@ def dossier_section(db: Session, user_id) -> str:
             .all()
         )
     except Exception:  # noqa: BLE001
+        _release_failed_read(db)
         return ""
     if formulation is None and not facts:
         return ""
