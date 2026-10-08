@@ -40,6 +40,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Refactored `aggregate_daily_statistics` function in `backend/app/services/daily_statistics.py` by extracting logic into smaller helpers for improved readability and maintainability.
 - **Testing:** Expanded frontend component testing by adding test suites for the ConsentsPage and SharingPage components.
 - **RAG foundation:** Registro versionado con aprobación administrativa, fuente, nivel de evidencia, fecha de revisión y contraindicaciones. Los ítems `active` con `review_due` nulo o vigente se copian al contexto de Agent 1. Ese camino no recupera por turno, no aplica contraindicaciones y no guarda `content_version` en `ModelRun`.
+- **Clinical/Scientific Review:** Drafted `docs/agentes/04_informe_revision_cientifica_n3_adverse_z.md` evaluating the memory state vs. trait separation in `profile_update` and the statistical bounds validation of `adverse_composite_z` > 2.4 (N3_convergencia_critica_extrema) against NG225 and clinical standards.
 
 ## Recommended next work
 2. **Complete Professional Panel (Epic E10)**: Finish selective sharing, professional workflows, and robust UI elements for patient-clinician linkages.
