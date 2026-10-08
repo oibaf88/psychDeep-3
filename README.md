@@ -142,6 +142,10 @@ Current prototype keeps the already-provisioned free components:
 
 See [DEPLOY.md](DEPLOY.md) for the deployment sequence and `docs/` for ADRs, runbooks and release gates.
 
+## Frontend UX & Accessibility Quality
+
+When updating or creating forms in the frontend, ensure that inputs have explicitly associated labels utilizing `htmlFor` and unique `id`s. Avoid orphaned inputs. Required inputs should present visual required indicators (e.g., `*` with an `aria-hidden` attribute for screen readers).
+
 ## Development and quality gates
 
 ```bash

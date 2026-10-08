@@ -1,4 +1,4 @@
-# PsychDeep: shared Cloudflare Access, personal LM Studio API keys
+# PsychDeep: inference connection for the clinical admin
 
 ## Security contract
 
@@ -19,12 +19,12 @@ When contacting LM Studio, the backend sends **both authentication layers** on t
 5. Remove `MODEL_LOCAL_API_KEY` / legacy shared LM Studio bearer **only after** validating the personal routing cutover. These settings are retained solely for deliberate rollback of the old global mode; do not treat their presence as permission to authenticate a user without a personal key. `sync: false` in an updated `render.yaml` does not prompt for new secrets or remove existing values automatically.
 6. `LLM_PERSONAL_MODE=true` is already how `psychdeep-api` resolves authenticated inference. Keep the frontend and backend on the same release. Confirm both authentication layers with synthetic requests. A missing Local key must stop local inference; deterministic safety stays independent. The flag `false` is only an explicitly reviewed rollback to the old global provider path. When the clinical admin has saved Codex / ChatGPT or Anthropic, other accounts follow that connection, so a Local-key test does not describe their chat path.
 
-## User experience
+## Using the screen
 
 `admin_clinical` opens **Mis modelos**, chooses Local, Anthropic or Codex / ChatGPT, and presses **Probar conexión** and **Guardar conexión**. For Local, the account enters only **its own LM Studio API key**. An existing token is represented by `configurada`; leaving its input blank preserves it. **Revocar mi API key al guardar** clears it. The screen does not ask for a model id, tunnel hostname, Cloudflare credential or `cloudflared` token. Anthropic and Codex / ChatGPT use the server keys. Saving either one changes inference for patient chat, analysis and the copilot. Saving Local does not.
 
 ## Diagnosing a 403 safely
 
-A 403 from the synthetic probe can originate at Cloudflare Access **or** LM Studio: the code intentionally does not assume one is responsible. First verify that the Access app's Service Auth policy includes the correct Service Token and that the Access ID/secret in Render match it; independently verify the LM Studio user's token against `http://localhost:1234/v1/models` and that the model is running. Run an HTTP probe **from the backend path** with synthetic content to isolate the layer, checking only response status and safe request IDs; never log headers, token values, clinical prompts or raw error bodies. No access token in the browser or bypass policy is an acceptable workaround.
+A 403 from the synthetic probe can originate at Cloudflare Access **or** LM Studio: the code does not assume one is responsible. First verify that the Access app's Service Auth policy includes the correct Service Token and that the Access ID/secret in Render match it. Independently verify the LM Studio token against `http://localhost:1234/v1/models` and that a model is loaded. Run an HTTP probe **from the backend path** with synthetic content, checking only response status and safe request IDs. Never log headers, token values, clinical prompts, or raw error bodies. A browser access token or a Bypass policy is not a workaround.
 
-All clinical text still passes through the Render backend and Cloudflare on its way to the Windows machine; local model weights do not make this application offline. Protect patient access separately from model-token possession. Granting someone a LM Studio key alone must not grant a PsychDeep account, patient permissions or access to protected data.
+Clinical text still passes through the Render backend and Cloudflare on its way to the Windows machine. Local model weights do not make this application offline. An LM Studio key does not grant a PsychDeep account, a patient role, or chart access.

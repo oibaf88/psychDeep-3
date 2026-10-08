@@ -228,9 +228,10 @@ export default function WavePage() {
       </p>
 
       <section className="card">
-        <label>
+        <label htmlFor="wave-intensity-input">
           Intensidad de la urgencia ahora (0-10): {displayLevel}
           <input
+            id="wave-intensity-input"
             type="range"
             min={0}
             max={10}
