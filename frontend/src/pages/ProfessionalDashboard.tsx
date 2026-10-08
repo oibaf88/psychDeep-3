@@ -72,7 +72,11 @@ export default function ProfessionalDashboard() {
           <h2>Solicitar acceso a un paciente</h2>
           <p className="meta">El paciente debe aceptar la solicitud (consentimiento professional_sharing).</p>
           <form onSubmit={requestAssignment} className="inline-form">
+            <label htmlFor="request-patient-email" className="sr-only">
+              Email del paciente <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+            </label>
             <input
+              id="request-patient-email"
               type="email"
               value={patientEmail}
               onChange={(e) => setPatientEmail(e.target.value)}

@@ -234,21 +234,21 @@ export default function AdminUsersPage() {
         <h2>Crear cuenta profesional</h2>
         <p className="meta">La contraseña inicial se guarda sólo como hash. Entrégala por un canal seguro y pide cambiarla en el primer acceso.</p>
         <form className="auth-form" onSubmit={provision}>
-          <label>
-            Nombre mostrado
-            <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required maxLength={255} />
+          <label htmlFor="create-user-display-name">
+            Nombre mostrado <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+            <input id="create-user-display-name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required maxLength={255} />
           </label>
-          <label>
-            Correo
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+          <label htmlFor="create-user-email">
+            Correo <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+            <input id="create-user-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
           </label>
-          <label>
-            Contraseña inicial
-            <input type="password" minLength={12} maxLength={256} value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" />
+          <label htmlFor="create-user-password">
+            Contraseña inicial <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
+            <input id="create-user-password" type="password" minLength={12} maxLength={256} value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" />
           </label>
-          <label>
+          <label htmlFor="create-user-role">
             Perfil
-            <select value={provisionRole} onChange={(e) => setProvisionRole(e.target.value as ProvisionableRole)}>
+            <select id="create-user-role" value={provisionRole} onChange={(e) => setProvisionRole(e.target.value as ProvisionableRole)}>
               {PROVISIONABLE_ROLES.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
             </select>
           </label>
@@ -259,9 +259,9 @@ export default function AdminUsersPage() {
       <section className="admin-users-workspace" aria-label="Cuentas y permisos">
         <div className="card admin-user-list">
           <h2>Usuarios</h2>
-          <label>
+          <label htmlFor="search-users">
             Buscar
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nombre, correo o perfil" />
+            <input id="search-users" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nombre, correo o perfil" />
           </label>
           <div className="admin-user-list-items">
             {visibleUsers.map((item) => (

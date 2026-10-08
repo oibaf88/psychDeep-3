@@ -24,7 +24,8 @@ Run/verify the pull-request checks:
 3. migration apply + re-apply on clean PostgreSQL;
 4. `supabase/verify.sql`;
 5. security checks/CodeQL where enabled;
-6. the eight-item checklist in `docs/release/CHECKLIST.md`.
+6. the eight-item checklist in `docs/release/CHECKLIST.md`;
+7. frontend accessibility and UX review (ensure explicit labels and required indicators).
 
 Do not merge if any P0 gate is red.
 
