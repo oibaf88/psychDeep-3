@@ -1,4 +1,4 @@
-"""Smoke-check the selected Claude or Gemma 2 provider without database writes.
+"""Smoke-check the selected provider without database writes.
 
 Run from ``backend/`` against Claude via the server secret, local LM Studio,
 or the authenticated Cloudflare Tunnel endpoint. It sends two short synthetic
@@ -24,7 +24,7 @@ def main() -> int:
         print("FAIL  Configura ANTHROPIC_API_KEY como secreto del servidor antes de ejecutar la prueba.")
         return 1
     if active.provider == llm_config.PROVIDER_LOCAL and (not active.base_url or not active.api_key):
-        print("FAIL  Configura la URL /v1 y el token de LM Studio para Gemma 2 antes de ejecutar la prueba.")
+        print("FAIL  Configura la URL /v1 y el token de LM Studio antes de ejecutar la prueba.")
         return 1
 
     print(f"chat model     : {active.chat_model}")

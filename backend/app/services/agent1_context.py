@@ -214,6 +214,14 @@ def _direction_block(profile) -> str:
 
 
 
+def _release_failed_read(db: Session) -> None:
+    """A swallowed query still aborts Postgres. The reply has to keep going."""
+    try:
+        db.rollback()
+    except Exception:  # noqa: BLE001
+        logger.warning("Agent 1 context could not release the database session")
+
+
 def _knowledge_block(db: Session) -> str:
     """Curated knowledge items for the LLM to use if relevant."""
     try:
@@ -241,6 +249,7 @@ def _knowledge_block(db: Session) -> str:
             "\n".join(lines)
         )
     except Exception:
+        _release_failed_read(db)
         return ""
 
 def _psychosocial_block(db: Session, user_id) -> str:
@@ -254,6 +263,7 @@ def _psychosocial_block(db: Session, user_id) -> str:
     try:
         state = psychosocial.assess(db, user_id)
     except Exception:  # noqa: BLE001
+        _release_failed_read(db)
         return ""
     if not state.domains:
         return ""
@@ -326,6 +336,7 @@ def build(db: Session, user_id, assessment, *, in_crisis: bool, query: str | Non
             sections.append(knowledge.strip())
 
     except Exception as exc:  # noqa: BLE001
+        _release_failed_read(db)
         logger.warning("Agent 1 context degraded safely: %s", type(exc).__name__)
         if not sections:
             return ""

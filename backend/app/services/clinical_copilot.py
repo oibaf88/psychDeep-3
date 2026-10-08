@@ -457,7 +457,7 @@ def ask(
             + (
                 "Si esto se repite, revisa que el servidor del modelo esté accesible desde el backend."
                 if is_local
-                else "Si esto se repite, revisa Gemma 2, LM Studio y el token configurado en el servidor."
+                else "Si esto se repite, revisa la conexión guardada en Mis modelos y la clave de ese proveedor en el servidor."
             )
         )
 

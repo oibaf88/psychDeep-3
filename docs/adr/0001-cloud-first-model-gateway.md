@@ -1,6 +1,6 @@
 # ADR-0001 — Cloud-first clinical source of truth + replaceable Model Gateway
 
-Status: Accepted for vNext baseline; amended 2026-09-13 for audited runtime model selection
+Status: Accepted for vNext baseline; amended 2026-09-13 for audited runtime model selection; amended 2026-10-06 for the running Mis modelos connection
 
 ## Context
 
@@ -29,3 +29,14 @@ Trade-off: local-model availability depends on the trusted model host/tunnel. Mo
 ## Rollback
 
 Application can roll back to a previous cloud release because database migration is expand-only. Model rollback is an explicit audited provider selection or reset to the deployment default. Re-enabling local clinical DB/sync is not the rollback strategy.
+
+## Amendment — 2026-10-06 — inference connection on the running API
+
+The product screen is **Mis modelos**, and only `admin_clinical` can open it. The deployed API resolves authenticated inference with personal mode on.
+
+1. The admin selects Local, Anthropic, or Codex / ChatGPT. The screen does not accept a model id or an endpoint URL.
+2. Local inference uses the model LM Studio reports as loaded, with the LM Studio key encrypted for that admin account. The tunnel URL and Cloudflare Access credentials stay in Render.
+3. Anthropic and Codex / ChatGPT use server-side keys and server-side model ids. Saving either one is the inference connection for patient chat, analysis and the professional copilot.
+4. A local key stays on the account that saved it. There is still no silent fallback.
+
+Decisions 4 and 7 above describe the earlier Settings flow, which edited an OpenAI-compatible endpoint and switched between Anthropic and that endpoint. That screen is not the current product path.

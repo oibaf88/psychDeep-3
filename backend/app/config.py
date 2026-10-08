@@ -72,8 +72,9 @@ class Settings(BaseSettings):
     anthropic_analysis_effort: str = "high"
     anthropic_copilot_effort: str = ""
 
-    # First-party OpenAI API used by the explicit /api/v1/chatgpt endpoint.
-    # Secrets stay in Render; the client never supplies or selects the key.
+    # First-party OpenAI API for Codex / ChatGPT in Mis modelos and for
+    # POST /api/v1/chatgpt. Secrets stay in Render; the client never supplies
+    # or selects the key or the model id.
     openai_api_key: str = ""
     openai_chat_model: str = "gpt-5.6-luna"
     openai_analysis_model: str = "gpt-5.6-luna"
@@ -89,9 +90,9 @@ class Settings(BaseSettings):
     llm_default_provider: str = "anthropic"
     llm_openai_compatible_base_url: str = ""
     llm_openai_compatible_api_key: str = ""
-    # Empty on purpose. A library default such as gemma-2-2b-it is sent to
-    # LM Studio even after that model is no longer loaded. The account chooses
-    # an id from the live catalog, or inference uses the single loaded model.
+    # Empty on purpose. A library default such as gemma-2-2b-it must not be
+    # sent after that model is unloaded. Personal-mode local inference ignores
+    # a client model id and uses the model LM Studio reports as loaded.
     llm_openai_compatible_chat_model: str = ""
     llm_openai_compatible_analysis_model: str = ""
     llm_openai_compatible_copilot_model: str = ""

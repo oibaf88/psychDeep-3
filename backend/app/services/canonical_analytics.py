@@ -34,7 +34,12 @@ from app.utils import as_utc as _utc
 
 logger = logging.getLogger("psychapp.trajectory")
 
-ALGORITHM_VERSION = "canonical-structural-v1"
+# v2: the personal reference no longer contains the recent window it is
+# compared against (see ``baseline_reference_window``).
+ALGORITHM_VERSION = "canonical-structural-v2"
+# Earlier canonical versions this module wrote. A new run supersedes their
+# readable baselines so only one reference per person is current.
+SUPERSEDED_ALGORITHM_VERSIONS = ("canonical-structural-v1", ALGORITHM_VERSION)
 FEATURE_VERSION = "v1"
 
 MIN_OBS_FOR_BASELINE = 5
@@ -78,6 +83,7 @@ class CanonicalAnalyticsResult:
                 "stability": bv.stability,
                 "data_coverage": bv.data_coverage,
                 "window": {"start": bv.window_start, "end": bv.window_end},
+                "exclusions": bv.exclusions or [],
                 "algorithm_version": bv.algorithm_version,
                 "stats_keys": sorted((bv.stats or {}).keys()),
             },
@@ -171,19 +177,38 @@ def _ensure_feature_definitions(db: Session) -> dict[str, FeatureDefinition]:
     return found
 
 
+def baseline_reference_window(current: datetime) -> tuple[datetime, datetime, datetime]:
+    """Return ``(reference_start, reference_end, recent_start)``.
+
+    The recent window ``[recent_start, current]`` is what a ChangeSignal
+    compares. The personal reference is the ``BASELINE_WINDOW_DAYS`` before
+    it, ``[reference_start, reference_end)``. Keeping the two apart means a
+    relevant recent episode is not silently absorbed into the baseline it is
+    measured against, which would pull every change toward "stable".
+    """
+    recent_start = current - timedelta(days=RECENT_WINDOW_DAYS)
+    reference_start = recent_start - timedelta(days=BASELINE_WINDOW_DAYS)
+    return reference_start, recent_start, recent_start
+
+
 def _load_typed_observations(
     db: Session,
     user_id,
     window_start: datetime,
     window_end: datetime,
+    *,
+    end_inclusive: bool = True,
 ) -> dict[str, list[tuple[Observation, float]]]:
+    end_filter = (
+        Observation.occurred_at <= window_end if end_inclusive else Observation.occurred_at < window_end
+    )
     rows = (
         db.query(Observation)
         .filter(
             Observation.user_id == user_id,
             Observation.type.in_(list(OBSERVATION_TYPES)),
             Observation.occurred_at >= window_start,
-            Observation.occurred_at <= window_end,
+            end_filter,
         )
         .order_by(Observation.occurred_at.asc())
         .all()
@@ -228,11 +253,25 @@ def run_canonical_analytics(
     corr = correlation_id or uuid.uuid4()
     definitions = _ensure_feature_definitions(db)
 
-    baseline_start = current - timedelta(days=BASELINE_WINDOW_DAYS)
-    recent_start = current - timedelta(days=RECENT_WINDOW_DAYS)
+    baseline_start, baseline_end, recent_start = baseline_reference_window(current)
 
-    baseline_obs = _load_typed_observations(db, user_id, baseline_start, current)
+    baseline_obs = _load_typed_observations(
+        db, user_id, baseline_start, baseline_end, end_inclusive=False
+    )
     recent_obs = _load_typed_observations(db, user_id, recent_start, current)
+
+    # The comparison window is recorded as an exclusion so a reader can see
+    # which observations the reference deliberately left out, and why.
+    exclusions: list[dict[str, Any]] = [
+        {
+            "kind": "comparison_window",
+            "reason": "recent_window_is_compared_not_absorbed",
+            "window": {"start": recent_start.isoformat(), "end": current.isoformat()},
+            "observation_counts": {
+                obs_type: len(recent_obs.get(obs_type, [])) for obs_type in OBSERVATION_TYPES
+            },
+        }
+    ]
 
     baseline_stats = _axis_stats_from_obs(baseline_obs)
     eligible_axes = [
@@ -256,16 +295,16 @@ def run_canonical_analytics(
     db.query(BaselineVersion).filter(
         BaselineVersion.user_id == user_id,
         BaselineVersion.status.in_(["active", "provisional"]),
-        BaselineVersion.algorithm_version == ALGORITHM_VERSION,
+        BaselineVersion.algorithm_version.in_(SUPERSEDED_ALGORITHM_VERSIONS),
     ).update({"status": "superseded"}, synchronize_session=False)
 
     baseline_row = BaselineVersion(
         user_id=user_id,
         feature_key=None,
         window_start=baseline_start,
-        window_end=current,
+        window_end=baseline_end,
         stats=baseline_stats,
-        exclusions=[],
+        exclusions=exclusions,
         stability=stability,
         data_coverage=round(coverage, 4),
         status=baseline_status,
@@ -433,6 +472,7 @@ def run_canonical_analytics(
         feature_keys=feature_keys,
         detail={
             "baseline_eligible_axes": eligible_axes,
+            "baseline_exclusions": exclusions,
             "composite_band": composite_band,
             "z_scores": z_scores,
             "correlation_id": str(corr),

@@ -110,12 +110,12 @@ export default function ManualPage() {
                     <tr>
                       <td>Agente 1</td>
                       <td>Responde al paciente. Nunca calcula riesgo.</td>
-                      <td>LLM (Claude por defecto; Gemma 2 local)</td>
+                      <td>LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio)</td>
                     </tr>
                     <tr>
                       <td>Agente 2</td>
                       <td>Lee cada texto (diario y chat) y devuelve señales estructuradas.</td>
-                      <td>LLM (Claude por defecto; Gemma 2 local)</td>
+                      <td>LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio)</td>
                     </tr>
                     <tr>
                       <td>Score estructural</td>
@@ -137,12 +137,12 @@ export default function ManualPage() {
                     <tr>
                       <td>Agente 3 (copiloto)</td>
                       <td>Te resume y responde preguntas sobre un paciente. Solo lectura.</td>
-                      <td>LLM (Claude por defecto; Gemma 2 local)</td>
+                      <td>LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio)</td>
                     </tr>
                     <tr>
                       <td>Agente 4</td>
                       <td>Extrae determinantes sociales (vivienda, apoyo, dinero, pérdidas…) de lo que escribe.</td>
-                      <td>LLM (Claude por defecto; Gemma 2 local)</td>
+                      <td>LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio)</td>
                     </tr>
                     <tr>
                       <td>Índice psicosocial</td>
@@ -218,6 +218,10 @@ export default function ManualPage() {
                 </li>
                 <li>
                   Una asignación <code>pending</code> no da acceso al historial.
+                </li>
+                <li>
+                  El administrador clínico ve, en el roster y en Asignaciones, las solicitudes pendientes y las
+                  hechas. Esa vista no incluye señales, expediente ni alertas.
                 </li>
                 <li>
                   Todo acceso al historial, a la evidencia, al chat del paciente y al copiloto queda registrado
@@ -864,6 +868,7 @@ score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
                         ["Resumen", "Tarjeta de nivel con su explicación, score estructural desglosado, gráficas de nivel y score, línea de tiempo de alertas y hechos."],
                         ["Métricas", "Las cinco gráficas: nivel de alarma, score estructural, z-scores por variable, check-ins crudos y señales del Agente 2. Cada una con su nota de «cómo se lee»."],
                         ["Contexto psicosocial", "Vivienda, convivencia, apoyo, familia, dinero, ocupación, pérdidas y vínculo con el tratamiento, con la frase literal de la que salen y botones para confirmar o refutar."],
+                        ["Memoria y lectura", "Lo dicho en el chat y el diario, la lectura provisional y la formulación. El paciente no puede editarlo ni borrarlo. Un aviso de esta pestaña no cambia el nivel de riesgo ni crea una alerta profesional."],
                         ["Evidencia", "Una tarjeta por texto analizado: lo que escribió, lo que leyó el Agente 2, qué nivel salió y si generó alerta. Filtrable."],
                         ["Copiloto clínico", "Conversación con el Agente 3 sobre este paciente."],
                         ["Chat del paciente", "Transcripción completa de su conversación con el Agente 1."],
@@ -973,8 +978,9 @@ score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
                   solo para el rol del backend.
                 </li>
                 <li>
-                  La inferencia se realiza con <strong>Claude por la API de Anthropic (predeterminado conectado)</strong> o con <strong>Gemma 2 en LM Studio</strong> para
-                  los agentes 1, 2 y 3. La alternativa local usa LM Studio; desde la nube sólo se admite un túnel HTTPS protegido.
+                  Lo que sale a un proveedor es el texto enviado a la conexión que el administrador clínico guardó en
+                  Mis modelos: Anthropic, Codex / ChatGPT, o el modelo que LM Studio tiene cargado, por un túnel HTTPS.
+                  Si ese proveedor no responde, el texto no se envía a otro.
                 </li>
                 <li>Las trazas del Agente 2 no duplican el texto: apuntan al mensaje o entrada original.</li>
                 <li>

@@ -77,14 +77,16 @@ What this gate **does not** prove: it does not by itself make the patient experi
 - [x] ~~Dual-write new check-ins/diary content into canonical observations while legacy compatibility remains.~~
 - [~] Make the complete operational analytics path run through `Observation -> FeatureValue -> BaselineVersion -> ChangeSignal` rather than legacy calculations.
   - A check-in now refreshes that canonical trajectory in the same request. Authorised professional summary and dossier reads now show that persisted ChangeSignal beside risk. `ChangeSignal` is still not the source of Hoy, the professional structural score or `RiskAssessment`; those keep using the legacy baseline and risk engine.
+  - The longitudinal read (`GET /api/v1/state`, professional summary/dossier, weekly review) now reads back the `FeatureValue` each per-feature ChangeSignal cites and the matching axis of its `BaselineVersion` as `evidence`: recent mean, n, window, quality flags, versions and the personal reference. `reproduced_from_rows` says whether the stored change still equals the comparison of those two rows. A missing or foreign FeatureValue, or a reference below the eligibility minimum, stays `insufficient_data` and is never a zero. Tests: `tests/test_vnext_feature_evidence.py`. The UI does not render this evidence yet, and the composite signal has no single FeatureValue.
   - Completion criterion: canonical feature computation, baseline eligibility/versioning and change detection are the actual source for vNext state and explanations, with tests proving reproducibility.
 - [~] Make personal baseline behaviour fully conform to vNext semantics.
   - Current gap: canonical baseline records exist and can be read, but the complete lifecycle (eligibility, provisional status, exclusions, recalibration/versioning, quality/missingness) is not yet the primary end-to-end product behaviour.
+  - Exclusions: the canonical baseline (`canonical-structural-v2`) is now built from the 21 days *before* the 7-day comparison window. The recent window is no longer absorbed into its own reference. Each `BaselineVersion` records that window in `exclusions`, with per-type observation counts, and the patient and professional baseline reads return it. A week of check-ins alone now gives `insufficient_data`, not a self-comparison that reads as `stable`. Earlier v1 rows are superseded, not deleted. Tests: `tests/test_vnext_baseline_exclusions.py`. Still open: excluding crisis episodes that have already left the comparison window (this needs a clinically reviewed episode definition), a recalibration freeze, and rendering exclusions in Tendencias.
 - [x] ~~Separate `ChangeSignal` from `RiskAssessment` everywhere in API **and UI**.~~
   - Evidence: patient `GET /api/v1/state` (PR #143) and Hoy (PR #151, merged) keep `longitudinal` apart from `safety.alert_level`. Authorised professional summary and dossier (PR #153) return persisted `BaselineVersion` + `ChangeSignal` beside `latest_alert_level` / `RiskAssessment`. `GET /api/v1/review/weekly` now returns the same split. Roster, copilot picker, alert list, structural-score chart and the risk card label the engine's similarity band as a risk-engine input. The copilot dossier and Agent 1 safety posture name change and risk separately. A missing ChangeSignal stays null / `insufficient_data` and is not serialised or rendered as zero or “sin riesgo”.
   - Tests: `tests/test_vnext_change_risk_separation.py`, `tests/test_professional_longitudinal.py`, `tests/test_clinical_view.py`, `tests/test_clinical_copilot.py`, `tests/test_agent1_context.py`, and the frontend suites `ChangeRiskSurfaces`, `ProfessionalDashboard`, `professionalChange`, `PatientDashboard`, `longitudinalReading` and `PatientTimelinePages`.
 
-Why G2 is **not complete**: the operational analytics path and `GET /api/v1/state` now use canonical baseline and change signals, and ChangeSignal is presented apart from RiskAssessment in the API and UI. Personal baseline lifecycle semantics are still partial, and ChangeSignal is not the source of the professional structural score or the risk engine.
+Why G2 is **not complete**: the operational analytics path and `GET /api/v1/state` now use canonical baseline and change signals, and ChangeSignal is presented apart from RiskAssessment in the API and UI. Change explanations can now be traced to the cited FeatureValue and BaselineVersion rows, but no patient or professional screen shows that evidence yet. Personal baseline lifecycle semantics are still partial, and ChangeSignal is not the source of the professional structural score or the risk engine.
 
 ### G3 — Safety vNext
 
@@ -104,7 +106,7 @@ Why G3 is **not complete**: independence from the LLM is materially improved, bu
 This is the largest current product gap. Do not confuse navigation changes with completion.
 
 - [~] **Hoy — redesign around current state and one useful next action.**
-  - Hoy reads canonical longitudinal state for change versus the personal baseline, with explicit missingness, and keeps crisis/help plus “No ahora”. The check-in, the 30-day observation chart and the earlier suggested action remain; that action is not yet tied to the change explanation or to feedback.
+  - Hoy reads canonical longitudinal state for change versus the personal baseline, with explicit missingness, and keeps crisis/help plus “No ahora”. The first view is an open page: a large comparison, a fact row, one default action, then an open check-in. The 30-day chart stays, and the feature-by-feature reading sits under it. That action is not yet tied to the change explanation or to feedback.
   - Required completion: low-burden check-in, current state, change vs personal baseline, data quality/missingness, explanation, at most one default suggested action, persistent crisis/help access and “No ahora”.
 - [~] **Tendencias — longitudinal explanation.**
  - A new page exists and reads timeline, baseline and ChangeSignal data. Calculated bands and an uncalculated comparison now use plain-language copy; the raw `insufficient_data` code stays off the page.
@@ -128,7 +130,7 @@ This is the largest current product gap. Do not confuse navigation changes with 
   - Required completion: actual consultation preparation summary/export/share package, correction review and clear authorised-recipient scope.
 - [ ] **Confirmed fact / inference correction as a first-class patient flow.**
 - [~] **Clinical memory stays immutable for the patient.**
-  - Chat and diary can commit a discourse fact, a psychological reading and a versioned formulation when linguistic-analysis consent is current. The patient cannot edit or delete that record, and the formulation is not shown in the patient account. User-declared `ConfirmedFact` rows keep their existing correction flow.
+  - Chat and diary can commit a discourse fact, a psychological reading and a versioned formulation when linguistic-analysis consent is current. The patient cannot edit or delete that record, and the formulation is not shown in the patient account. User-declared `ConfirmedFact` rows keep their existing correction flow. A failed memory read releases the database transaction, so the chat reply still returns.
 - [ ] **Intervention feedback as a visible product loop.**
   - Canonical feedback endpoint/data exists; the product experience is not yet integrated.
 
@@ -232,7 +234,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [x] ~~PM-001 Decommission product path for local frontend/backend/Postgres/SymmetricDS.~~
 - [x] ~~PM-002 Create Model Gateway and approved deployment abstraction.~~
 - [~] PM-003 Canonical Observation/Feature/Baseline/ChangeSignal schemas **and full operational pipeline**.
-  - Progress: analytics/run (PR #128) and `GET /api/v1/state` (PR #143) use the canonical Observation → FeatureValue → BaselineVersion → ChangeSignal path. Hoy renders that `longitudinal` payload for change-versus-baseline framing. Baseline lifecycle completeness remains open, and the professional structural score is still the risk engine's similarity input, shown apart from ChangeSignal, so this item stays partial.
+  - Progress: analytics/run (PR #128) and `GET /api/v1/state` (PR #143) use the canonical Observation → FeatureValue → BaselineVersion → ChangeSignal path. Hoy renders that `longitudinal` payload for change-versus-baseline framing. Each per-feature change in that read now carries its cited `FeatureValue` and baseline axis, with a check that the stored change is reproduced from those rows. Baseline lifecycle completeness remains open, that evidence is not yet rendered, and the professional structural score is still the risk engine's similarity input, shown apart from ChangeSignal, so this item stays partial.
 - [x] ~~PM-004 Separate change signal from RiskAssessment in API **and UI**.~~
   - Evidence: patient state and Hoy, authorised professional summary and dossier, weekly review, roster, copilot, alerts, and the structural-score surfaces keep change bands apart from alert levels. A missing ChangeSignal is not zero and is not “sin riesgo”. See the G2 separation item for the test list.
 - [~] PM-005 Version safety protocols/resources and remove direct LLM dependency.
@@ -248,7 +250,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 
 - [~] PM-012 Today dashboard redesign.
   - First vNext UI pass remains in the patient dashboard: lower-burden check-in, current-state framing, one proportionate suggested action and “No ahora”.
-  - Hoy now also reads `longitudinal` from `GET /api/v1/state` for change versus the personal baseline. Tying that action to the change explanation and recording feedback are still open.
+  - Hoy now also reads `longitudinal` from `GET /api/v1/state` for change versus the personal baseline. The first view shows one default action; the extra Tendencias card is no longer beside it. Tying that action to the change explanation and recording feedback are still open.
 - [ ] PM-013 Weekly review user experience.
 - [~] PM-014 Improved trend/baseline visualisation.
   - Trends now foreground personal trajectory, baseline context and reading guidance. An uncalculated comparison is described as missing data, including that a missing calculation is not evidence that things are fine.
@@ -262,7 +264,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [ ] PM-022 Alert outcome feedback loop.
 - [ ] PM-023 Export/share package.
 - [~] PM-031 Clinical long-term memory for the models.
-  - Discourse facts record what was said. Psychological readings stay inferences. Formulations are versioned L0/L1/L2. The patient cannot modify this memory. Assigned clinicians get an in-app attention notice that is not a risk alert. Embeddings, when stored, come only from the selected OpenAI-compatible deployment. This is not a governed training pipeline and does not complete G4 or G5.
+  - Discourse facts record what was said. Psychological readings stay inferences. Formulations are versioned L0/L1/L2. The patient cannot modify this memory. Assigned clinicians get an in-app attention notice that is not a risk alert. Embeddings, when stored, come only from the selected OpenAI-compatible deployment. A failed memory read releases the database transaction so chat still answers. This is not a governed training pipeline and does not complete G4 or G5.
 
 ### P2 — research / scale
 

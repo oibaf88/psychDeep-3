@@ -6,7 +6,7 @@
 
 1. **Cloudflare Tunnel connector token:** solely starts `cloudflared` on Windows/in Docker. Get it from **Networking > Tunnels > [existing tunnel] > Add a replica > Docker**. Keep it in the ignored local `ops/model/docker/secrets/tunnel-token.txt`; it is NOT an HTTP authorization key.
 2. **Cloudflare Access service token (Client ID + Client Secret):** authorizes Render backend requests to `https://ai.bfab.io`. Configure the Access self-hosted application's Service Auth policy and save both values only as Render backend secret environment variables.
-3. **LM Studio API key:** the current backend **requires** this in addition to Access. Enable **Require Authentication** in LM Studio and set `MODEL_LOCAL_API_KEY` privately in the Render backend for ordinary shared-mode selection. In account-scoped personal mode, each authorized account supplies its own LM Studio key using the personal credential flow; no fallback to another user's key.
+3. **LM Studio API key:** the current backend **requires** this in addition to Access. Enable **Require Authentication** in LM Studio. The running API uses personal mode: `admin_clinical` saves that account's LM Studio key in **Mis modelos** for the Local provider. The key is encrypted with `LLM_USER_CREDENTIALS_KEY` and is not reused for another account. `MODEL_LOCAL_API_KEY` remains only for a reviewed rollback of the old shared token.
 
 An earlier version of this document said no LM Studio key was required. That is **not true for the current backend implementation** (`backend/app/services/llm/__init__.py`, `backend/app/services/personal_llm.py` and `backend/app/services/llm/cloudflare_access.py`). Do not remove the Bearer token or disable origin authentication to resolve a 401. Never send any of these credentials to the frontend, GitHub, Supabase or chat. Cloudflare Tunnel alone provides transport, not authorization.
 
@@ -45,17 +45,18 @@ MODEL_LOCAL_API_KEY=<LM_STUDIO_API_KEY>
 LLM_ALLOW_RUNTIME_OVERRIDE=true
 ```
 
-Leave `MODEL_LOCAL_CHAT_MODEL`, `MODEL_LOCAL_ANALYSIS_MODEL` and `MODEL_LOCAL_COPILOT_MODEL` empty. A value such as `gemma-2-2b-it` is sent even when that model is no longer loaded.
+Leave `MODEL_LOCAL_CHAT_MODEL`, `MODEL_LOCAL_ANALYSIS_MODEL` and `MODEL_LOCAL_COPILOT_MODEL` empty. Personal-mode local inference does not send those ids. It uses the single model LM Studio reports as loaded. A retired id such as `gemma-2-2b-it` is not a choice. If several models are advertised and none is uniquely loaded, inference stops.
 
-Do not configure `TUNNEL_TOKEN`, `TUNNEL_SECRET` or `CF_API_TOKEN` in Render for this integration. Never put the Access secrets in the Docker container, browser, database or tracked configuration. Check `LLM_PERSONAL_MODE` before testing account-scoped credentials; each account must provide its own LM key when this mode is active.
+Do not configure `TUNNEL_TOKEN`, `TUNNEL_SECRET` or `CF_API_TOKEN` in Render for this integration. Never put the Access secrets in the Docker container, browser, database or tracked configuration. `LLM_PERSONAL_MODE` is already enabled on `psychdeep-api`. The Local key belongs to the `admin_clinical` account that saved it.
 
 ## D. Configure in PsychDeep
 
-Sign in as an authorized `admin_clinical`, select the OpenAI-compatible/local provider and set:
+Sign in as `admin_clinical` and open **Mis modelos**. Patient, therapist and supervisor accounts do not see this screen.
 
-- Base endpoint: `https://ai.bfab.io/v1` (not `/models`, not `/chat/completions`).
-- Chat/analysis model: leave the deployment model ids empty. In **Mis modelos**, choose an identifier LM Studio is advertising, or leave “El modelo que esté cargado” when only one model is loaded. Do not type a model name from memory.
-- Use **Probar proveedor** with synthetic prompts; only deliberately save/activate once healthy. Do not silently fall back to Anthropic during an outage.
+- Choose Local, Anthropic, or Codex / ChatGPT. The screen does not accept a model id or a tunnel URL. The local base stays the Render value `https://ai.bfab.io/v1` (not `/models`, not `/chat/completions`).
+- Local: paste that account's LM Studio API key and save. Load the model in LM Studio. PsychDeep sends the id LM Studio reports as loaded.
+- Anthropic and Codex / ChatGPT use the server keys and server model ids. Saving either one is the inference connection for patient chat, analysis and the professional copilot. The local key is not applied to other accounts.
+- Use **Probar conexión**. A failed provider does not switch to another one.
 
 The browser must never receive backend tokens. Clinical prompts may traverse the cloud backend and Cloudflare to the Windows host; evaluate patient consent, processor/region, audit and log retention separately.
 
@@ -67,7 +68,7 @@ The browser must never receive backend tokens. Clinical prompts may traverse the
 - `401` from LM Studio: LM key missing or wrong; verify backend `MODEL_LOCAL_API_KEY` and personal credentials when applicable.
 - `403` with an HTML page titled "Just a moment..." (`cf-mitigated: challenge`): Bot Fight Mode is challenging the HTTP client before Access or LM Studio. The backend sends `User-Agent: PsychDeep-API/1` because the default `python-httpx` agent is challenged. Do not disable Access to get past that page. A browser user agent reaches LM Studio from the same network; `python-httpx` does not.
 - `403`/Access login: verify Access app and Service Auth headers/credentials; do not disable Access.
-- Model id: do not configure a model name the LM Studio server is not serving. Leave `MODEL_LOCAL_CHAT_MODEL` empty and choose the loaded model in **Mis modelos**. If several models are advertised and none is selected, inference stops instead of guessing.
+- Model id: load the model in LM Studio. **Mis modelos** does not pick one. If several models are advertised and none is uniquely loaded, inference stops.
 - `404`: verify `/v1` on backend base URL and **no** `/v1` on origin route.
 - `NXDOMAIN`: correct domain DNS/delegation; Docker and the tunnel token cannot create a missing record.
 
