@@ -72,22 +72,22 @@ The migration backfills canonical compatibility rows with references to legacy s
 
 1. Stores the check-in and commits it.
 2. Dual-writes `mood`, `craving`, `sleep_hours` and `self_efficacy` into `observations`. Notes become a `checkin_context` observation. That write commits separately.
-3. Recomputes the canonical trajectory (`refresh_trajectory` → `run_canonical_analytics`, algorithm `canonical-structural-v1`).
+3. Recomputes the canonical trajectory (`refresh_trajectory` → `run_canonical_analytics`, algorithm `canonical-structural-v2`).
 4. Runs the deterministic risk engine. This step still runs when step 3 fails.
 
 `POST /api/v1/observations` stores an observation and does not recompute the trajectory. `POST /api/v1/analytics/run` recomputes it and does not calculate risk. `GET /api/v1/state` only reads stored rows: `safety` is the latest `RiskAssessment`; `longitudinal` is the current `BaselineVersion` plus the newest `ChangeSignal` for each feature on that baseline. Neither read calls a model.
 
 | Input | Rule |
 | --- | --- |
-| Baseline window | 21 days |
-| Recent window | 7 days |
+| Recent window | the last 7 days |
+| Baseline window | the 21 days before the recent window; the recent window is never part of its own reference |
 | Axis eligibility | at least 5 observations |
 | Craving | scored as `10 - reported craving` (`craving_inv`) |
 | Band | absolute z ≤ 1.2 `stable`; ≤ 1.95 `transition`; otherwise `unstable` |
 | Missing recent or baseline values | `band=insufficient_data` and `change_value` null |
 | Composite | `structural_composite` is another `ChangeSignal`, not a risk level |
 
-A failed refresh logs the exception type and rolls back the analytics transaction. The check-in and observation dual-write stay, because they were already committed. Previous baseline rows for the same algorithm are marked `superseded` rather than deleted.
+A failed refresh logs the exception type and rolls back the analytics transaction. The check-in and observation dual-write stay, because they were already committed. Previous canonical baseline rows (`canonical-structural-v1` and `-v2`) are marked `superseded` rather than deleted. Each `BaselineVersion` records the comparison window it left out in `exclusions`, with per-type observation counts, and `GET /api/v1/baselines/current`, `GET /api/v1/state` and the professional reads return that list. Observations from only the last week therefore give `insufficient_data` rather than a self-comparison that reads as `stable`.
 
 Hoy reads `longitudinal` from that state payload: change versus the personal baseline, with a missing comparison described as missing data, kept apart from `safety.alert_level`. Hoy also charts the 30-day self-report series. That chart shows observations and does not calculate the change. Tendencias reads `/api/v1/timeline`, `/api/v1/baselines/current` and `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
 

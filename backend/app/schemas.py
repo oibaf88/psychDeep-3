@@ -318,6 +318,8 @@ class LongitudinalBaselineDetailOut(BaseModel):
     stability: str
     data_coverage: Optional[float] = None
     algorithm_version: str
+    # Periods the reference deliberately left out, e.g. the recent comparison window.
+    exclusions: list[Any] = Field(default_factory=list)
 
 
 class LongitudinalBaselineOut(BaseModel):

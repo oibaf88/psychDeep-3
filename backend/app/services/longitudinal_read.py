@@ -49,6 +49,7 @@ def baseline_summary(row: BaselineVersion | None) -> dict[str, Any]:
             "stability": row.stability,
             "data_coverage": row.data_coverage,
             "algorithm_version": row.algorithm_version,
+            "exclusions": getattr(row, "exclusions", None) or [],
         },
     }
 
