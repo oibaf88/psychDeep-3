@@ -104,7 +104,7 @@ Why G3 is **not complete**: independence from the LLM is materially improved, bu
 This is the largest current product gap. Do not confuse navigation changes with completion.
 
 - [~] **Hoy — redesign around current state and one useful next action.**
-  - Hoy reads canonical longitudinal state for change versus the personal baseline, with explicit missingness, and keeps crisis/help plus “No ahora”. The check-in, the 30-day observation chart and the earlier suggested action remain; that action is not yet tied to the change explanation or to feedback.
+  - Hoy reads canonical longitudinal state for change versus the personal baseline, with explicit missingness, and keeps crisis/help plus “No ahora”. The first view is an open page: a large comparison, a fact row, one default action, then an open check-in. The 30-day chart stays, and the feature-by-feature reading sits under it. That action is not yet tied to the change explanation or to feedback.
   - Required completion: low-burden check-in, current state, change vs personal baseline, data quality/missingness, explanation, at most one default suggested action, persistent crisis/help access and “No ahora”.
 - [~] **Tendencias — longitudinal explanation.**
  - A new page exists and reads timeline, baseline and ChangeSignal data. Calculated bands and an uncalculated comparison now use plain-language copy; the raw `insufficient_data` code stays off the page.
@@ -248,7 +248,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 
 - [~] PM-012 Today dashboard redesign.
   - First vNext UI pass remains in the patient dashboard: lower-burden check-in, current-state framing, one proportionate suggested action and “No ahora”.
-  - Hoy now also reads `longitudinal` from `GET /api/v1/state` for change versus the personal baseline. Tying that action to the change explanation and recording feedback are still open.
+  - Hoy now also reads `longitudinal` from `GET /api/v1/state` for change versus the personal baseline. The first view shows one default action; the extra Tendencias card is no longer beside it. Tying that action to the change explanation and recording feedback are still open.
 - [ ] PM-013 Weekly review user experience.
 - [~] PM-014 Improved trend/baseline visualisation.
   - Trends now foreground personal trajectory, baseline context and reading guidance. An uncalculated comparison is described as missing data, including that a missing calculation is not evidence that things are fine.
