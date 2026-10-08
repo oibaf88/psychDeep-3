@@ -41,6 +41,17 @@ Apply the vNext foundation migration before the application release. It is expan
 - enables + forces RLS and grants only the backend role;
 - does not grant the old sync role access to new canonical data.
 
+Later expand-only migrations follow the same rule. The live `psychdeep` project already has clinical memory (`supabase/migrations/20261005120000_add_clinical_memory.sql`, recorded in Supabase as `20261005140916`). That migration creates `memory_commits`, `discourse_facts`, `psych_readings`, `formulation_versions`, `memory_annotations`, `clinical_attention_notices` and `memory_embeddings`, then revokes `psychdeep_backend` from `postgres` at the end of its transaction.
+
+Two later grants exist on that project and are not files under `supabase/migrations`:
+
+```sql
+GRANT psychdeep_backend TO authenticator WITH SET TRUE, INHERIT FALSE;
+GRANT psychdeep_backend TO postgres WITH SET TRUE;
+```
+
+They restore `SET ROLE psychdeep_backend` for the API connection after the memory migration. Do not drop them as cleanup.
+
 Before and after migration record row counts for historical tables and verify representative UUIDs/read paths. Any loss or reinterpretation is a rollback blocker.
 
 ## 2. Render — existing free services
@@ -60,13 +71,14 @@ MODEL_DEPLOYMENT_ALIAS=local-tunnel
 MODEL_POLICY_VERSION=support-policy-v1
 MODEL_ALLOW_COMMERCIAL=true
 LLM_ALLOW_RUNTIME_OVERRIDE=true
+LLM_PERSONAL_MODE=true
 ```
 
-`MODEL_DEPLOYMENT_ALIAS` defines the default. With `LLM_ALLOW_RUNTIME_OVERRIDE=true` and personal mode off, only `admin_clinical` may select Anthropic or the approved OpenAI-compatible endpoint through `/api/v1/settings/llm`. That write is an audited `llm_endpoint_configs` row.
+`LLM_PERSONAL_MODE` is `sync: false` in `render.yaml`. The deployed `psychdeep-api` already resolves authenticated inference through that path. `MODEL_DEPLOYMENT_ALIAS` remains the default when personal mode is off.
 
-With `LLM_PERSONAL_MODE=true`, the product screen is **Mis modelos** (`/api/v1/settings/llm/personal`). Only `admin_clinical` can open it. Local, Anthropic, and Codex / ChatGPT are the choices. A saved Codex or Anthropic row is the inference connection for every account. A saved local row uses that admin's LM Studio key and is not applied to other accounts. This screen does not write `llm_endpoint_configs`. No patient, therapist, or supervisor account can change either store.
+With personal mode on, only `admin_clinical` opens **Mis modelos** and saves Local, Anthropic, or Codex / ChatGPT. The screen does not accept a model id or an endpoint URL. Local inference uses the model LM Studio reports as loaded, with the LM Studio key saved on that admin account. Anthropic and Codex / ChatGPT use the server keys and server model ids (`ANTHROPIC_CHAT_MODEL=claude-sonnet-4-6`, `OPENAI_CHAT_MODEL=gpt-5.6-luna` in the blueprint). Saving either commercial connection is the inference path for patient chat, analysis and the professional copilot. A local key is not reused for another account. The change is written to the audit trail.
 
-`ANTHROPIC_API_KEY`, `MODEL_LOCAL_API_KEY` and equivalent credentials remain Render/server secrets. The UI never receives the Anthropic key. The local endpoint may reuse the deployment token when the runtime selection row contains no token.
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, Cloudflare Access secrets and `LLM_USER_CREDENTIALS_KEY` remain Render secrets. The UI never receives them. Leave `MODEL_LOCAL_CHAT_MODEL`, `MODEL_LOCAL_ANALYSIS_MODEL` and `MODEL_LOCAL_COPILOT_MODEL` empty. `MODEL_LOCAL_API_KEY` is only a reviewed rollback for the old shared local token.
 
 Render auto-deploys `master`; do not manually trigger a duplicate deployment after a merge unless auto-deploy is disabled or a cache-clearing redeploy is specifically required.
 
@@ -76,14 +88,14 @@ The only supported local process is the inference server and, when needed, its t
 
 Requirements:
 
-- LM Studio/Ollama/other OpenAI-compatible server bound locally;
+- LM Studio or another OpenAI-compatible server bound locally, with the model to be used actually loaded;
 - a named HTTPS tunnel/Access policy or equivalent authenticated outbound tunnel;
 - no router port-forwarding;
 - no PostgreSQL, Docker API, product frontend or product backend exposed;
 - prompt/request logs disabled or minimized where the runtime supports it;
 - independent endpoint token plus tunnel access control and rotation.
 
-If the selected local endpoint is offline, the application must **not** switch itself to Anthropic. Core clinical data, consent, deterministic risk and static crisis resources remain available; only model-dependent functions degrade until the endpoint returns or an `admin_clinical` explicitly selects another provider.
+If the selected provider is offline, the application must **not** switch itself to another one. Core clinical data, consent, deterministic risk and static crisis resources remain available; only model-dependent functions degrade until the endpoint returns or an `admin_clinical` explicitly selects another provider.
 
 ## 4. Deploy application
 
@@ -94,8 +106,8 @@ After the database expand migration and green CI:
 3. monitor both deploys to completion;
 4. check `GET /api/v1/health`;
 5. authenticate a test user and verify: check-in, diary without linguistic consent, consent grant/revoke, Trends, safety plan, deterministic safety evaluation and model status;
-6. sign in as `admin_clinical`, open **Mis modelos** when `LLM_PERSONAL_MODE=true` (otherwise the runtime provider API), test the configured provider with a synthetic prompt, and confirm the audit event;
-7. verify a local-model outage does not prevent saving data or displaying crisis resources and does not silently route to Anthropic;
+6. sign in as `admin_clinical`, open **Mis modelos**, confirm the saved provider, use **Probar conexión**, and confirm the audit event. Patient, therapist and supervisor accounts do not have this screen;
+7. verify a model outage does not prevent saving data or displaying crisis resources and does not silently route to another provider;
 8. inspect logs for schema errors and accidental PHI/secrets.
 
 ## 5. Retire the old sync path

@@ -13,7 +13,7 @@ PsychDeep browser -> Render backend -> Cloudflare Access (ai.bfab.io)
 - Start Docker Desktop in **Linux containers** mode. Check `docker info --format '{{.OSType}}'` reports `linux`.
 - Start LM Studio's API server in Developer, port `1234`. Enable **Serve on Local Network** so a separate Docker container can access it via `host.docker.internal`. If you use the CLI instead of the GUI, stop the existing server first and run `lms server start --bind 0.0.0.0 --port 1234`.
 - **Enable LM Studio's Require Authentication and generate an LM Studio API token.** This is important because network binding exposes port 1234 beyond Windows loopback. Keep Windows Firewall rules restrictive; never port-forward TCP/1234 or publish it from Docker. If LAN exposure is unacceptable, use the existing native Windows `cloudflared` connector with LM Studio bound to 127.0.0.1 instead of this Docker variant.
-- The current backend requires an LM Studio key in addition to Access. With personal mode off, store it as `MODEL_LOCAL_API_KEY` in **Render backend secrets**. With `LLM_PERSONAL_MODE=true`, only `admin_clinical` saves an LM Studio key in **Mis modelos**, and that key is not reused for other accounts. Do not put an LM key in this container. See `docs/integrations/per-user-model-credentials.md`.
+- The current backend requires an LM Studio key in addition to Access. `psychdeep-api` runs with `LLM_PERSONAL_MODE` on: `admin_clinical` saves that account's LM Studio key in **Mis modelos** for the Local provider. The key is not reused for other accounts. `MODEL_LOCAL_API_KEY` in Render is only a reviewed rollback of the old shared token. Do not put an LM key in this container.
 - Local check: `Test-NetConnection 127.0.0.1 -Port 1234`. A `/v1/models` request without an LM key should now return 401, which is normal.
 
 ## 2. Save the existing tunnel connector token without typing it
@@ -59,7 +59,7 @@ MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET=<service-token-client-secret>
 MODEL_LOCAL_API_KEY=<lm-studio-api-key>
 ```
 
-The three credentials are distinct: (1) connector token runs `cloudflared` and stays on Windows; (2) Cloudflare Access Client ID/Secret permit backend requests through the edge; (3) LM Studio API key authenticates those requests at the Windows origin. The backend's current Cloudflare Access adapter sends both the Access headers and the LM Studio Bearer token. Check account-scoped mode separately; do not share one user's personal LM key across accounts without a deliberate design decision.
+The three credentials are distinct: (1) connector token runs `cloudflared` and stays on Windows; (2) Cloudflare Access Client ID/Secret permit backend requests through the edge; (3) the LM Studio API key saved by `admin_clinical` in **Mis modelos** authenticates those requests at the Windows origin. The backend sends both the Access headers and that account's Bearer token. Do not share that key across accounts. `MODEL_LOCAL_API_KEY` in the block above is the reviewed rollback secret, not the key the running personal-mode path uses.
 
 ## 5. Build, create and run the container
 
@@ -93,14 +93,14 @@ The image is named `psychdeep-cloudflared:local`, the container `psychdeep-lmstu
 3. Docker: `docker compose -f ops/model/docker/compose.yaml ps` must show `Up`; inspect `logs --tail=50 cloudflared` for a registered connection. A running container is **not** proof the model origin works.
 4. Cloudflare dashboard: tunnel connection should be **Healthy** and DNS should resolve `ai.bfab.io`.
 5. Unauthenticated external check: `curl.exe -i https://ai.bfab.io/v1/models` must **not** reveal a model list (expect denial/login). Never turn off Access to make a 403 disappear.
-6. Render backend: check that all Access + LM Studio secret values are configured and the model name is an **exact model ID** from LM Studio. In PsychDeep, an authorized `admin_clinical` can use **Probar proveedor** and then deliberately activate the configured provider. No automatic switch from local to Anthropic should occur.
+6. Render backend: Access secrets must be set. Leave the local model id env vars empty. Load the model in LM Studio; PsychDeep uses the id that server reports as loaded. In PsychDeep, `admin_clinical` uses **Probar conexión** in **Mis modelos**. No automatic switch from Local to Anthropic or Codex / ChatGPT should occur.
 
 ## Troubleshooting
 
 - `Provided tunnel token is not valid (illegal base64 ...)`: a UUID, short secret or truncated string was saved; copy **Add a replica > Docker** again, run `save-token-from-clipboard.ps1 -Replace` and restart Docker Compose. Never paste the token into chat or commit it.
 - Tunnel `DOWN` / container exiting: check `docker compose ... logs`; Docker Desktop must be running, the connector token valid, and outbound connectivity allowed. Do not repeatedly run the old Windows service and the Docker replica with conflicting origin configurations.
 - Cloudflare `502`: the edge/tunnel cannot reach LM Studio; check `host.docker.internal`, bind settings, firewall, and the Docker-origin check above.
-- Origin `401`: LM Studio API key missing/invalid; ensure Require Authentication is on and the correct key is configured in Render (and for users when personal mode is enabled).
+- Origin `401`: LM Studio API key missing or invalid. Require Authentication stays on. The Local key is the one `admin_clinical` saved in **Mis modelos**, not a key in this container.
 - Cloudflare `403` / Access login: confirm the Service Auth policy and both Access headers/credentials are present on backend requests. The tunnel token is NOT an Access service token.
 - `NXDOMAIN`: fix the DNS record/delegation. The container cannot repair DNS.
 - `404`: confirm public base URL `/v1`, the route service URL without `/v1`, and exact model IDs.

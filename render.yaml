@@ -60,18 +60,18 @@ services:
       - key: MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET
         sync: false
       # Do NOT provision MODEL_LOCAL_API_KEY for personal mode. admin_clinical
-      # saves an LM Studio token from Mis modelos; it is encrypted in Supabase
-      # and is not reused for other accounts. An existing Render shared key
-      # remains only for the non-personal local path.
+      # saves an LM Studio token in Mis modelos; it stays on that account.
+      # An existing Render shared key may remain only for a reviewed rollback.
       # Preserve this SAME Fernet key across deployments; never regenerate it.
       - key: LLM_USER_CREDENTIALS_KEY
         sync: false
-      # Enable only after the clinical-admin connection is tested: Codex or
-      # Anthropic applies to every account; a local key does not.
+      # The deployed API already runs with this enabled. sync:false keeps the
+      # dashboard value from being cleared by a blueprint sync.
       - key: LLM_PERSONAL_MODE
         sync: false
-      # Do not pin a model id. Local inference uses the single model loaded
-      # in LM Studio. Mis modelos does not accept a model name.
+      # Do not pin a model id. Local inference uses the model LM Studio
+      # reports as loaded. Several advertised models and no unique loaded
+      # model stop inference.
       - key: MODEL_LOCAL_CHAT_MODEL
         sync: false
       - key: MODEL_LOCAL_ANALYSIS_MODEL
