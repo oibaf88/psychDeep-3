@@ -62,10 +62,20 @@ const timeline: PatientTimelineOut = {
   ],
 };
 
-function mockPatientApi() {
+const emptyState = {
+  longitudinal: {
+    baseline: { status: "insufficient_data", baseline: null },
+    changes: [],
+  },
+};
+
+function mockPatientApi(options?: { trendsState?: typeof emptyState }) {
+  const trendsState = options?.trendsState ?? emptyState;
   return vi.spyOn(api, "get").mockImplementation(async <T,>(path: string): Promise<T> => {
     if (path.startsWith("/api/v1/timeline")) return structuredClone(timeline) as T;
     if (path === "/api/v1/assignments/mine") return [] as T;
+    // Hoy still uses /api/v1/state; Tendencias now sources change evidence there too.
+    if (path.startsWith("/api/v1/state")) return structuredClone(trendsState) as T;
     if (path === "/api/v1/baselines/current") {
       return { status: "insufficient_data", baseline: null } as T;
     }
@@ -135,5 +145,73 @@ describe("patient timeline views", () => {
     expect(screen.queryByText(/sin riesgo|no hay riesgo/i)).not.toBeInTheDocument();
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
     expect(screen.queryByText(/nivel de alerta\s*\d/i)).not.toBeInTheDocument();
+  });
+
+  it("renders FeatureValue/Baseline evidence under each calculated Tendencias card", async () => {
+    mockPatientApi({
+      trendsState: {
+        longitudinal: {
+          baseline: {
+            status: "active",
+            baseline: {
+              stability: "eligible",
+              data_coverage: 1,
+              window: { start: "2026-09-01", end: "2026-09-21" },
+            },
+          },
+          changes: [
+            {
+              signal_id: "mood-1",
+              feature: "mood",
+              band: "transition",
+              change: 1.1,
+              uncertainty: { recent_n: 6, baseline_n: 12 },
+              evidence: {
+                status: "available",
+                axis: "mood",
+                inverted: false,
+                recent: {
+                  feature_value_id: "fv-mood",
+                  mean: 6.4,
+                  n: 6,
+                  missing: false,
+                  window: { start: "2026-09-26", end: "2026-10-02" },
+                  quality_flags: [],
+                },
+                reference: {
+                  baseline_version_id: "bv-1",
+                  mean: 5.1,
+                  std: 1.2,
+                  n: 12,
+                  eligible: true,
+                },
+                reproduced_from_rows: true,
+              },
+            },
+            {
+              signal_id: "composite-1",
+              feature: "structural_composite",
+              band: "transition",
+              change: 0.9,
+              uncertainty: { recent_n: 6, baseline_n: 12 },
+              evidence: null,
+            },
+          ],
+        },
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <TrendsPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Un poco distinto de lo habitual en ti");
+    expect(screen.getByText(/media fue 6\.4/)).toBeInTheDocument();
+    expect(screen.getByText(/referencia personal es 5\.1/)).toBeInTheDocument();
+    expect(screen.getByText(/coincide con esos registros/)).toBeInTheDocument();
+    expect(screen.queryByText(/canonical-structural/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sin riesgo|no hay riesgo/i)).not.toBeInTheDocument();
   });
 });
