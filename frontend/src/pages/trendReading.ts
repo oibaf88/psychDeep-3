@@ -7,6 +7,35 @@ export interface TrajectorySignal {
   contradictions?: unknown[] | null;
   window?: { start?: string; end?: string };
   algorithm_version?: string;
+  evidence?: FeatureEvidence | null;
+}
+
+export interface FeatureEvidenceRecent {
+  feature_value_id?: string;
+  mean: number | null;
+  n: number;
+  missing: boolean;
+  window?: { start?: string; end?: string };
+  quality_flags?: string[];
+  feature_version?: string;
+  algorithm_version?: string;
+}
+
+export interface FeatureEvidenceReference {
+  baseline_version_id?: string;
+  mean: number | null;
+  std?: number | null;
+  n: number;
+  eligible: boolean;
+}
+
+export interface FeatureEvidence {
+  status: "available" | "insufficient_data" | string;
+  axis?: string;
+  inverted?: boolean;
+  recent: FeatureEvidenceRecent | null;
+  reference: FeatureEvidenceReference | null;
+  reproduced_from_rows: boolean | null;
 }
 
 export interface BaselineSnapshot {
@@ -31,6 +60,10 @@ const CALCULATED_BANDS: Record<string, string> = {
   stable: "Cerca de lo habitual en ti",
   transition: "Un poco distinto de lo habitual en ti",
   unstable: "Bastante distinto de lo habitual en ti",
+};
+
+const QUALITY_FLAG_LABELS: Record<string, string> = {
+  no_recent_observations: "faltan observaciones recientes",
 };
 
 export function featureLabel(feature: string): string {
@@ -60,6 +93,95 @@ function countOf(uncertainty: Record<string, unknown> | undefined, key: string):
 function joinSpanish(items: string[]): string {
   if (items.length <= 1) return items[0] ?? "";
   return `${items.slice(0, -1).join(", ")} y ${items[items.length - 1]}`;
+}
+
+/** Patient-facing number: never invent a health zero from a missing mean. */
+export function formatEvidenceMean(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function formatEvidenceDay(value?: string | null): string | null {
+  if (!value) return null;
+  const day = /^\d{4}-\d{2}-\d{2}/.exec(value)?.[0] ?? value;
+  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(day) ? `${day}T12:00:00` : day);
+  if (Number.isNaN(parsed.getTime())) return day;
+  return parsed.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+}
+
+function windowPhrase(window?: { start?: string; end?: string } | null): string {
+  const start = formatEvidenceDay(window?.start);
+  const end = formatEvidenceDay(window?.end);
+  if (start && end) return ` (${start} – ${end})`;
+  if (end) return ` (hasta ${end})`;
+  if (start) return ` (desde ${start})`;
+  return "";
+}
+
+function qualityMissingness(recent: FeatureEvidenceRecent | null | undefined): string {
+  if (!recent) return "";
+  const notes: string[] = [];
+  if (recent.missing) notes.push("los registros recientes de esta área faltan o no se pudieron resumir");
+  for (const flag of recent.quality_flags ?? []) {
+    const label = QUALITY_FLAG_LABELS[flag] ?? null;
+    if (label && !notes.some((note) => note.includes(label))) notes.push(label);
+  }
+  if (!notes.length) return "";
+  return ` Atención: ${joinSpanish(notes)}. Esa falta no significa que todo vaya bien.`;
+}
+
+function reproductionPhrase(reproduced: boolean | null | undefined): string {
+  if (reproduced === true) return " La comparación guardada coincide con esos registros.";
+  if (reproduced === false) {
+    return " La comparación guardada ya no coincide exactamente con esos registros; conviene no interpretarla sola.";
+  }
+  return "";
+}
+
+/**
+ * Plain-Spanish evidence under a per-feature change card.
+ * Composite has no single FeatureValue (`evidence: null`) — returns null.
+ * Never presents missingness as zero, health or “sin riesgo”.
+ */
+export function featureEvidenceText(signal: TrajectorySignal): string | null {
+  if (signal.feature === "structural_composite") return null;
+  const evidence = signal.evidence;
+  if (evidence == null) {
+    return "Todavía no hay evidencia de los registros recientes o de tu referencia personal para explicar esta comparación. Esa falta no significa que todo vaya bien.";
+  }
+
+  if (evidence.status !== "available") {
+    const recent = evidence.recent;
+    const reference = evidence.reference;
+    const parts: string[] = [];
+    if (recent?.missing || recent == null) {
+      parts.push("faltan datos recientes suficientes");
+    } else if (recent.n != null) {
+      parts.push(`solo hay ${recent.n} registro${recent.n === 1 ? "" : "s"} reciente${recent.n === 1 ? "" : "s"}`);
+    }
+    if (reference == null || !reference.eligible) {
+      parts.push("tu referencia personal aún no es suficiente");
+    }
+    const detail = parts.length ? ` Ahora mismo ${joinSpanish(parts)}.` : "";
+    return `Todavía no se puede explicar esta comparación con tus registros.${detail} Esa falta no significa que todo vaya bien ni que no haya cambio.${qualityMissingness(recent)}`;
+  }
+
+  const recentMean = formatEvidenceMean(evidence.recent?.mean);
+  const referenceMean = formatEvidenceMean(evidence.reference?.mean);
+  const recentN = evidence.recent?.n;
+  const referenceN = evidence.reference?.n;
+  if (recentMean == null || referenceMean == null || recentN == null || referenceN == null) {
+    return `Todavía faltan datos para explicar esta comparación con tus registros. Esa falta no significa que todo vaya bien.${qualityMissingness(evidence.recent)}`;
+  }
+
+  const recentWindow = windowPhrase(evidence.recent?.window);
+  return (
+    `En este periodo${recentWindow} la media fue ${recentMean} (${recentN} registro${recentN === 1 ? "" : "s"}). ` +
+    `Tu referencia personal es ${referenceMean} (${referenceN} registro${referenceN === 1 ? "" : "s"}).` +
+    reproductionPhrase(evidence.reproduced_from_rows) +
+    qualityMissingness(evidence.recent)
+  );
 }
 
 export function patientBand(band: string): string {
