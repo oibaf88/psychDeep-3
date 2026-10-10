@@ -946,7 +946,9 @@ export const LEVEL_SHORT_LABELS: Record<number, string> = {
 export function formatDateTime(value?: string | null): string {
   if (!value) return "—";
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
+  return Number.isNaN(parsed.getTime())
+    ? "—"
+    : parsed.toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 export function formatDay(value?: string | null): string {
@@ -954,7 +956,9 @@ export function formatDay(value?: string | null): string {
   // A daily bucket is a calendar date in the API's timezone, not UTC
   // midnight. Keep it on that date even when the viewer is abroad.
   const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 export const FACT_CATEGORIES = [

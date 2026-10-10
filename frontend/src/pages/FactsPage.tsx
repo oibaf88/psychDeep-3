@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, FactOut, FACT_CATEGORIES } from "../api";
+import { api, FactOut, FACT_CATEGORIES, formatDateTime } from "../api";
 
 export default function FactsPage() {
   const [facts, setFacts] = useState<FactOut[]>([]);
@@ -80,7 +80,7 @@ export default function FactsPage() {
         <ul className="plain-list">
           {facts.map((f) => (
             <li key={f.id}>
-              <strong>{f.category}</strong> ({f.declared_by}) · {new Date(f.created_at).toLocaleString()}
+              <strong>{f.category}</strong> ({f.declared_by}) · {formatDateTime(f.created_at)}
               <br />
               {f.content}
             </li>

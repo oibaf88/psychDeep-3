@@ -115,12 +115,12 @@ function booleanValue(record: UnknownRecord | null | undefined, keys: string[]):
 function formatDate(value?: string | null): string {
   if (!value) return "—";
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("es-ES");
 }
 
 function formatNumber(value: number): string {
   if (Number.isInteger(value)) return String(value);
-  return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return value.toLocaleString("es-ES", { maximumFractionDigits: 4 });
 }
 
 function formatValue(value: unknown): string {
@@ -618,7 +618,7 @@ function Agent2TraceCard({ trace, assessment }: { trace: Agent2TraceOut; assessm
           <span>{formatDate(traceTimestamp(trace))}</span>
         </span>
         <span className="trace-summary-meta">
-          {trace.latency_ms != null ? `${trace.latency_ms.toLocaleString()} ms` : "Latencia —"}
+          {trace.latency_ms != null ? `${trace.latency_ms.toLocaleString("es-ES")} ms` : "Latencia —"}
           <span>{tokens || "Tokens —"}</span>
         </span>
       </summary>
