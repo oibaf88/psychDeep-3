@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ROLE_LABELS, type AssignmentOut, type UserRole } from "../api";
+import { api, ROLE_LABELS, type AssignmentOut, type UserRole, formatDateTime } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { partitionAssignments, professionalLinkLabel } from "./assignmentGroups";
 
@@ -293,7 +293,7 @@ export default function AdminUsersPage() {
                 </div>
                 <span className={selected.user.is_active ? "status-active" : "status-revoked"}>{selected.user.is_active ? "Cuenta activa" : "Acceso revocado"}</span>
               </div>
-              <p className="meta">Idioma: {selected.user.locale} · creada: {new Date(selected.user.created_at).toLocaleString()}</p>
+              <p className="meta">Idioma: {selected.user.locale} · creada: {formatDateTime(selected.user.created_at)}</p>
 
               {selected.user.role === "patient" && (
                 <PatientAssignmentList
