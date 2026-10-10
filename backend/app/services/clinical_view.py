@@ -1621,7 +1621,9 @@ def build_metrics(db: Session, patient_id, window_days: int = 90) -> dict[str, A
                 "date": daily_statistics_service.local_day(row.timestamp),
                 "score": _number(value.get("score")),
                 "band": row.confidence_band,
-                "calculation_version": value.get("calculation_version") or "structural-v1",
+                # Rows written before the version was recorded stay unlabeled
+                # (null). The chart says so instead of assuming structural-v1.
+                "calculation_version": value.get("calculation_version") or None,
                 "composite_z": _number(value.get("composite_z")),
                 "z_mood": _number(z_scores.get("mood")),
                 "z_craving_inv": _number(z_scores.get("craving_inv")),

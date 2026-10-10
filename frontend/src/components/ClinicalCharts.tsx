@@ -153,63 +153,167 @@ export function LevelHistoryChart({
   );
 }
 
-/** Structural score with its band thresholds drawn in. */
+const UNLABELED_VERSION = "sin-version";
+
+/** Readable name of a calculation version. Unlabeled rows are said to be unlabeled. */
+export function structuralVersionLabel(version: string | null | undefined): string {
+  if (!version || version === UNLABELED_VERSION) return "Sin versión registrada";
+  if (version === "structural-v2") return "structural-v2 · fórmula actual";
+  return `${version} · cálculo histórico`;
+}
+
+function versionKey(point: StructuralPoint): string {
+  return point.calculation_version || UNLABELED_VERSION;
+}
+
+export interface VersionSegment {
+  version: string;
+  start: string;
+  end: string;
+  count: number;
+}
+
+/**
+ * Consecutive runs of the same calculation version, in date order. Used to
+ * draw ONE continuous series with a marker where the formula changes,
+ * instead of one chart per version.
+ */
+export function structuralVersionSegments(points: StructuralPoint[]): VersionSegment[] {
+  const segments: VersionSegment[] = [];
+  for (const point of points) {
+    if (typeof point.score !== "number" || !Number.isFinite(point.score)) continue;
+    const version = versionKey(point);
+    const last = segments[segments.length - 1];
+    if (last && last.version === version) {
+      last.end = point.date;
+      last.count += 1;
+    } else {
+      segments.push({ version, start: point.date, end: point.date, count: 1 });
+    }
+  }
+  return segments;
+}
+
+const VERSION_DOT: Record<string, string> = {
+  "structural-v2": COLORS.score,
+  "structural-v1": "#e5b75f",
+  [UNLABELED_VERSION]: COLORS.neutral,
+};
+
+function bandsFor(version: string): { stableMin: number; transitionMin: number } | null {
+  if (version === "structural-v2") return { stableMin: STRUCTURAL_STABLE_MIN, transitionMin: STRUCTURAL_TRANSITION_MIN };
+  if (version === "structural-v1") return { stableMin: 0.6, transitionMin: 0.35 };
+  return null;
+}
+
+/** Plain function (not a component): recharts only sees direct children. */
+function versionMarkers(segments: VersionSegment[]) {
+  return segments.slice(1).map((segment) => (
+        <ReferenceLine
+          key={`${segment.version}-${segment.start}`}
+          x={segment.start}
+          stroke="#c7d2e3"
+          strokeDasharray="2 3"
+          strokeWidth={1.5}
+          ifOverflow="extendDomain"
+          label={{ value: `Cambio de cálculo → ${structuralVersionLabel(segment.version).split(" · ")[0]}`, position: "insideTopRight", fontSize: 10, fill: "#c7d2e3" }}
+        />
+  ));
+}
+
+/**
+ * Structural score as ONE continuous series across calculation versions.
+ * Each point keeps its version (dot colour, tooltip, legend under the chart),
+ * a vertical marker shows where the formula changed, and each segment gets
+ * the band thresholds of its own version. Rows that never recorded a version
+ * are shown as "Sin versión registrada", without assuming structural-v1.
+ */
 export function StructuralScoreChart({ points }: { points: StructuralPoint[] }) {
-  const versions = [...new Set(points.filter((point) => typeof point.score === "number" && Number.isFinite(point.score)).map((point) => point.calculation_version ?? "structural-v1"))];
+  const sorted = [...points].sort((a, b) => (a.at ?? a.date).localeCompare(b.at ?? b.date));
+  const segments = structuralVersionSegments(sorted);
+  const versions = [...new Set(segments.map((segment) => segment.version))];
+  const lastDate = sorted.length ? sorted[sorted.length - 1].date : undefined;
   return (
     <ChartCard
       title="Similitud de check-ins del motor de riesgo"
       question="¿Qué similitud guardó el motor de riesgo entre los check-ins recientes y su ventana de 21 días?"
       howToRead="Esta gráfica es la similitud de check-ins que guarda el motor de riesgo, no la señal de cambio canónica ni el nivel de alerta. structural-v2 calcula 1 / (1 + media de |z|): 1 = los check-ins recientes coinciden con la ventana del motor; un valor menor es más distancia. No indica ausencia de riesgo y no rellena un hueco con cero. Bandas de esa entrada: estable ≥ 1/2,2 (≈ 0,455), transición ≥ 1/2,95 (≈ 0,339), inestable por debajo. Las reglas usan un componente de deterioro separado para que las mejoras no compensen señales adversas."
-      empty={!points.some((point) => typeof point.score === "number" && Number.isFinite(point.score))}
-      footer={versions.some((version) => version !== "structural-v2") ? <p className="chart-footnote">Los cálculos históricos se conservan. Cada versión tiene su propia gráfica y sus umbrales; no se une el cambio de fórmula como si fuera una evolución clínica.</p> : undefined}
+      empty={segments.length === 0}
+      footer={
+        versions.length > 1 || versions.some((version) => version !== "structural-v2") ? (
+          <p className="chart-footnote">
+            Una sola serie con todos los cálculos guardados. La línea vertical marca el cambio de fórmula: los valores a
+            cada lado no son directamente comparables y cada tramo usa las bandas de su versión. Los puntos sin versión
+            registrada se muestran como tales; no se les asigna una fórmula.
+          </p>
+        ) : undefined
+      }
     >
-      {versions.map((version) => {
-        const isVersion2 = version === "structural-v2";
-        const hasKnownBands = isVersion2 || version === "structural-v1";
-        const stableMin = isVersion2 ? STRUCTURAL_STABLE_MIN : 0.6;
-        const transitionMin = isVersion2 ? STRUCTURAL_TRANSITION_MIN : 0.35;
-        const versionPoints = points.map((point) => ({ ...point, score: (point.calculation_version ?? "structural-v1") === version ? point.score : null }));
-        return <div key={version}>
-        <p className="meta"><strong>{version}</strong>{isVersion2 ? " · fórmula actual" : " · cálculo histórico"}</p>
-        <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={versionPoints} margin={{ top: 8, right: 16, bottom: 4, left: -18 }}>
+      <ResponsiveContainer width="100%" height={240}>
+        <LineChart data={sorted} margin={{ top: 16, right: 16, bottom: 4, left: -18 }}>
           <CartesianGrid strokeDasharray="3 3" />
-          {hasKnownBands && <>
-          <ReferenceArea y1={stableMin} y2={1} fill="#55bd91" fillOpacity={0.06} />
-          <ReferenceArea y1={transitionMin} y2={stableMin} fill="#e5b75f" fillOpacity={0.08} />
-          <ReferenceArea y1={0} y2={transitionMin} fill="#e36a6a" fillOpacity={0.07} />
-          <ReferenceLine y={stableMin} stroke="#55bd91" strokeDasharray="4 4" />
-          <ReferenceLine y={transitionMin} stroke="#e36a6a" strokeDasharray="4 4" />
-          </>}
+          {segments.flatMap((segment, index) => {
+            const bands = bandsFor(segment.version);
+            if (!bands) return [];
+            const x2 = segments[index + 1]?.start ?? lastDate ?? segment.end;
+            const key = `${segment.version}-${segment.start}`;
+            return [
+              <ReferenceArea key={`s-${key}`} x1={segment.start} x2={x2} y1={bands.stableMin} y2={1} fill="#55bd91" fillOpacity={0.06} />,
+              <ReferenceArea key={`t-${key}`} x1={segment.start} x2={x2} y1={bands.transitionMin} y2={bands.stableMin} fill="#e5b75f" fillOpacity={0.08} />,
+              <ReferenceArea key={`u-${key}`} x1={segment.start} x2={x2} y1={0} y2={bands.transitionMin} fill="#e36a6a" fillOpacity={0.07} />,
+              ...(segment.version === "structural-v2"
+                ? [
+                    <ReferenceLine key={`ls-${key}`} segment={[{ x: segment.start, y: bands.stableMin }, { x: x2, y: bands.stableMin }]} stroke="#55bd91" strokeDasharray="4 4" />,
+                    <ReferenceLine key={`lt-${key}`} segment={[{ x: segment.start, y: bands.transitionMin }, { x: x2, y: bands.transitionMin }]} stroke="#e36a6a" strokeDasharray="4 4" />,
+                  ]
+                : []),
+            ];
+          })}
+          {versionMarkers(segments)}
           <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={formatDay} minTickGap={24} />
           <YAxis domain={[0, 1]} tick={{ fontSize: 11 }} />
           <Tooltip
             labelFormatter={formatDay}
             formatter={(value: unknown, _n, item) => {
               const point = item?.payload as StructuralPoint | undefined;
-              return [`${value}${point?.band ? ` (banda del motor: ${point.band})` : ""} · ${point?.calculation_version ?? "versión histórica"}`, "Similitud del motor"];
+              return [
+                `${value}${point?.band ? ` (banda del motor: ${point.band})` : ""} · ${structuralVersionLabel(point?.calculation_version)}`,
+                "Similitud del motor",
+              ];
             }}
           />
           <Line
             type="monotone"
             dataKey="score"
-            name={`Score ${version}`}
+            name="Similitud del motor"
             stroke={COLORS.score}
             strokeWidth={2}
             connectNulls={false}
-            dot={{ r: 2 }}
+            dot={(props: { cx?: number; cy?: number; payload?: StructuralPoint; index?: number }) => {
+              const { cx, cy, payload, index } = props;
+              if (cx == null || cy == null || !payload) return <g key={`dot-${index}`} />;
+              return <circle key={`dot-${index}`} cx={cx} cy={cy} r={2.5} fill={VERSION_DOT[versionKey(payload)] ?? COLORS.neutral} stroke="none" />;
+            }}
           />
         </LineChart>
-        </ResponsiveContainer>
-        </div>;
-      })}
+      </ResponsiveContainer>
+      <ul className="meta chart-version-legend" aria-label="Versiones de cálculo en la serie">
+        {segments.map((segment) => (
+          <li key={`${segment.version}-${segment.start}`}>
+            <span aria-hidden="true" style={{ color: VERSION_DOT[segment.version] ?? COLORS.neutral }}>●</span>{" "}
+            <strong>{structuralVersionLabel(segment.version)}</strong>: {formatDay(segment.start)} – {formatDay(segment.end)} ·{" "}
+            {segment.count} punto{segment.count === 1 ? "" : "s"}
+          </li>
+        ))}
+      </ul>
     </ChartCard>
   );
 }
 
 /** Per-variable z-scores — this is what makes a low score actionable. */
 export function ZScoreChart({ points }: { points: StructuralPoint[] }) {
+  const sorted = [...points].sort((a, b) => (a.at ?? a.date).localeCompare(b.at ?? b.date));
+  const segments = structuralVersionSegments(sorted);
   return (
     <ChartCard
       title="Desviación por variable (z-scores)"
@@ -218,9 +322,10 @@ export function ZScoreChart({ points }: { points: StructuralPoint[] }) {
       empty={points.length === 0}
     >
       <ResponsiveContainer width="100%" height={240}>
-        <LineChart data={points} margin={{ top: 8, right: 16, bottom: 4, left: -18 }}>
+        <LineChart data={sorted} margin={{ top: 16, right: 16, bottom: 4, left: -18 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <ReferenceLine y={0} stroke="#3a4a63" />
+          {versionMarkers(segments)}
           <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={formatDay} minTickGap={24} />
           <YAxis tick={{ fontSize: 11 }} />
           <Tooltip labelFormatter={formatDay} />
