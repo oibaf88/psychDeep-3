@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, AuditLogOut } from "../api";
+import { api, AuditLogOut, formatDateTime } from "../api";
 import PsychDeepLoader from "../components/PsychDeepLoader";
 
 interface AuditLogPageOut {
@@ -54,7 +54,7 @@ export default function AuditPage() {
 
       <div className="alert-actions" style={{ alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
         <span className="meta">
-          {total.toLocaleString()} eventos · página {Math.min(page + 1, pageCount)} de {pageCount}
+          {total.toLocaleString("es-ES")} eventos · página {Math.min(page + 1, pageCount)} de {pageCount}
         </span>
         <label className="meta">
           Filas por página{" "}
@@ -83,7 +83,7 @@ export default function AuditPage() {
           <tbody>
             {rows.map((r) => (
               <tr key={r.id}>
-                <td className="meta">{new Date(r.created_at).toLocaleString()}</td>
+                <td className="meta">{formatDateTime(r.created_at)}</td>
                 <td>
                   <code>{r.action}</code>
                 </td>

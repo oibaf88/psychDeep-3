@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, NotificationOut } from "../api";
+import { api, NotificationOut, formatDateTime } from "../api";
 
 export default function NotificationsPage() {
   const [items, setItems] = useState<NotificationOut[]>([]);
@@ -30,7 +30,7 @@ export default function NotificationsPage() {
           <p style={{ whiteSpace: "pre-wrap" }}>{n.body}</p>
           <p className="meta">
             {n.status}
-            {n.alert_level != null ? ` · nivel ${n.alert_level}` : ""} · {new Date(n.created_at).toLocaleString()}
+            {n.alert_level != null ? ` · nivel ${n.alert_level}` : ""} · {formatDateTime(n.created_at)}
           </p>
           {n.status !== "read" && (
             <button className="btn-secondary" onClick={() => markRead(n.id)}>
