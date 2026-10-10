@@ -9,6 +9,7 @@ export default function ChatPage() {
   const [busy, setBusy] = useState(false);
   const [crisisMode, setCrisisMode] = useState(false);
   const [resources, setResources] = useState<ChatOut["resources"]>(undefined);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function load() {
@@ -22,7 +23,9 @@ export default function ChatPage() {
   }
 
   useEffect(() => {
-    load().catch(() => undefined);
+    load().catch(() =>
+      setHistoryError("No se pudo cargar la conversación anterior. Puedes seguir escribiendo; si necesitas ayuda ya, usa 024 o 112."),
+    );
   }, []);
 
   useEffect(() => {
@@ -108,6 +111,11 @@ export default function ChatPage() {
         Este chat es un apoyo, no un terapeuta ni un diagnóstico. Si estás en peligro inmediato, usa el botón de
         emergencia (024 / 112) en cualquier momento.
       </p>
+      {historyError && (
+        <p className="error" role="alert">
+          {historyError}
+        </p>
+      )}
       <div className="chat-window">
         {messages.map((m) => (
           <div key={m.id} className={`chat-bubble chat-${m.role}`}>
