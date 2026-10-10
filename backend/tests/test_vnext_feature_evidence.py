@@ -172,7 +172,9 @@ class FeatureEvidenceReadTests(unittest.TestCase):
         mood = changes["mood"]["evidence"]
         self.assertEqual(mood["status"], "insufficient_data")
         self.assertEqual(mood["recent"]["mean"], 4.5)
-        self.assertFalse(mood["reference"]["eligible"])
+        # canonical-structural-v2 keeps the comparison window out of the
+        # reference, so recent-only data leaves no reference axis at all.
+        self.assertIsNone(mood["reference"])
         self.assertIsNone(mood["reproduced_from_rows"])
         for feature in ("craving", "sleep_hours", "self_efficacy"):
             evidence = changes[feature]["evidence"]

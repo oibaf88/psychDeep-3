@@ -11,16 +11,35 @@ reference" comes from the canonical rows rather than the legacy baseline.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.models_vnext import BaselineVersion, ChangeSignal, FeatureValue
 from app.services.canonical_analytics import AXIS_FOR_TYPE, MIN_OBS_FOR_BASELINE
-from app.services.baseline import STD_FLOORS
+from app.services.baseline import RECENT_WINDOW_DAYS, STD_FLOORS
+from app.utils import as_utc
 
 READABLE_BASELINE_STATUSES = ("active", "provisional", "frozen")
 CHANGE_IS_NOT_RISK = "La ausencia de una señal de cambio no demuestra ausencia de riesgo."
+
+# Only baselines written by the canonical pipeline describe the person's
+# *current* reference. Rows imported from the legacy engine
+# (``legacy-baseline-import-v1``) stay in history but have no canonical
+# ChangeSignals attached. Reading one as "current" made screens say
+# "Sirve como referencia" next to "no hay datos para comparar".
+CANONICAL_ALGORITHM_PREFIX = "canonical-"
+
+# A comparison older than its own recent window describes a week that has
+# fully rolled over. It is still shown, but flagged as out of date.
+STALE_AFTER_DAYS = RECENT_WINDOW_DAYS
+
+CALCULATED_BANDS = ("stable", "transition", "unstable")
+FEATURE_UNITS = {"mood": "0-10", "craving": "0-10", "sleep_hours": "h", "self_efficacy": "0-10"}
+# Below this absolute difference (in the feature's own unit) the direction is
+# reported as "similar". Presentation rounding only, not a clinical threshold.
+SIMILAR_DIFFERENCE = 0.05
 
 
 def current_baseline(db: Session, user_id) -> BaselineVersion | None:
@@ -29,6 +48,7 @@ def current_baseline(db: Session, user_id) -> BaselineVersion | None:
         .filter(
             BaselineVersion.user_id == user_id,
             BaselineVersion.status.in_(READABLE_BASELINE_STATUSES),
+            BaselineVersion.algorithm_version.like(f"{CANONICAL_ALGORITHM_PREFIX}%"),
         )
         .order_by(BaselineVersion.created_at.desc())
         .first()
@@ -144,6 +164,49 @@ def feature_evidence(
         "recent": recent,
         "reference": reference,
         "reproduced_from_rows": reproduced,
+        "display": _display(row, recent_mean, axis_stats if reference and reference["eligible"] else None),
+    }
+
+
+def _natural(feature: str, axis_value: Any) -> float | None:
+    """Undo the internal craving inversion so readers see the declared scale."""
+    if axis_value is None:
+        return None
+    try:
+        value = float(axis_value)
+    except (TypeError, ValueError):
+        return None
+    return round(10.0 - value if feature == "craving" else value, 2)
+
+
+def _display(row: ChangeSignal, recent_mean: Any, axis_stats: dict[str, Any] | None) -> dict[str, Any]:
+    """The comparison in the person's own scale: values, difference and direction.
+
+    ``recent_value`` / ``reference_value`` are means on the declared scale
+    (craving is NOT inverted here). ``z`` keeps the declared direction too: a
+    positive z means the recent mean is higher than the reference. Anything
+    unknown stays null; nothing becomes a zero.
+    """
+    recent_value = _natural(row.feature, recent_mean)
+    reference_value = _natural(row.feature, axis_stats.get("mean")) if axis_stats else None
+    difference = None
+    direction = None
+    if recent_value is not None and reference_value is not None:
+        difference = round(recent_value - reference_value, 2)
+        if abs(difference) < SIMILAR_DIFFERENCE:
+            direction = "similar"
+        else:
+            direction = "higher" if difference > 0 else "lower"
+    z = None
+    if row.change_value is not None and row.band in CALCULATED_BANDS:
+        z = round(-float(row.change_value) if row.feature == "craving" else float(row.change_value), 2)
+    return {
+        "unit": FEATURE_UNITS.get(row.feature),
+        "recent_value": recent_value,
+        "reference_value": reference_value,
+        "difference": difference,
+        "direction": direction,
+        "z": z,
     }
 
 
@@ -180,6 +243,92 @@ def _latest_relevant_changes(rows: list[ChangeSignal]) -> list[ChangeSignal]:
     return list(latest.values())
 
 
+def _count(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def comparison_summary(
+    baseline: BaselineVersion | None,
+    rows: list[ChangeSignal],
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """One status for the whole comparison, so every screen tells the same story.
+
+    ``status`` is one of:
+    - ``not_computed``: no canonical baseline/comparison has been run yet;
+    - ``insufficient_reference``: the personal reference does not have enough
+      observations for any area;
+    - ``no_recent_data``: the reference exists but there are no recent
+      observations to compare;
+    - ``partial``: some areas are compared, others are not (listed with reason);
+    - ``calculated``: every area is compared.
+    This is a description of data availability, never a risk level.
+    """
+    current = as_utc(now) if now is not None else datetime.now(timezone.utc)
+    per_feature = [row for row in rows if row.feature in AXIS_FOR_TYPE]
+    calculated = [
+        row.feature
+        for row in per_feature
+        if row.change_value is not None and row.band in CALCULATED_BANDS
+    ]
+    pending = []
+    for row in per_feature:
+        if row.feature in calculated:
+            continue
+        uncertainty = row.uncertainty if isinstance(row.uncertainty, dict) else {}
+        baseline_n = _count(uncertainty.get("baseline_n"))
+        recent_n = _count(uncertainty.get("recent_n"))
+        reference_short = baseline_n < MIN_OBS_FOR_BASELINE
+        recent_missing = recent_n == 0
+        reason = "both" if reference_short and recent_missing else "reference" if reference_short else "recent"
+        pending.append(
+            {
+                "feature": row.feature,
+                "reason": reason,
+                "baseline_n": baseline_n,
+                "recent_n": recent_n,
+                "minimum_reference_n": MIN_OBS_FOR_BASELINE,
+            }
+        )
+
+    if baseline is None or not per_feature:
+        status = "not_computed"
+    elif calculated and not pending:
+        status = "calculated"
+    elif calculated:
+        status = "partial"
+    elif all(item["reason"] == "recent" for item in pending):
+        status = "no_recent_data"
+    else:
+        status = "insufficient_reference"
+
+    window_ends = [as_utc(row.window_end) for row in per_feature if row.window_end is not None]
+    window_starts = [as_utc(row.window_start) for row in per_feature if row.window_start is not None]
+    computed_at = max(window_ends) if window_ends else None
+    is_stale = bool(computed_at is not None and current - computed_at > timedelta(days=STALE_AFTER_DAYS))
+    return {
+        "status": status,
+        "calculated_features": calculated,
+        "pending_features": pending,
+        "computed_at": computed_at,
+        "recent_window": {
+            "start": min(window_starts) if window_starts else None,
+            "end": computed_at,
+        },
+        "reference_window": {
+            "start": as_utc(baseline.window_start) if baseline is not None and baseline.window_start else None,
+            "end": as_utc(baseline.window_end) if baseline is not None and baseline.window_end else None,
+        },
+        "algorithm_version": baseline.algorithm_version if baseline is not None else None,
+        "is_stale": is_stale,
+        "stale_after_days": STALE_AFTER_DAYS,
+        "minimum_reference_n": MIN_OBS_FOR_BASELINE,
+    }
+
+
 def _state_for(
     baseline: BaselineVersion | None,
     rows: list[ChangeSignal],
@@ -190,7 +339,11 @@ def _state_for(
         cited = cited_feature_value_id(row)
         evidence = feature_evidence(row, feature_values.get(cited) if cited else None, baseline)
         changes.append(change_signal_summary(row, evidence))
-    return {"baseline": baseline_summary(baseline), "changes": changes}
+    return {
+        "baseline": baseline_summary(baseline),
+        "changes": changes,
+        "summary": comparison_summary(baseline, rows),
+    }
 
 
 def _cited_feature_values(db: Session, signals: list[ChangeSignal]) -> dict[str, FeatureValue]:
@@ -220,6 +373,7 @@ def longitudinal_states(db: Session, user_ids: list) -> dict[Any, dict[str, Any]
         .filter(
             BaselineVersion.user_id.in_(unique_ids),
             BaselineVersion.status.in_(READABLE_BASELINE_STATUSES),
+            BaselineVersion.algorithm_version.like(f"{CANONICAL_ALGORITHM_PREFIX}%"),
         )
         .order_by(BaselineVersion.created_at.desc())
         .all()
@@ -271,5 +425,6 @@ def for_clinical_reader(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "baseline": state["baseline"],
         "changes": list(state["changes"]),
+        "summary": state.get("summary"),
         "limits": [CHANGE_IS_NOT_RISK],
     }
