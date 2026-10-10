@@ -179,6 +179,56 @@ export interface LongitudinalChangeOut {
   contradictions?: unknown[];
   baseline_version?: string | null;
   algorithm_version?: string;
+  evidence?: FeatureEvidenceOut | null;
+}
+
+/** Comparison on the declared scale. Craving is NOT inverted here. */
+export interface FeatureDisplayOut {
+  unit?: string | null;
+  recent_value?: number | null;
+  reference_value?: number | null;
+  difference?: number | null;
+  direction?: "higher" | "lower" | "similar" | null;
+  z?: number | null;
+}
+
+export interface FeatureEvidenceOut {
+  status: string;
+  axis?: string;
+  inverted?: boolean;
+  recent?: {
+    mean?: number | null;
+    n?: number;
+    missing?: boolean;
+    window?: { start?: string | null; end?: string | null };
+    quality_flags?: string[];
+    algorithm_version?: string;
+  } | null;
+  reference?: { mean?: number | null; std?: number | null; n?: number; eligible?: boolean } | null;
+  reproduced_from_rows?: boolean | null;
+  display?: FeatureDisplayOut | null;
+}
+
+export interface PendingFeatureOut {
+  feature: string;
+  reason: "reference" | "recent" | "both";
+  baseline_n: number;
+  recent_n: number;
+  minimum_reference_n?: number;
+}
+
+/** One availability status shared by every screen. Never a risk level. */
+export interface ComparisonSummaryOut {
+  status: "not_computed" | "insufficient_reference" | "no_recent_data" | "partial" | "calculated";
+  calculated_features: string[];
+  pending_features: PendingFeatureOut[];
+  computed_at?: string | null;
+  recent_window?: { start?: string | null; end?: string | null };
+  reference_window?: { start?: string | null; end?: string | null };
+  algorithm_version?: string | null;
+  is_stale?: boolean;
+  stale_after_days?: number;
+  minimum_reference_n?: number;
 }
 
 export interface LongitudinalStateOut {
@@ -195,6 +245,7 @@ export interface LongitudinalStateOut {
     };
   };
   changes: LongitudinalChangeOut[];
+  summary?: ComparisonSummaryOut | null;
   limits?: string[];
 }
 

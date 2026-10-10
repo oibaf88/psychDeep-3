@@ -1,61 +1,50 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, formatDay, PatientTimelineOut } from "../api";
+import { api, formatDay, LongitudinalStateOut, PatientTimelineOut } from "../api";
 import { PatientTrajectoryChart } from "../components/ClinicalCharts";
 import { PatientTrendSummary } from "../components/PatientTrendSummary";
-import {
-  baselineCoverage,
-  baselineHero,
-  baselineReady,
-  baselineStabilityLabel,
-  baselineStatusLabel,
-  calculatedChangeText,
-  featureLabel,
-  insufficientChangeNotice,
-  latestByFeature,
-  patientBand,
-  signalWasCalculated,
-  type BaselineSnapshot,
-  type TrajectorySignal,
-} from "./trendReading";
+import ComparisonDetails, { ComparisonFacts } from "../components/ComparisonDetails";
+import PsychDeepLoader from "../components/PsychDeepLoader";
+import { readComparison } from "./longitudinalModel";
 
-interface BaselineResponse extends BaselineSnapshot {
-  baseline: null | BaselineSnapshot["baseline"] & {
-    id: string;
-    feature?: string | null;
-    window: { start: string; end: string };
-  };
+interface PatientStateForTrends {
+  longitudinal?: LongitudinalStateOut | null;
 }
 
+/**
+ * Tendencias reads the same `GET /api/v1/state` payload as Hoy, so both
+ * screens always show the same comparison, with the values behind it.
+ */
 export default function TrendsPage() {
   const [timeline, setTimeline] = useState<PatientTimelineOut | null>(null);
-  const [baseline, setBaseline] = useState<BaselineResponse | null>(null);
-  const [changes, setChanges] = useState<TrajectorySignal[]>([]);
+  const [state, setState] = useState<PatientStateForTrends | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       api.get<PatientTimelineOut>("/api/v1/timeline?window_days=30"),
-      api.get<BaselineResponse>("/api/v1/baselines/current"),
-      api.get<TrajectorySignal[]>("/api/v1/changes?limit=20"),
+      api.get<PatientStateForTrends>("/api/v1/state"),
     ])
-      .then(([timelineData, baselineData, changeData]) => {
+      .then(([timelineData, stateData]) => {
         if (timelineData && timelineData.points) {
           timelineData.points.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         }
         setTimeline(timelineData);
-        setBaseline(baselineData);
-        setChanges(latestByFeature(changeData));
+        setState(stateData);
       })
-      .catch((err: Error) => setError(err.message));
+      .catch(() =>
+        setError(
+          "No se pudieron cargar tus tendencias. Inténtalo de nuevo en un momento. Esa falta no significa que no haya cambio ni que no haya riesgo.",
+        ),
+      )
+      .finally(() => setLoading(false));
   }, []);
 
   const latest = useMemo(() => {
     if (!timeline?.points?.length) return null;
     return timeline.points[timeline.points.length - 1];
   }, [timeline]);
-  const comparableChanges = changes.filter((change) => change.feature !== "structural_composite");
-  const calculatedChanges = comparableChanges.filter(signalWasCalculated);
-  const whole = changes.find((change) => change.feature === "structural_composite" && signalWasCalculated(change));
+  const reading = state ? readComparison(state.longitudinal, "patient") : null;
 
   return (
     <div className="page">
@@ -64,15 +53,15 @@ export default function TrendsPage() {
           <p className="patient-action-card__eyebrow">Tendencias</p>
           <h1>Tu trayectoria, no una puntuación aislada</h1>
           <p>
-            Esta vista reúne tus registros recientes con tu propia línea de base. Los cambios son señales para
-            observar y contextualizar; no equivalen por sí solos a riesgo clínico.
+            Esta vista reúne tus registros recientes con tu propia referencia. Los cambios son señales para observar
+            y contextualizar; no equivalen por sí solos a riesgo clínico.
           </p>
         </div>
 
         <div className="trends-baseline">
-          <p className="trends-baseline__title">Línea de base</p>
-          <p className="trends-baseline__value">{baselineHero(baseline)}</p>
-          <span className="meta">{baselineCoverage(baseline)}</span>
+          <p className="trends-baseline__title">Comparación con lo habitual en ti</p>
+          <p className="trends-baseline__value">{reading ? reading.statusLabel : loading ? "Cargando…" : "No disponible"}</p>
+          {reading && <span className="meta">{reading.facts[1].value} áreas comparadas</span>}
         </div>
       </section>
 
@@ -82,17 +71,16 @@ export default function TrendsPage() {
         </section>
       )}
 
+      {loading && !error && <PsychDeepLoader size="md" label="Cargando tus tendencias…" />}
+
       <section className="card" aria-labelledby="timeline-heading">
         <div className="today-separator">1 · Observar</div>
         <h2 id="timeline-heading">Últimos 30 días</h2>
 
         {timeline?.points.length ? (
           <>
-            <PatientTrendSummary
-              point={latest}
-              moodLabel="Ánimo actual"
-              cravingLabel="Craving actual"
-            />
+            <p className="meta">Último registro: {formatDay(latest?.date)}</p>
+            <PatientTrendSummary point={latest} moodLabel="Ánimo (último registro)" cravingLabel="Craving (último registro)" />
 
             <div className="chart-shell" aria-label="Tendencia longitudinal" role="region">
               <PatientTrajectoryChart
@@ -109,73 +97,23 @@ export default function TrendsPage() {
             </p>
           </>
         ) : (
-          <p>Datos insuficientes para mostrar una tendencia.</p>
+          !loading && <p>Todavía no hay registros en los últimos 30 días para dibujar una tendencia.</p>
         )}
       </section>
 
-      <section className="card" aria-labelledby="baseline-heading">
-        <div className="today-separator">2 · Contextualizar</div>
-        <h2 id="baseline-heading">Tu línea de base</h2>
-
-        {!baselineReady(baseline) ? (
-          <p>
-            Todavía no hay datos suficientes para describir cómo sueles estar. Mientras la referencia sea
-            insuficiente, no se calcula un cambio y esa ausencia no se interpreta como normalidad.
+      {reading && (
+        <section className="card" aria-labelledby="signals-heading">
+          <div className="today-separator">2 · Comparar con lo habitual en ti</div>
+          <h2 id="signals-heading">{reading.headline}</h2>
+          <p>{reading.explanation}</p>
+          <ComparisonFacts reading={reading} />
+          <ComparisonDetails reading={reading} audience="patient" />
+          <p className="chart-reading-note">
+            <strong>Importante:</strong> esto compara tus registros contigo mismo. No es una valoración de riesgo ni
+            sustituye pedir ayuda si la necesitas.
           </p>
-        ) : (
-          <div className="trend-summary">
-            <div className="trend-summary__item">
-              <span className="trend-summary__label">Estado</span>
-              <span className="trend-summary__value">{baselineStatusLabel(baseline?.status ?? "")}</span>
-            </div>
-            <div className="trend-summary__item">
-              <span className="trend-summary__label">Referencia</span>
-              <span className="trend-summary__value">{baselineStabilityLabel(baseline?.baseline?.stability ?? "")}</span>
-            </div>
-            <div className="trend-summary__item">
-              <span className="trend-summary__label">Cobertura</span>
-              <span className="trend-summary__value">{baselineCoverage(baseline)}</span>
-            </div>
-          </div>
-        )}
-
-        <p className="meta">
-          Periodo mirado:{" "}
-          {baseline?.baseline?.window
-            ? formatDay(baseline.baseline.window.start) + " – " + formatDay(baseline.baseline.window.end)
-            : "no disponible"}
-        </p>
-      </section>
-
-      <section className="card" aria-labelledby="signals-heading">
-        <div className="today-separator">3 · Preguntar antes de concluir</div>
-        <h2 id="signals-heading">Señales de cambio</h2>
-
-        {calculatedChanges.length === 0 ? (
-          <p>{insufficientChangeNotice(comparableChanges)}</p>
-        ) : (
-          <>
-            {whole && <p>{patientBand(whole.band)}. {calculatedChangeText(whole)}</p>}
-            <div className="wave-tool-grid">
-              {calculatedChanges.map((change) => (
-                <article className="card wave-tool-card" key={change.signal_id}>
-                  <p className="patient-action-card__eyebrow">{featureLabel(change.feature)}</p>
-                  <h3>{patientBand(change.band)}</h3>
-                  <p>{calculatedChangeText(change)}</p>
-                </article>
-              ))}
-            </div>
-            {comparableChanges.some((change) => !signalWasCalculated(change)) && (
-              <p>{insufficientChangeNotice(comparableChanges.filter((change) => !signalWasCalculated(change)))}</p>
-            )}
-          </>
-        )}
-
-        <p className="chart-reading-note">
-          <strong>Importante:</strong> esto compara tus registros contigo mismo. No es una valoración de riesgo ni
-          sustituye pedir ayuda si la necesitas.
-        </p>
-      </section>
+        </section>
+      )}
     </div>
   );
 }

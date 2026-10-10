@@ -115,7 +115,7 @@ describe("risk and change stay on their own surfaces", () => {
     );
 
     expect(await screen.findByText("N3 · Alarma profesional")).toBeInTheDocument();
-    expect(screen.getByText("Datos insuficientes")).toBeInTheDocument();
+    expect(screen.getByText("Comparación aún no calculada")).toBeInTheDocument();
     expect(screen.getByText("Banda del motor: estable")).toBeInTheDocument();
     expect(screen.getByText("0.91")).toBeInTheDocument();
     expect(screen.getByText(/no es una alerta/)).toBeInTheDocument();

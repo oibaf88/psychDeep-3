@@ -66,10 +66,9 @@ function mockPatientApi() {
   return vi.spyOn(api, "get").mockImplementation(async <T,>(path: string): Promise<T> => {
     if (path.startsWith("/api/v1/timeline")) return structuredClone(timeline) as T;
     if (path === "/api/v1/assignments/mine") return [] as T;
-    if (path === "/api/v1/baselines/current") {
-      return { status: "insufficient_data", baseline: null } as T;
+    if (path === "/api/v1/state") {
+      return { longitudinal: { baseline: { status: "insufficient_data", baseline: null }, changes: [] } } as T;
     }
-    if (path.startsWith("/api/v1/changes")) return [] as T;
     throw new Error(`Unexpected test request: ${path}`);
   });
 }
@@ -130,8 +129,9 @@ describe("patient timeline views", () => {
       expect(screen.getByTestId(`line-${key}`)).toHaveAttribute("data-dot-radius", "2");
     }
     expect(screen.getByTestId("line-sleep_hours")).toHaveAttribute("data-dot-radius", "2");
-    expect(screen.getByRole("heading", { name: "Señales de cambio" })).toBeInTheDocument();
-    expect(screen.getByText(/falta de cálculo no significa que todo vaya bien/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Todavía no se ha calculado tu comparación" })).toBeInTheDocument();
+    expect(screen.getByText(/se calcula al guardar un check-in/)).toBeInTheDocument();
+    expect(screen.queryByText(/Sirve como referencia|Ya hay referencia/)).not.toBeInTheDocument();
     expect(screen.queryByText(/sin riesgo|no hay riesgo/i)).not.toBeInTheDocument();
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
     expect(screen.queryByText(/nivel de alerta\s*\d/i)).not.toBeInTheDocument();
