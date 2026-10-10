@@ -73,6 +73,10 @@ const COLORS = {
 };
 const STRUCTURAL_STABLE_MIN = 1 / (1 + 1.2);
 const STRUCTURAL_TRANSITION_MIN = 1 / (1 + 1.95);
+// structural-v3 (ADR 0003): |z| >= 1.0 transition, >= 1.3 unstable.
+const STRUCTURAL_V3_STABLE_MIN = 1 / (1 + 1.0);
+const STRUCTURAL_V3_TRANSITION_MIN = 1 / (1 + 1.3);
+const CURRENT_STRUCTURAL_VERSION = "structural-v3";
 
 export function ChartCard({
   title,
@@ -158,7 +162,7 @@ const UNLABELED_VERSION = "sin-version";
 /** Readable name of a calculation version. Unlabeled rows are said to be unlabeled. */
 export function structuralVersionLabel(version: string | null | undefined): string {
   if (!version || version === UNLABELED_VERSION) return "Sin versión registrada";
-  if (version === "structural-v2") return "structural-v2 · fórmula actual";
+  if (version === CURRENT_STRUCTURAL_VERSION) return "structural-v3 · fórmula actual (referencia previa, bandas provisionales)";
   return `${version} · cálculo histórico`;
 }
 
@@ -195,12 +199,14 @@ export function structuralVersionSegments(points: StructuralPoint[]): VersionSeg
 }
 
 const VERSION_DOT: Record<string, string> = {
-  "structural-v2": COLORS.score,
+  "structural-v3": COLORS.score,
+  "structural-v2": "#7aa7d9",
   "structural-v1": "#e5b75f",
   [UNLABELED_VERSION]: COLORS.neutral,
 };
 
 function bandsFor(version: string): { stableMin: number; transitionMin: number } | null {
+  if (version === "structural-v3") return { stableMin: STRUCTURAL_V3_STABLE_MIN, transitionMin: STRUCTURAL_V3_TRANSITION_MIN };
   if (version === "structural-v2") return { stableMin: STRUCTURAL_STABLE_MIN, transitionMin: STRUCTURAL_TRANSITION_MIN };
   if (version === "structural-v1") return { stableMin: 0.6, transitionMin: 0.35 };
   return null;
@@ -236,11 +242,11 @@ export function StructuralScoreChart({ points }: { points: StructuralPoint[] }) 
   return (
     <ChartCard
       title="Similitud de check-ins del motor de riesgo"
-      question="¿Qué similitud guardó el motor de riesgo entre los check-ins recientes y su ventana de 21 días?"
-      howToRead="Esta gráfica es la similitud de check-ins que guarda el motor de riesgo, no la señal de cambio canónica ni el nivel de alerta. structural-v2 calcula 1 / (1 + media de |z|): 1 = los check-ins recientes coinciden con la ventana del motor; un valor menor es más distancia. No indica ausencia de riesgo y no rellena un hueco con cero. Bandas de esa entrada: estable ≥ 1/2,2 (≈ 0,455), transición ≥ 1/2,95 (≈ 0,339), inestable por debajo. Las reglas usan un componente de deterioro separado para que las mejoras no compensen señales adversas."
+      question="¿Qué similitud guardó el motor de riesgo entre la semana reciente y su referencia personal previa?"
+      howToRead="Esta gráfica es la similitud de check-ins que guarda el motor de riesgo, no la señal de cambio canónica ni el nivel de alerta. structural-v3 compara la media por día de los últimos 7 días con los 28 días ANTERIORES (sin días compartidos) y calcula 1 / (1 + media de |z|): 1 = la semana reciente coincide con la referencia; un valor menor es más distancia. No indica ausencia de riesgo y no rellena un hueco con cero. Bandas de structural-v3 (provisionales, ADR 0003): estable > 1/2,0 (0,5), transición > 1/2,3 (≈ 0,435), inestable por debajo; además hace falta un cambio bruto mínimo en algún eje. Los tramos structural-v2 conservan sus bandas (≈ 0,455 y ≈ 0,339). Las reglas usan un componente de deterioro separado para que las mejoras no compensen señales adversas."
       empty={segments.length === 0}
       footer={
-        versions.length > 1 || versions.some((version) => version !== "structural-v2") ? (
+        versions.length > 1 || versions.some((version) => version !== CURRENT_STRUCTURAL_VERSION) ? (
           <p className="chart-footnote">
             Una sola serie con todos los cálculos guardados. La línea vertical marca el cambio de fórmula: los valores a
             cada lado no son directamente comparables y cada tramo usa las bandas de su versión. Los puntos sin versión
@@ -261,7 +267,7 @@ export function StructuralScoreChart({ points }: { points: StructuralPoint[] }) 
               <ReferenceArea key={`s-${key}`} x1={segment.start} x2={x2} y1={bands.stableMin} y2={1} fill="#55bd91" fillOpacity={0.06} />,
               <ReferenceArea key={`t-${key}`} x1={segment.start} x2={x2} y1={bands.transitionMin} y2={bands.stableMin} fill="#e5b75f" fillOpacity={0.08} />,
               <ReferenceArea key={`u-${key}`} x1={segment.start} x2={x2} y1={0} y2={bands.transitionMin} fill="#e36a6a" fillOpacity={0.07} />,
-              ...(segment.version === "structural-v2"
+              ...(segment.version === CURRENT_STRUCTURAL_VERSION || segment.version === "structural-v2"
                 ? [
                     <ReferenceLine key={`ls-${key}`} segment={[{ x: segment.start, y: bands.stableMin }, { x: x2, y: bands.stableMin }]} stroke="#55bd91" strokeDasharray="4 4" />,
                     <ReferenceLine key={`lt-${key}`} segment={[{ x: segment.start, y: bands.transitionMin }, { x: x2, y: bands.transitionMin }]} stroke="#e36a6a" strokeDasharray="4 4" />,

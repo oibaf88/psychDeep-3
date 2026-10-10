@@ -368,7 +368,7 @@ export function readComparison(
   const windowsLine =
     recentWin || refWin
       ? `Periodo reciente: ${recentWin ?? "no disponible"} · Referencia: ${refWin ?? "no disponible"}${
-          (summary.algorithm_version ?? "") === "canonical-structural-v2" ? " (la referencia no incluye el periodo reciente)" : ""
+          ["canonical-structural-v2", "canonical-structural-v3"].includes(summary.algorithm_version ?? "") ? " (la referencia no incluye el periodo reciente)" : ""
         }`
       : null;
 

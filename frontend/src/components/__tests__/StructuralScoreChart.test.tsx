@@ -33,7 +33,10 @@ describe("StructuralScoreChart across calculation versions (bug 2)", () => {
       ["structural-v2", "2026-10-01", "2026-10-03", 2],
     ]);
     expect(structuralVersionLabel(null)).toBe("Sin versión registrada");
-    expect(structuralVersionLabel("structural-v2")).toBe("structural-v2 · fórmula actual");
+    expect(structuralVersionLabel("structural-v2")).toBe("structural-v2 · cálculo histórico");
+    expect(structuralVersionLabel("structural-v3")).toBe(
+      "structural-v3 · fórmula actual (referencia previa, bandas provisionales)",
+    );
   });
 
   it("renders ONE chart with a version legend instead of one chart per version", () => {
@@ -42,7 +45,7 @@ describe("StructuralScoreChart across calculation versions (bug 2)", () => {
     const legend = screen.getByRole("list", { name: "Versiones de cálculo en la serie" });
     expect(legend).toHaveTextContent("Sin versión registrada");
     expect(legend).toHaveTextContent("structural-v1 · cálculo histórico");
-    expect(legend).toHaveTextContent("structural-v2 · fórmula actual");
+    expect(legend).toHaveTextContent("structural-v2 · cálculo histórico");
     expect(screen.getByText(/La línea vertical marca el cambio de fórmula/)).toBeInTheDocument();
     expect(screen.queryByText(/Cada versión tiene su propia gráfica/)).not.toBeInTheDocument();
   });

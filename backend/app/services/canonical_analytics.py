@@ -1,6 +1,6 @@
 """Canonical longitudinal analytics: Observation -> FeatureValue -> BaselineVersion -> ChangeSignal.
 
-Deterministic, local statistics adapted from structural-v2 ideas in baseline.py.
+Deterministic, local statistics sharing ``change_config`` with baseline.py (structural-v3).
 This path never calculates clinical RiskAssessment and never calls an LLM.
 Risk/safety remains on /api/v1/safety/evaluate via the risk engine.
 """
@@ -22,27 +22,31 @@ from app.models_vnext import (
     FeatureValue,
     Observation,
 )
+from app.services import change_config
 from app.services.baseline import (
     BASELINE_WINDOW_DAYS,
     RECENT_WINDOW_DAYS,
     STD_FLOORS,
-    _deviation_band,
     _finite_number,
     _mean_std,
 )
+from app.services.daily_statistics import local_day
 from app.utils import as_utc as _utc
 
 logger = logging.getLogger("psychapp.trajectory")
 
 # v2: the personal reference no longer contains the recent window it is
 # compared against (see ``baseline_reference_window``).
-ALGORITHM_VERSION = "canonical-structural-v2"
+# v3 (ADR 0003): shared evidence-based config (28-day reference, day means,
+# |z| cut-offs 1.0 / 1.3 plus raw-scale guards), provisional population prior.
+ALGORITHM_VERSION = "canonical-structural-v3"
 # Earlier canonical versions this module wrote. A new run supersedes their
 # readable baselines so only one reference per person is current.
-SUPERSEDED_ALGORITHM_VERSIONS = ("canonical-structural-v1", ALGORITHM_VERSION)
-FEATURE_VERSION = "v1"
+SUPERSEDED_ALGORITHM_VERSIONS = ("canonical-structural-v1", "canonical-structural-v2", ALGORITHM_VERSION)
+FEATURE_VERSION = "v2"
 
-MIN_OBS_FOR_BASELINE = 5
+# Minimum distinct DAYS with a value in the reference, per axis.
+MIN_OBS_FOR_BASELINE = change_config.MIN_REFERENCE_DAYS
 
 # Observation.type values dual-written from check-ins.
 OBSERVATION_TYPES = ("mood", "craving", "sleep_hours", "self_efficacy")
@@ -150,6 +154,7 @@ def _ensure_feature_definitions(db: Session) -> dict[str, FeatureDefinition]:
             db.query(FeatureDefinition)
             .filter(
                 FeatureDefinition.feature_key == obs_type,
+                FeatureDefinition.version == FEATURE_VERSION,
                 FeatureDefinition.status == "active",
             )
             .order_by(FeatureDefinition.created_at.desc())
@@ -160,12 +165,14 @@ def _ensure_feature_definitions(db: Session) -> dict[str, FeatureDefinition]:
             row = FeatureDefinition(
                 feature_key=obs_type,
                 version=FEATURE_VERSION,
-                formula=f"mean({obs_type}) over recent window; craving inverted for z-score",
+                formula=f"mean of day means({obs_type}) over recent window; craving inverted for z-score",
                 unit=unit,
                 window_spec={
                     "baseline_days": BASELINE_WINDOW_DAYS,
                     "recent_days": RECENT_WINDOW_DAYS,
                     "min_n": MIN_OBS_FOR_BASELINE,
+                    "min_n_unit": "days",
+                    "change_config": change_config.describe(),
                 },
                 missingness_policy="missing_is_not_zero; axis omitted from composite when absent",
                 valid_range={"min": 0.0, "max": 24.0 if obs_type == "sleep_hours" else 10.0},
@@ -222,13 +229,24 @@ def _load_typed_observations(
     return by_type
 
 
+def _day_mean_values(obs_type: str, pairs: list[tuple[Observation, float]]) -> list[float]:
+    """Axis values averaged per local day: several reports on one day count once."""
+    by_day: dict[str, list[float]] = {}
+    for obs, raw in pairs:
+        occurred = getattr(obs, "occurred_at", None)
+        if not isinstance(occurred, datetime):
+            continue
+        by_day.setdefault(local_day(occurred), []).append(_to_axis_value(obs_type, raw))
+    return [statistics.fmean(by_day[day]) for day in sorted(by_day)]
+
+
 def _axis_stats_from_obs(
     by_type: dict[str, list[tuple[Observation, float]]],
 ) -> dict[str, dict[str, float]]:
     stats: dict[str, dict[str, float]] = {}
     for obs_type in OBSERVATION_TYPES:
         axis = AXIS_FOR_TYPE[obs_type]
-        values = [_to_axis_value(obs_type, raw) for _, raw in by_type.get(obs_type, [])]
+        values = _day_mean_values(obs_type, by_type.get(obs_type, []))
         if not values:
             continue
         mean, std = _mean_std(values)
@@ -317,12 +335,13 @@ def run_canonical_analytics(
     feature_keys: list[str] = []
     change_signals: list[ChangeSignal] = []
     z_scores: dict[str, float] = {}
+    raw_differences: dict[str, float] = {}
     abs_z_values: list[float] = []
 
     for obs_type in OBSERVATION_TYPES:
         axis = AXIS_FOR_TYPE[obs_type]
         recent_pairs = recent_obs.get(obs_type, [])
-        recent_values = [_to_axis_value(obs_type, raw) for _, raw in recent_pairs]
+        recent_values = _day_mean_values(obs_type, recent_pairs)
         obs_refs = [str(obs.id) for obs, _ in recent_pairs]
         defn = definitions.get(obs_type)
         feature_version = defn.version if defn is not None else FEATURE_VERSION
@@ -380,15 +399,24 @@ def run_canonical_analytics(
             mean_b = axis_stats["mean"]
             std_b = axis_stats["std"]
             effective_std = max(std_b, STD_FLOORS[axis])
-            z = (fv_payload["mean"] - mean_b) / effective_std
+            raw_difference = fv_payload["mean"] - mean_b
+            z = raw_difference / effective_std
             z_scores[axis] = round(z, 6)
+            raw_differences[axis] = round(raw_difference, 6)
             abs_z_values.append(abs(z))
             change_value = round(z, 6)
-            band = _deviation_band(abs(z))
+            band = change_config.axis_band(axis, z, raw_difference)
             uncertainty = {
                 "effective_std": effective_std,
                 "baseline_n": int(axis_stats["n"]),
                 "recent_n": int(fv_payload["n"]),
+                "n_unit": "days",
+                "raw_difference_axis": round(raw_difference, 6),
+                "reliable_change_index": change_config.reliable_change_index(
+                    raw_difference, effective_std, int(fv_payload["n"]), int(axis_stats["n"])
+                ),
+                "config_version": change_config.CONFIG_VERSION,
+                "calibration_status": change_config.CALIBRATION_STATUS,
             }
         else:
             uncertainty = {
@@ -417,7 +445,7 @@ def run_canonical_analytics(
     # Composite structural change signal (still a ChangeSignal, not RiskAssessment).
     if len(z_scores) == len(AXES):
         composite_z = statistics.fmean(abs_z_values)
-        composite_band = _deviation_band(composite_z)
+        composite_band = change_config.composite_band(composite_z, raw_differences)
         composite_change = round(composite_z, 6)
     else:
         composite_z = None
@@ -433,8 +461,11 @@ def run_canonical_analytics(
         band=composite_band,
         uncertainty={
             "z_scores": z_scores,
+            "raw_differences_axis": raw_differences,
             "axes_present": sorted(z_scores.keys()),
             "axes_required": list(AXES),
+            "config_version": change_config.CONFIG_VERSION,
+            "calibration_status": change_config.CALIBRATION_STATUS,
         },
         evidence_refs=[
             {"kind": "baseline_version", "id": str(baseline_row.id)},

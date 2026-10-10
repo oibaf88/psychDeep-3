@@ -422,7 +422,9 @@ function RiskAssessmentCard({ assessment, featured }: { assessment: RiskAssessme
   const traceInputs = isRecord(trace.inputs) ? trace.inputs : {};
   const structuralInput = isRecord(traceInputs.structural) ? traceInputs.structural : {};
   const structuralVersion = stringValue(structuralInput, ["calculation_version"]) || stringValue(inputSignals, ["structural_calculation_version"]) || "structural-v1";
-  const meterThresholds = structuralVersion === "structural-v2"
+  const meterThresholds = structuralVersion === "structural-v3"
+    ? { low: 1 / 2.3, high: 1 / 2.0 }
+    : structuralVersion === "structural-v2"
     ? { low: 1 / 2.95, high: 1 / 2.2 }
     : structuralVersion === "structural-v1" ? { low: 0.35, high: 0.6 } : null;
   const agent2Input = isRecord(traceInputs.agent2) ? traceInputs.agent2 : {};
