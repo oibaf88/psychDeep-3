@@ -4,8 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import PatientDashboard from "../PatientDashboard";
 import { api } from "../../api";
-import type { PatientStateResponse } from "../longitudinalReading";
-
 vi.mock("../../api", async () => {
   const actual = await vi.importActual<typeof import("../../api")>("../../api");
   return {
@@ -17,58 +15,31 @@ vi.mock("../../api", async () => {
   };
 });
 
-const windowRange = { start: "2026-09-01", end: "2026-10-01" };
+import {
+  calculatedLongitudinal,
+  insufficientLongitudinal,
+  migratedLongitudinal,
+} from "./longitudinalFixtures";
 
-function signal(feature: string, band: string, change: number | null) {
-  return {
-    signal_id: `${feature}-id`,
-    feature,
-    band,
-    change,
-    uncertainty:
-      change == null
-        ? { reason: "insufficient_baseline_or_recent", baseline_n: 0, recent_n: 0 }
-        : { recent_n: 6, baseline_n: 12 },
-    contradictions: [],
-    window: windowRange,
-  };
-}
+type PatientStateResponse = Record<string, unknown>;
 
 const calculatedState: PatientStateResponse = {
   missing: [],
   safety: { alert_level: 4, assessment_id: "assessment-should-not-render" },
-  longitudinal: {
-    baseline: {
-      status: "active",
-      baseline: { stability: "eligible", data_coverage: 1, window: windowRange },
-    },
-    changes: [
-      signal("mood", "transition", 1.2),
-      signal("craving", "stable", 0.2),
-      signal("sleep_hours", "stable", -0.1),
-      signal("self_efficacy", "unstable", 2.4),
-      signal("structural_composite", "unstable", 1.1),
-    ],
-  },
+  longitudinal: calculatedLongitudinal,
   limits: ["La ausencia de una señal no demuestra ausencia de riesgo."],
 };
 
 const insufficientState: PatientStateResponse = {
   missing: ["sleep_hours", "mood"],
   safety: { alert_level: null, assessment_id: null },
-  longitudinal: {
-    baseline: {
-      status: "insufficient_data",
-      baseline: null,
-    },
-    changes: [
-      signal("mood", "insufficient_data", null),
-      signal("craving", "insufficient_data", null),
-      signal("sleep_hours", "insufficient_data", null),
-      signal("self_efficacy", "insufficient_data", null),
-      signal("structural_composite", "insufficient_data", null),
-    ],
-  },
+  longitudinal: insufficientLongitudinal,
+};
+
+const migratedState: PatientStateResponse = {
+  missing: [],
+  safety: { alert_level: 1, assessment_id: "a" },
+  longitudinal: migratedLongitudinal,
 };
 
 function mockGets(state: PatientStateResponse) {
@@ -99,22 +70,18 @@ describe("PatientDashboard longitudinal change", () => {
 
     const region = await screen.findByRole("region", { name: "Cambio respecto a tu línea de base" });
     expect(region).toHaveTextContent("Bastante distinto de lo habitual en ti");
-    expect(region).toHaveTextContent("Un poco distinto de lo habitual en ti");
-    expect(region).toHaveTextContent("Ánimo");
-    expect(region).toHaveTextContent("Sirve como referencia");
-    expect(region).toHaveTextContent("100% de las áreas con referencia");
-    expect(region).toHaveTextContent("No es una alerta de riesgo.");
-    expect(region).toHaveTextContent("No es un nivel de alerta");
-    expect(region).toHaveTextContent("La ausencia de una señal no demuestra ausencia de riesgo.");
+    expect(region).toHaveTextContent("Ánimo más bajo que lo habitual (-2,9 puntos).");
+    expect(region).toHaveTextContent("3,5/10 de media en el periodo reciente frente a 6,4/10 en tu referencia.");
+    expect(region).toHaveTextContent("Más deseo de consumo que lo habitual");
+    expect(region).toHaveTextContent("La ausencia de una señal de cambio no demuestra ausencia de riesgo.");
     expect(region).not.toHaveTextContent("Nivel 4");
     expect(region).not.toHaveTextContent("assessment-should-not-render");
     expect(region).not.toHaveTextContent("unstable");
     expect(region.className).not.toMatch(/alert-level|level-pill/);
     const summary = screen.getByRole("region", { name: "Resumen del cambio respecto a tu línea de base" });
     expect(summary).toHaveTextContent("Bastante distinto de lo habitual en ti");
-    expect(summary).toHaveTextContent("Sirve como referencia");
-    expect(summary).toHaveTextContent("Cubre las áreas del registro");
-    expect(summary).toHaveTextContent("100% de las áreas con referencia");
+    expect(summary).toHaveTextContent("Comparación calculada");
+    expect(summary).toHaveTextContent("4 de 4");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bastante distinto de lo habitual en ti");
     expect(screen.getByRole("button", { name: "Ocultar sugerencia por ahora" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Abrir Tendencias" })).not.toBeInTheDocument();
@@ -129,13 +96,10 @@ describe("PatientDashboard longitudinal change", () => {
     renderHoy();
 
     const region = await screen.findByRole("region", { name: "Cambio respecto a tu línea de base" });
-    expect(region).toHaveTextContent("Todavía no hay una comparación con tu línea de base");
-    expect(region).toHaveTextContent("no hay datos suficientes");
-    expect(region).toHaveTextContent("no significa que todo vaya bien");
-    expect(region).toHaveTextContent("Faltan observaciones recientes de Sueño y Ánimo");
-    expect(region).toHaveTextContent("no se interpreta como cero");
-    expect(region).toHaveTextContent("Aún insuficiente");
-    expect(region).toHaveTextContent("La ausencia de una señal no demuestra ausencia de riesgo.");
+    expect(region).toHaveTextContent("Aún no hay registros suficientes para tu referencia personal");
+    expect(region).toHaveTextContent("Ánimo: tu referencia tiene 0 de los 5 registros mínimos (4 registros recientes).");
+    expect(region).toHaveTextContent("eso no significa que todo vaya bien");
+    expect(region).toHaveTextContent("La ausencia de una señal de cambio no demuestra ausencia de riesgo.");
     expect(region).not.toHaveTextContent(/sin riesgo|no hay riesgo|0%/i);
     expect(region).not.toHaveTextContent("insufficient_data");
     expect(within(region).queryByText("0")).not.toBeInTheDocument();
@@ -171,7 +135,16 @@ describe("PatientDashboard longitudinal change", () => {
       );
     });
     const region = screen.getByRole("region", { name: "Cambio respecto a tu línea de base" });
-    expect(region).not.toHaveTextContent("Todavía no hay una comparación con tu línea de base");
+    expect(region).not.toHaveTextContent("Aún no hay registros suficientes");
     expect(region).not.toHaveTextContent("Nivel 4");
+  });
+
+  it("a migrated patient never sees 'reference ready' next to 'no data' (bug 3)", async () => {
+    mockGets(migratedState);
+    renderHoy();
+    const summary = await screen.findByRole("region", { name: "Resumen del cambio respecto a tu línea de base" });
+    await waitFor(() => expect(summary).toHaveTextContent("Todavía no se ha calculado tu comparación"));
+    expect(document.body).not.toHaveTextContent(/Sirve como referencia|Cubre las áreas|Ya hay referencia/);
+    expect(summary).toHaveTextContent("Comparación sin calcular");
   });
 });
