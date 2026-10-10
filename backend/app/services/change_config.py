@@ -6,7 +6,7 @@ ONE place for the windows, floors and band cut-offs used by BOTH
 
 Every value here is a **provisional population prior until sufficient personal
 data** exists. The evidence, derivations and limitations are in
-``docs/adr/ADR-0009-evidence-based-change-bands.md``. Changing a value requires
+``docs/adr/0003-evidence-based-change-bands.md``. Changing a value requires
 a new ``CONFIG_VERSION`` (and new algorithm versions), never an in-place edit,
 so stored rows stay reproducible.
 
