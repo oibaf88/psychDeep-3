@@ -1,9 +1,16 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, AssignmentOut, CheckInIn, PatientTimelineOut, formatDay } from "../api";
+import { api, AssignmentOut, CheckInIn, LongitudinalStateOut, PatientTimelineOut, formatDay } from "../api";
 import { PatientTrajectoryChart } from "../components/ClinicalCharts";
 import { PatientTrendSummary } from "../components/PatientTrendSummary";
-import { longitudinalFraming, type PatientStateResponse } from "./longitudinalReading";
+import ComparisonDetails, { ComparisonFacts } from "../components/ComparisonDetails";
+import { readComparison } from "./longitudinalModel";
+
+interface PatientStateResponse {
+  longitudinal?: LongitudinalStateOut | null;
+  missing?: string[];
+  limits?: string[];
+}
 
 const emptyForm: CheckInIn = { mood: 5, craving: 3, sleep_hours: 7, self_efficacy: 5, notes: "" };
 
@@ -70,15 +77,13 @@ export default function PatientDashboard() {
   }
 
   const latestPoint = timeline?.points?.length ? timeline.points[timeline.points.length - 1] : null;
-  const framing = patientState ? longitudinalFraming(patientState) : null;
-  const heroHeadline = framing?.headline ?? (stateError ? "No disponible" : "Leyendo tu referencia");
-  const heroMeta = framing
-    ? `${framing.baselineStatus} · ${framing.coverage}`
-    : stateError
-      ? "Comparación no disponible"
-      : "Leyendo tu línea de base";
-  const heroExplanation = framing
-    ? framing.explanation
+  // One reading for the whole page: the hero and the detailed section below
+  // can no longer disagree, because both render this same object.
+  const reading = patientState ? readComparison(patientState.longitudinal, "patient") : null;
+  const heroHeadline = reading?.headline ?? (stateError ? "No disponible" : "Leyendo tu referencia");
+  const heroMeta = stateError ? "Comparación no disponible" : "Leyendo tu línea de base";
+  const heroExplanation = reading
+    ? reading.explanation
     : stateError
       ? "No se pudo cargar la comparación. Esa falta no significa que no haya cambio ni que no haya riesgo."
       : "Leyendo cómo está tu registro reciente respecto a lo habitual en ti.";
@@ -116,22 +121,9 @@ export default function PatientDashboard() {
         <p className="hoy-kicker">Hoy</p>
         <h1>{heroHeadline}</h1>
         <p className="hoy-lead__explain">{heroExplanation}</p>
-        {framing?.missingNotice && <p className="hoy-missing">{framing.missingNotice}</p>}
-        {framing ? (
-          <dl className="hoy-facts">
-            <div>
-              <dt>Referencia</dt>
-              <dd>{framing.baselineStatus}</dd>
-            </div>
-            <div>
-              <dt>Calidad</dt>
-              <dd>{framing.referenceQuality}</dd>
-            </div>
-            <div>
-              <dt>Cobertura</dt>
-              <dd>{framing.coverage}</dd>
-            </div>
-          </dl>
+        {reading?.staleNotice && <p className="hoy-missing">{reading.staleNotice}</p>}
+        {reading ? (
+          <ComparisonFacts reading={reading} className="hoy-facts" />
         ) : (
           <p className="hoy-lead__waiting">{heroMeta}</p>
         )}
@@ -365,45 +357,11 @@ export default function PatientDashboard() {
 
         {!patientState && !stateError && <p>Leyendo tu línea de base…</p>}
 
-        {framing && (
+        {reading && (
           <>
-            <div className="trend-summary" aria-label="Calidad de la línea de base">
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Referencia</span>
-                <span className="trend-summary__value">{framing.baselineStatus}</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Calidad</span>
-                <span className="trend-summary__value">{framing.referenceQuality}</span>
-              </div>
-              <div className="trend-summary__item">
-                <span className="trend-summary__label">Cobertura</span>
-                <span className="trend-summary__value">{framing.coverage}</span>
-              </div>
-            </div>
-
-            <p className="longitudinal-change__headline">{framing.headline}</p>
-            <p>{framing.explanation}</p>
-
-            {framing.featureLines.length > 0 && (
-              <ul className="longitudinal-change__list">
-                {framing.featureLines.map((line) => (
-                  <li className="longitudinal-change__item" key={line.signalId}>
-                    <h3>{line.label}</h3>
-                    <p className="longitudinal-change__band">{line.bandLabel}</p>
-                    <p>{line.detail}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {framing.pendingNotice && <p>{framing.pendingNotice}</p>}
-            {framing.missingNotice && <p>{framing.missingNotice}</p>}
-            {framing.limits.map((limit) => (
-              <p className="chart-reading-note" key={limit}>
-                {limit}
-              </p>
-            ))}
+            <p className="longitudinal-change__headline">{reading.headline}</p>
+            <p>{reading.explanation}</p>
+            <ComparisonDetails reading={reading} audience="patient" />
           </>
         )}
       </section>
