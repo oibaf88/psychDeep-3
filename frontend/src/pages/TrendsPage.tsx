@@ -9,6 +9,7 @@ import {
   baselineStabilityLabel,
   baselineStatusLabel,
   calculatedChangeText,
+  explainBaselineExclusions,
   featureLabel,
   insufficientChangeNotice,
   latestByFeature,
@@ -56,6 +57,7 @@ export default function TrendsPage() {
   const comparableChanges = changes.filter((change) => change.feature !== "structural_composite");
   const calculatedChanges = comparableChanges.filter(signalWasCalculated);
   const whole = changes.find((change) => change.feature === "structural_composite" && signalWasCalculated(change));
+  const exclusionNote = explainBaselineExclusions(baseline, formatDay);
 
   return (
     <div className="page">
@@ -145,6 +147,12 @@ export default function TrendsPage() {
             ? formatDay(baseline.baseline.window.start) + " – " + formatDay(baseline.baseline.window.end)
             : "no disponible"}
         </p>
+
+        {exclusionNote && (
+          <p className="chart-reading-note" data-testid="baseline-exclusions">
+            <strong>Qué se deja fuera:</strong> {exclusionNote}
+          </p>
+        )}
       </section>
 
       <section className="card" aria-labelledby="signals-heading">

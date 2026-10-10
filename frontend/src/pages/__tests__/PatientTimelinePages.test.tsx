@@ -136,4 +136,73 @@ describe("patient timeline views", () => {
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
     expect(screen.queryByText(/nivel de alerta\s*\d/i)).not.toBeInTheDocument();
   });
+
+  it("shows what the personal baseline left out when exclusions exist", async () => {
+    vi.spyOn(api, "get").mockImplementation(async <T,>(path: string): Promise<T> => {
+      if (path.startsWith("/api/v1/timeline")) return structuredClone(timeline) as T;
+      if (path === "/api/v1/baselines/current") {
+        return {
+          status: "active",
+          baseline: {
+            id: "bv-1",
+            stability: "eligible",
+            data_coverage: 1,
+            window: { start: "2026-08-18", end: "2026-09-08" },
+            exclusions: [
+              {
+                kind: "comparison_window",
+                reason: "recent_window_is_compared_not_absorbed",
+                window: { start: "2026-09-08T12:00:00+00:00", end: "2026-09-15T12:00:00+00:00" },
+                observation_counts: { mood: 4, craving: 3, sleep_hours: 3, self_efficacy: 3 },
+              },
+            ],
+          },
+        } as T;
+      }
+      if (path.startsWith("/api/v1/changes")) return [] as T;
+      throw new Error(`Unexpected test request: ${path}`);
+    });
+
+    render(
+      <MemoryRouter>
+        <TrendsPage />
+      </MemoryRouter>,
+    );
+
+    const note = await screen.findByTestId("baseline-exclusions");
+    expect(note).toHaveTextContent(/Qué se deja fuera/);
+    expect(note).toHaveTextContent(/no incluye el periodo reciente/);
+    expect(note).toHaveTextContent(/Ánimo \(4\)/);
+    expect(screen.queryByText(/sin riesgo|no hay riesgo/i)).not.toBeInTheDocument();
+  });
+
+  it("stays quiet about exclusions when the baseline list is empty", async () => {
+    vi.spyOn(api, "get").mockImplementation(async <T,>(path: string): Promise<T> => {
+      if (path.startsWith("/api/v1/timeline")) return structuredClone(timeline) as T;
+      if (path === "/api/v1/baselines/current") {
+        return {
+          status: "active",
+          baseline: {
+            id: "bv-2",
+            stability: "eligible",
+            data_coverage: 0.75,
+            window: { start: "2026-08-18", end: "2026-09-08" },
+            exclusions: [],
+          },
+        } as T;
+      }
+      if (path.startsWith("/api/v1/changes")) return [] as T;
+      throw new Error(`Unexpected test request: ${path}`);
+    });
+
+    render(
+      <MemoryRouter>
+        <TrendsPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { name: "Tu línea de base" });
+    expect(screen.queryByTestId("baseline-exclusions")).not.toBeInTheDocument();
+  });
+
 });

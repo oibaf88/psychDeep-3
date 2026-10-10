@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   baselineCoverage,
+  baselineExclusions,
   baselineHero,
   calculatedChangeText,
+  explainBaselineExclusions,
   insufficientChangeNotice,
   patientBand,
   signalWasCalculated,
@@ -54,4 +56,35 @@ describe("patient trajectory reading", () => {
     expect(baselineHero(snapshot)).toBe("Aún insuficiente");
     expect(baselineCoverage(snapshot)).toBe("Todavía sin cobertura");
   });
+
+  it("explains comparison-window exclusions without implying risk", () => {
+    const snapshot = {
+      status: "active",
+      baseline: {
+        stability: "eligible",
+        data_coverage: 1,
+        window: { start: "2026-08-18", end: "2026-09-08" },
+        exclusions: [
+          {
+            kind: "comparison_window",
+            reason: "recent_window_is_compared_not_absorbed",
+            window: { start: "2026-09-08T12:00:00+00:00", end: "2026-09-15T12:00:00+00:00" },
+            observation_counts: { mood: 4, craving: 3, sleep_hours: 3, self_efficacy: 3 },
+          },
+        ],
+      },
+    };
+    expect(baselineExclusions(snapshot)).toHaveLength(1);
+    const note = explainBaselineExclusions(snapshot, (value) => (value ?? "").slice(0, 10));
+    expect(note).toContain("no incluye el periodo reciente");
+    expect(note).toContain("2026-09-08");
+    expect(note).toContain("2026-09-15");
+    expect(note).toContain("Ánimo (4)");
+    expect(note).toContain("Craving (3)");
+    expect(note).not.toMatch(/sin riesgo|no hay riesgo|alerta/i);
+    expect(note).not.toContain("canonical-structural");
+    expect(explainBaselineExclusions({ status: "active", baseline: { stability: "eligible", exclusions: [] } })).toBeNull();
+    expect(explainBaselineExclusions({ status: "insufficient_data", baseline: null })).toBeNull();
+  });
+
 });

@@ -9,6 +9,13 @@ export interface TrajectorySignal {
   algorithm_version?: string;
 }
 
+export interface BaselineExclusion {
+  kind?: string;
+  reason?: string;
+  window?: { start?: string; end?: string };
+  observation_counts?: Record<string, number>;
+}
+
 export interface BaselineSnapshot {
   status: string;
   baseline: null | {
@@ -16,6 +23,7 @@ export interface BaselineSnapshot {
     data_coverage?: number | null;
     window?: { start: string; end: string };
     algorithm_version?: string;
+    exclusions?: BaselineExclusion[] | null;
   };
 }
 
@@ -119,4 +127,49 @@ export function baselineStabilityLabel(stability: string): string {
   if (stability === "eligible") return "Cubre las áreas del registro";
   if (stability === "partial") return "Solo algunas áreas tienen registros suficientes";
   return patientBand(stability);
+}
+
+export function baselineExclusions(snapshot: BaselineSnapshot | null): BaselineExclusion[] {
+  const list = snapshot?.baseline?.exclusions;
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is BaselineExclusion => !!item && typeof item === "object");
+}
+
+function observationCountPhrase(counts: Record<string, number> | undefined): string {
+  if (!counts) return "";
+  const parts: string[] = [];
+  for (const [key, count] of Object.entries(counts)) {
+    if (typeof count === "number" && Number.isFinite(count) && count > 0) {
+      parts.push(`${featureLabel(key)} (${count})`);
+    }
+  }
+  if (!parts.length) return "";
+  return ` En ese periodo se dejaron fuera registros de ${joinSpanish(parts)}.`;
+}
+
+/** Plain-Spanish note of what the personal baseline left out. Quiet when empty. */
+export function explainBaselineExclusions(
+  snapshot: BaselineSnapshot | null,
+  formatDayFn: (value?: string | null) => string = (value) => value ?? "—",
+): string | null {
+  const exclusions = baselineExclusions(snapshot);
+  if (!exclusions.length) return null;
+
+  return exclusions
+    .map((exclusion) => {
+      const start = exclusion.window?.start;
+      const end = exclusion.window?.end;
+      const period =
+        start && end ? ` (del ${formatDayFn(start)} al ${formatDayFn(end)})` : "";
+      const counts = observationCountPhrase(exclusion.observation_counts);
+
+      if (exclusion.kind === "comparison_window" || !exclusion.kind) {
+        return (
+          `Tu referencia personal no incluye el periodo reciente que se está comparando${period}: ` +
+          `ese tramo se mira frente a lo habitual en ti, no se mezcla con la referencia.${counts}`
+        );
+      }
+      return `Parte de tus registros${period} no entra en la referencia personal.${counts}`;
+    })
+    .join(" ");
 }
