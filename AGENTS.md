@@ -122,9 +122,11 @@ This is the largest current product gap. Do not confuse navigation changes with 
   - Required completion: vNext UX, low cognitive load, reduced-motion handling and feedback/usefulness recording linked to the triggering context/action.
 - [~] **Plan — safety/prevention plan UX.**
   - Existing plan retained.
+  - National lines (024, 112) are always shown, including when the resources request fails; local resources come from an explicit `LOCAL_RESOURCES_REGION` setting (default `madrid`, `none` for national only) and are labelled with their region. Load/save failures now show an error instead of failing silently (2026-10-10 audit). Tests: `backend/tests/test_safety_resources_scope.py`, `frontend/src/pages/__tests__/DiarySafetyPlan.test.tsx`.
   - Required completion: warning signs, coping steps, supports, professional contacts, environment, one-tap access and integration with current state/change flows.
 - [~] **Diario — optional linguistic analysis with explicit consent.**
   - Separate consent enforcement exists.
+  - The diary copy now reads the patient's current `linguistic_analysis` consent: it says the text is analysed only when that consent is granted and not revoked, and otherwise that only deterministic safety rules review it (2026-10-10 audit). Load/save errors are shown.
   - Required completion: clearer UI explanation of what is analysed, what remains factual vs inferred, correction controls and graceful behaviour after revocation.
 - [~] **Compartir — user control and consultation preparation.**
   - A new page links assignments, consent, trends and facts.
