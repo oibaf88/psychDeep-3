@@ -70,6 +70,8 @@ MIN_SIGNALS_FOR_LINGUISTIC_BASELINE = 12
 # How far back the baseline looks. Long enough to describe a person, short
 # enough that a year-old way of writing does not define them today.
 LINGUISTIC_BASELINE_WINDOW_DAYS = 120
+# Same recent window as the check-in comparison (change_config.RECENT_WINDOW_DAYS).
+LINGUISTIC_RECENT_EXCLUSION_DAYS = 7
 
 # Recompute at most this often. The baseline moves slowly; recomputing it on
 # every message would be a query per message for a value that barely changes.
@@ -128,7 +130,11 @@ def compute_linguistic_stats(db: Session, user_id) -> tuple[dict, int]:
     Only active signals count. A signal a therapist has marked as wrong must
     not go on defining what is normal for the person it was wrong about.
     """
-    since = datetime.utcnow() - timedelta(days=LINGUISTIC_BASELINE_WINDOW_DAYS)
+    # The reference ends where the recent window starts (ADR 0003): a reading
+    # from the last LINGUISTIC_RECENT_EXCLUSION_DAYS is compared against this
+    # baseline, so it must not also be part of it.
+    until = datetime.utcnow() - timedelta(days=LINGUISTIC_RECENT_EXCLUSION_DAYS)
+    since = until - timedelta(days=LINGUISTIC_BASELINE_WINDOW_DAYS)
     signals = (
         db.query(AlfaSignal)
         .filter(
@@ -136,6 +142,7 @@ def compute_linguistic_stats(db: Session, user_id) -> tuple[dict, int]:
             AlfaSignal.signal_type == "linguistic_analysis",
             AlfaSignal.is_active == True,  # noqa: E712
             AlfaSignal.timestamp >= since,
+            AlfaSignal.timestamp < until,
         )
         .all()
     )

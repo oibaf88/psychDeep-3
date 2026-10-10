@@ -479,7 +479,7 @@ def level_explanation(
     signals = _as_dict(assessment.input_signals)
     score = _number(signals.get("structural_score"))
     band = signals.get("confidence_band")
-    if signals.get("structural_calculation_version") == "structural-v2":
+    if signals.get("structural_calculation_version") in baseline_service.DETERIORATION_VERSIONS:
         info = dict(info)
         if family == FAMILY_STRUCTURAL:
             info["plain"] = (
@@ -531,7 +531,7 @@ def level_explanation(
             f"tratamiento). Este nivel lo ha disparado el contexto, que suele moverse antes que el ánimo."
         )
     elif score is not None and family in (FAMILY_STRUCTURAL, FAMILY_CONVERGENCE):
-        if signals.get("structural_calculation_version") == "structural-v2":
+        if signals.get("structural_calculation_version") in baseline_service.DETERIORATION_VERSIONS:
             reconciliation = (
                 f"La similitud estructural es {score:.2f}. Las reglas estadísticas usan por separado "
                 f"el componente para revisión ({signals.get('deterioration_band', 'sin datos')}), "
@@ -631,7 +631,8 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         return empty
 
     version = structural.get("calculation_version") or signals.get("structural_calculation_version") or "structural-v1"
-    is_v2 = version == "structural-v2"
+    is_v2 = version in baseline_service.DETERIORATION_VERSIONS
+    is_v3 = version == "structural-v3"
     baseline_is_stale = structural.get("baseline_is_stale") is True
     deterioration_score = number(composite.get("deterioration_score")) if is_v2 else None
     if is_v2 and deterioration_score is None:
@@ -653,6 +654,13 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
             "unstable": "Media de |z| > 1.95: distancia descriptiva marcada (score < 1/2.95).",
             "insufficient_data": "Faltan observaciones válidas para comparar los cuatro ejes con la ventana del motor.",
         }.get(band)
+        if is_v3:
+            band_meaning = {
+                "stable": "Media de |z| < 1,0 (o ningún eje con cambio bruto relevante): estable (score > 1/2,0).",
+                "transition": "1,0 ≤ media de |z| < 1,3: transición (1/2,3 < score ≤ 1/2,0).",
+                "unstable": "Media de |z| ≥ 1,3: distancia marcada (score ≤ 1/2,3).",
+                "insufficient_data": "Faltan días válidos para comparar los cuatro ejes con la referencia previa.",
+            }.get(band)
 
     z_scores = _as_dict(signals.get("z_scores"))
     trace_variables = {row.get("key"): row for row in _as_list(structural.get("variables")) if isinstance(row, dict)}
@@ -794,7 +802,20 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         "usa el desglose por variable para saber si el cambio es a mejor o a peor.",
         "Los textos de chat y diario NO entran en este score. Se analizan por separado (Agente 2).",
     ]
-    if is_v2:
+    if is_v3:
+        caveats.extend(
+            [
+                "structural-v3 (ADR 0003): la referencia son los 28 días ANTERIORES a la semana reciente, sin "
+                "días compartidos; se usan medias por día. score = 1 / (1 + media de |z|), z = (media reciente − "
+                "media de referencia) / max(DE de referencia, suelo a priori): 1 punto en escalas 0-10, 0,5 h en sueño.",
+                "Bandas: |z| ≥ 1,0 transición y ≥ 1,3 inestable (criterio de cambio fiable para dos medias, 7 frente "
+                "a 28 días), y además al menos un eje con cambio bruto ≥ 1 punto (0,5 h en sueño). Parámetros "
+                "provisionales de población hasta disponer de ~100 días propios; pendiente de validación clínica formal.",
+                "El componente adverso usa max(−z, 0), salvo sueño, que usa |z|. No es una probabilidad de "
+                "suicidio, recaída o patología dual.",
+            ]
+        )
+    elif is_v2:
         caveats.extend(
             [
                 "structural-v2: score = 1 / (1 + media de |z|). z = (media reciente − media base) / "
