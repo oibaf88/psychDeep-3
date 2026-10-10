@@ -196,7 +196,7 @@ class DailyStatisticsIntegrationTests(unittest.TestCase):
         ])
         self.db.commit()
         metrics = PatientMetricsOut(**clinical_view.build_metrics(self.db, self.patient.id, 7))
-        self.assertEqual([point["calculation_version"] for point in metrics.structural], ["structural-v1", "structural-v2"])
+        self.assertEqual([point["calculation_version"] for point in metrics.structural], [None, "structural-v2"])  # unlabeled stays unlabeled
         timeline_result = TimelineOut(**timeline.build_timeline(self.db, self.patient.id, 7)).model_dump()
         self.assertEqual(timeline_result["points"][0]["structural_calculation_version"], "structural-v2")
         self.assertEqual(timeline_result["points"][0]["structural_score"], 0.6)
