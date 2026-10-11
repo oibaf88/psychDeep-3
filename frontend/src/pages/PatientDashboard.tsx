@@ -5,6 +5,7 @@ import { PatientTrajectoryChart } from "../components/ClinicalCharts";
 import { PatientTrendSummary } from "../components/PatientTrendSummary";
 import ComparisonDetails, { ComparisonFacts } from "../components/ComparisonDetails";
 import { readComparison } from "./longitudinalModel";
+import { suggestedActionFromReading } from "./hoySuggestedAction";
 
 interface PatientStateResponse {
   longitudinal?: LongitudinalStateOut | null;
@@ -13,13 +14,6 @@ interface PatientStateResponse {
 }
 
 const emptyForm: CheckInIn = { mood: 5, craving: 3, sleep_hours: 7, self_efficacy: 5, notes: "" };
-
-type SuggestedAction = {
-  title: string;
-  body: string;
-  button: string;
-  route: string;
-};
 
 export default function PatientDashboard() {
   const navigate = useNavigate();
@@ -88,32 +82,10 @@ export default function PatientDashboard() {
       ? "No se pudo cargar la comparación. Esa falta no significa que no haya cambio ni que no haya riesgo."
       : "Leyendo cómo está tu registro reciente respecto a lo habitual en ti.";
 
-  const suggestedAction = useMemo<SuggestedAction>(() => {
-    if (form.craving >= 7) {
-      return {
-        title: "Regular una ola",
-        body: "Tienes una urgencia alta en este momento. Puedes probar la práctica de la ola sin necesidad de resolver nada más ahora.",
-        button: "Ir a Regular",
-        route: "/wave",
-      };
-    }
-
-    if (form.self_efficacy <= 3) {
-      return {
-        title: "Bajar el ritmo",
-        body: "Cuando la confianza está baja, una práctica breve puede ayudarte a recuperar espacio antes de decidir el siguiente paso.",
-        button: "Ir a Regular",
-        route: "/wave",
-      };
-    }
-
-    return {
-      title: "Registrar y observar",
-      body: "No necesitas hacer más ahora. Puedes dejar este registro y volver a él más tarde para observar tu propia trayectoria.",
-      button: "Ver Tendencias",
-      route: "/trends",
-    };
-  }, [form.craving, form.self_efficacy]);
+  const suggestedAction = useMemo(
+    () => suggestedActionFromReading(reading, form),
+    [reading, form.craving, form.self_efficacy],
+  );
 
   return (
     <main className="page hoy" aria-label="Panel del paciente">

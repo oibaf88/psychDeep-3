@@ -162,6 +162,8 @@ export interface ComparisonRow {
   feature: string;
   label: string;
   calculated: boolean;
+  /** Raw ChangeSignal band when calculated; never an alert level. */
+  band: string | null;
   bandLabel: string;
   /** "3,5/10 de media en el periodo reciente frente a 6,4/10 en tu referencia". */
   valueLine: string | null;
@@ -268,6 +270,7 @@ function rowFor(signal: LongitudinalChangeOut, pending: PendingFeatureOut | unde
     feature: signal.feature,
     label: featureLabel(signal.feature),
     calculated,
+    band: calculated ? signal.band : null,
     bandLabel: calculated ? bandLabel(signal.band, audience) : "Sin comparación calculada",
     valueLine,
     directionLine,
