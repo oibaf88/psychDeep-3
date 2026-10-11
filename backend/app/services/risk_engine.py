@@ -15,12 +15,13 @@ from sqlalchemy.orm import Session
 
 from app.models import AlfaSignal, ConfirmedFact, ProfessionalAlert, RiskAssessment
 from app.services import baseline as baseline_service
+from app.services import change_config
 from app.services import notifications as notification_service
 from app.services import profile as profile_service
 from app.services import psychosocial as psychosocial_service
 from app.utils import utc_iso as _utc_iso
 
-MODEL_VERSION = "risk-engine-v1.5"
+MODEL_VERSION = "risk-engine-v1.6"
 
 # Operational review priorities, NOT a validated suicide/relapse prediction
 # scale. Text flags never constitute an administered C-SSRS/BAM/ASSIST.
@@ -266,7 +267,7 @@ def _persistence_detail(db: Session, user_id, band: str, days_minimum: int) -> d
     daily = {}
     for row in history:
         value = row.value or {}
-        if value.get("calculation_version") != "structural-v2":
+        if value.get("calculation_version") not in baseline_service.DETERIORATION_VERSIONS:
             continue
         day = row.timestamp.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("Europe/Madrid")).date().isoformat()
         daily.setdefault(day, value.get("deterioration_band"))
@@ -327,8 +328,8 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
         db.query(CheckIn).filter(CheckIn.user_id == user_id).order_by(CheckIn.created_at.desc()).limit(7).all()
     )
     ordered_checkins = list(reversed(recent_checkins))
-    sleep_values = [float(row.sleep_hours) for row in ordered_checkins]
-    sleep_detail = baseline_service.calculate_trend_detail(sleep_values)
+    sleep_values = [row.sleep_hours for row in ordered_checkins]
+    sleep_detail = baseline_service.calculate_trend_detail(sleep_values, "sleep_hours")
     sleep_worsening = sleep_detail.label == "empeorando"
     patient_profile = profile_service.get(db, user_id)
     rumination_deviation = profile_service.deviation(patient_profile, "rumination_score", rumination)
@@ -353,8 +354,9 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
     extreme_convergence = structural_extreme and (rumination_extreme or sleep_worsening)
     agent2_available = bool(ling["eligible_for_risk"])
 
-    craving_values = [float(row.craving) for row in ordered_checkins]
-    craving_detail = baseline_service.calculate_trend_detail(craving_values)
+    # Raw craving (not the inverted axis): a rising slope is "aumentando".
+    craving_values = [row.craving for row in ordered_checkins]
+    craving_detail = baseline_service.calculate_trend_detail(craving_values, "craving")
     craving_rising = craving_detail.label == "aumentando"
     negative_valence = ling.get("negative_valence")
     valence_deviation = profile_service.deviation(patient_profile, "negative_valence", negative_valence)
@@ -950,8 +952,9 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
                 "minimum_baseline_checkins": baseline_service.MIN_CHECKINS_FOR_BASELINE,
                 "agent2_freshness_hours": 12,
                 "critical_fact_window_hours": CRITICAL_DECLARATION_WINDOW_HOURS,
-                "structural_stable_gte": 1 / 2.2,
-                "structural_transition_gte": 1 / 2.95,
+                "structural_stable_gte": 1 / (1 + baseline_service.TRANSITION_MIN_COMPOSITE_Z),
+                "structural_transition_gte": 1 / (1 + baseline_service.UNSTABLE_MIN_COMPOSITE_Z),
+                "change_config": change_config.describe(),
                 "adverse_composite_extreme_gt": 2.4,
                 "personal_deviation_sigma": PERSONAL_DEVIATION_SIGMA,
                 "personal_baseline_minimum_signals": profile_service.MIN_SIGNALS_FOR_LINGUISTIC_BASELINE,

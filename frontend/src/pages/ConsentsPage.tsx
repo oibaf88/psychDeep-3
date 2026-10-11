@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ConsentOut, CONSENT_LABELS } from "../api";
+import { api, ConsentOut, CONSENT_LABELS, formatDateTime } from "../api";
 
 const TYPES = ["data_processing", "linguistic_analysis", "professional_sharing", "crisis_sms", "research"] as const;
 
@@ -56,7 +56,7 @@ export default function ConsentsPage() {
             <p>{EXPLANATIONS[type]}</p>
             <p className="meta">
               Estado actual: <strong className={active ? "badge-ok" : "badge-off"}>{active ? "Concedido" : "No concedido / revocado"}</strong>
-              {current && <> · desde {new Date(current.granted_at).toLocaleString()}</>}
+              {current && <> · desde {formatDateTime(current.granted_at)}</>}
             </p>
             <div className="alert-actions">
               {!active && <button onClick={() => setConsent(type, true)}>Conceder</button>}
@@ -72,7 +72,7 @@ export default function ConsentsPage() {
           {consents.map((c) => (
             <li key={c.id}>
               <strong>{CONSENT_LABELS[c.consent_type] || c.consent_type}</strong>: {c.granted ? "concedido" : "denegado"}
-              {c.revoked_at ? ` · revocado ${new Date(c.revoked_at).toLocaleString()}` : ""} · {new Date(c.granted_at).toLocaleString()}
+              {c.revoked_at ? ` · revocado ${formatDateTime(c.revoked_at)}` : ""} · {formatDateTime(c.granted_at)}
             </li>
           ))}
           {consents.length === 0 && <li>Sin registros.</li>}

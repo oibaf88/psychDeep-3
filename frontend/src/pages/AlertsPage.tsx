@@ -143,9 +143,9 @@ export default function AlertsPage() {
           </details>
 
           <p className="meta">
-            Estado: {a.status} · {new Date(a.created_at).toLocaleString()}
-            {a.acknowledged_at && ` · reconocida ${new Date(a.acknowledged_at).toLocaleString()}`}
-            {a.resolved_at && ` · resuelta ${new Date(a.resolved_at).toLocaleString()}`}
+            Estado: {a.status} · {formatDateTime(a.created_at)}
+            {a.acknowledged_at && ` · reconocida ${formatDateTime(a.acknowledged_at)}`}
+            {a.resolved_at && ` · resuelta ${formatDateTime(a.resolved_at)}`}
           </p>
           {a.resolution_notes && <p className="meta">Notas: {a.resolution_notes}</p>}
           {a.dismiss_reason && <p className="meta">Descarte: {a.dismiss_reason}</p>}

@@ -54,26 +54,36 @@ def seed_demo_data(db: Session) -> None:
     db.add(Consent(user_id=patient.id, consent_type="professional_sharing", granted=True))
     db.commit()
 
-    # 21 days of plausible, stable-ish check-ins so a baseline + a visible
+    # 28 days of plausible, stable-ish check-ins so a baseline + a visible
     # structural_score can be computed immediately (fully local, no LLM
     # required) -- lets you verify the risk engine and timeline without
     # an ANTHROPIC_API_KEY configured.
+    #
+    # Each check-in is dual-written to canonical Observations, exactly as
+    # POST /api/v1/checkins does, and the canonical analytics run once at the
+    # end. Without this the demo patient had a legacy structural score but no
+    # canonical baseline, so the screens disagreed (audit 2026-10-10).
+    from app.services.canonical_analytics import run_canonical_analytics
+    from app.services.canonical_data import record_checkin
+
     random.seed(42)
     now = datetime.utcnow()
-    for days_ago in range(21, 0, -1):
+    for days_ago in range(28, 0, -1):
         created_at = now - timedelta(days=days_ago, hours=random.randint(0, 6))
-        db.add(
-            CheckIn(
-                user_id=patient.id,
-                mood=random.randint(5, 7),
-                craving=random.randint(2, 4),
-                sleep_hours=round(random.uniform(6.0, 7.5), 1),
-                self_efficacy=random.randint(5, 7),
-                notes=None,
-                created_at=created_at,
-            )
+        checkin = CheckIn(
+            user_id=patient.id,
+            mood=random.randint(5, 7),
+            craving=random.randint(2, 4),
+            sleep_hours=round(random.uniform(6.0, 7.5), 1),
+            self_efficacy=random.randint(5, 7),
+            notes=None,
+            created_at=created_at,
         )
+        db.add(checkin)
+        db.flush()
+        record_checkin(db, checkin)
     db.commit()
+    run_canonical_analytics(db, patient.id)
 
     # Non-critical confirmed fact so the therapist dossier shows the "muro de hechos"
     # without incorrectly elevating risk (category "other" does not trigger N3/N4).

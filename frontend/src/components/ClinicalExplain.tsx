@@ -184,11 +184,11 @@ export function StructuralExplanationCard({ explanation }: { explanation: Struct
       <dl className="explain-grid">
         <div>
           <dt>Desviación adversa media</dt>
-          <dd>{explanation.adverse_composite_z?.toFixed(2) ?? "—"}{explanation.calculation_version === "structural-v2" ? " (media de los cuatro ejes, sin compensar con mejoras; sueño bilateral)" : " (cálculo histórico: media del subconjunto adverso)"}</dd>
+          <dd>{explanation.adverse_composite_z?.toFixed(2) ?? "—"}{["structural-v2", "structural-v3"].includes(explanation.calculation_version ?? "") ? " (media de los cuatro ejes, sin compensar con mejoras; sueño bilateral)" : " (cálculo histórico: media del subconjunto adverso)"}</dd>
         </div>
         <div>
           <dt>Desviación favorable media</dt>
-          <dd>{explanation.favourable_composite_z?.toFixed(2) ?? "—"}{explanation.calculation_version === "structural-v2" ? " (cuatro ejes; el sueño no se clasifica automáticamente como mejora)" : " (cálculo histórico: media del subconjunto favorable)"}</dd>
+          <dd>{explanation.favourable_composite_z?.toFixed(2) ?? "—"}{["structural-v2", "structural-v3"].includes(explanation.calculation_version ?? "") ? " (cuatro ejes; el sueño no se clasifica automáticamente como mejora)" : " (cálculo histórico: media del subconjunto favorable)"}</dd>
         </div>
         <div>
           <dt>Muestras usadas</dt>
@@ -208,7 +208,7 @@ export function StructuralExplanationCard({ explanation }: { explanation: Struct
         </div>
       </dl>
 
-      {explanation.calculation_version === "structural-v2" && (
+      {["structural-v2", "structural-v3"].includes(explanation.calculation_version ?? "") && (
         <p className="explain-reconcile">
           Componente de deterioro usado por las reglas: <strong>{explanation.deterioration_score?.toFixed(3) ?? "no evaluable"}</strong>
           {explanation.deterioration_band ? ` · ${explanation.deterioration_band}` : ""}. Es distinto de la similitud:

@@ -228,40 +228,44 @@ class ProfileColumnTests(unittest.TestCase):
 class UnfrozenBaselineTests(unittest.TestCase):
     """The check-in baseline used to be created once and never revisited."""
 
-    def test_a_fresh_baseline_is_reused(self):
+    def test_a_contiguous_non_overlapping_baseline_is_reused(self):
         from app.services import baseline
 
-        active = SimpleNamespace(created_at=datetime.utcnow() - timedelta(days=1))
+        now = datetime(2026, 10, 10, 12, 0, 0)
+        _, _, recent_start = baseline.windows_for(now)
+        active = SimpleNamespace(window_end=recent_start - timedelta(hours=3), created_at=now)
         db = SimpleNamespace()
         with unittest.mock.patch.object(baseline, "get_active_baseline", return_value=active), \
              unittest.mock.patch.object(baseline, "compute_or_refresh_baseline") as recompute:
-            self.assertIs(baseline._current_baseline(db, uuid.uuid4()), active)
+            self.assertIs(baseline._current_baseline(db, uuid.uuid4(), now), active)
         recompute.assert_not_called()
 
-    def test_a_stale_baseline_is_recomputed(self):
+    def test_an_overlapping_baseline_is_recomputed_and_never_reused(self):
+        """structural-v2 rows ended at 'now' and so contained the recent week."""
         from app.services import baseline
 
-        stale = SimpleNamespace(
-            created_at=datetime.utcnow() - timedelta(days=baseline.BASELINE_MAX_AGE_DAYS + 1)
-        )
-        fresh = SimpleNamespace(created_at=datetime.utcnow())
+        now = datetime(2026, 10, 10, 12, 0, 0)
+        overlapping = SimpleNamespace(window_end=now - timedelta(days=1), created_at=now - timedelta(days=1))
+        fresh = SimpleNamespace(window_end=now - timedelta(days=7))
         db = SimpleNamespace()
-        with unittest.mock.patch.object(baseline, "get_active_baseline", return_value=stale), \
+        with unittest.mock.patch.object(baseline, "get_active_baseline", return_value=overlapping), \
              unittest.mock.patch.object(baseline, "compute_or_refresh_baseline", return_value=fresh):
-            self.assertIs(baseline._current_baseline(db, uuid.uuid4()), fresh)
+            self.assertIs(baseline._current_baseline(db, uuid.uuid4(), now), fresh)
+        with unittest.mock.patch.object(baseline, "get_active_baseline", return_value=overlapping), \
+             unittest.mock.patch.object(baseline, "compute_or_refresh_baseline", return_value=None):
+            self.assertIsNone(baseline._current_baseline(db, uuid.uuid4(), now))
 
-    def test_a_stale_baseline_survives_a_failed_recompute(self):
+    def test_an_older_non_overlapping_baseline_survives_a_failed_recompute(self):
         """Losing a baseline because someone stopped checking in would take
         the structural axis offline exactly when it is worth watching."""
         from app.services import baseline
 
-        stale = SimpleNamespace(
-            created_at=datetime.utcnow() - timedelta(days=baseline.BASELINE_MAX_AGE_DAYS + 1)
-        )
+        now = datetime(2026, 10, 10, 12, 0, 0)
+        stale = SimpleNamespace(window_end=now - timedelta(days=baseline.BASELINE_MAX_AGE_DAYS + 1))
         db = SimpleNamespace()
         with unittest.mock.patch.object(baseline, "get_active_baseline", return_value=stale), \
              unittest.mock.patch.object(baseline, "compute_or_refresh_baseline", return_value=None):
-            self.assertIs(baseline._current_baseline(db, uuid.uuid4()), stale)
+            self.assertIs(baseline._current_baseline(db, uuid.uuid4(), now), stale)
 
 
 if __name__ == "__main__":

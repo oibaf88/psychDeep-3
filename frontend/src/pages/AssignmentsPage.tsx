@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, AssignmentOut, ASSIGNMENT_STATUS_LABELS, UserRole } from "../api";
+import { api, AssignmentOut, ASSIGNMENT_STATUS_LABELS, UserRole, formatDateTime } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { partitionAssignments } from "./assignmentGroups";
 
@@ -176,7 +176,7 @@ function AssignmentCard({
       <p className="meta">
         Estado: <strong>{ASSIGNMENT_STATUS_LABELS[assignment.status] || assignment.status}</strong>
         {" · "}
-        Solicitada: {new Date(assignment.requested_at).toLocaleString()}
+        Solicitada: {formatDateTime(assignment.requested_at)}
       </p>
       <p className="meta">
         Profesional: {assignment.professional_display_name} ({assignment.professional_email})

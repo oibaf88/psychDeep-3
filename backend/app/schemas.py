@@ -342,6 +342,9 @@ class LongitudinalChangeOut(BaseModel):
     contradictions: list[Any] = Field(default_factory=list)
     baseline_version: Optional[str] = None
     algorithm_version: str
+    # Cited FeatureValue + baseline axis, and the comparison on the declared
+    # scale (``evidence.display``). Null for the composite signal.
+    evidence: Optional[dict[str, Any]] = None
 
 
 class LongitudinalStateOut(BaseModel):
@@ -349,6 +352,9 @@ class LongitudinalStateOut(BaseModel):
 
     baseline: LongitudinalBaselineOut
     changes: list[LongitudinalChangeOut] = Field(default_factory=list)
+    # One availability status shared by every screen (see
+    # ``longitudinal_read.comparison_summary``). Never a risk level.
+    summary: Optional[dict[str, Any]] = None
     limits: list[str] = Field(default_factory=list)
 
 

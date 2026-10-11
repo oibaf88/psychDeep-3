@@ -25,10 +25,15 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.models import AlfaSignal, Baseline, CheckIn
+from app.services import change_config
+from app.services.daily_statistics import local_day
 
-BASELINE_WINDOW_DAYS = 21
-RECENT_WINDOW_DAYS = 7
-MIN_CHECKINS_FOR_BASELINE = 5
+# structural-v3 (2026-10-10, ADR 0003): windows, floors and bands come from the
+# shared, versioned ``change_config``. The reference window now strictly
+# precedes the recent window (no shared time points) and both use day means.
+BASELINE_WINDOW_DAYS = change_config.REFERENCE_WINDOW_DAYS
+RECENT_WINDOW_DAYS = change_config.RECENT_WINDOW_DAYS
+MIN_CHECKINS_FOR_BASELINE = change_config.MIN_REFERENCE_DAYS
 
 # How long an active baseline describes the present.
 #
@@ -47,15 +52,15 @@ BASELINE_MAX_AGE_DAYS = 21
 # craving is "inverted" (lower is better) so we flip sign before z-scoring
 VARIABLES = ("mood", "craving_inv", "sleep_hours", "self_efficacy")
 
-# Engineering safeguards, NOT clinical cut-offs or a validated instrument.
-# An almost constant series must not turn a one-point change into dozens of
-# standard deviations; a completely constant series must still detect change.
-STD_FLOORS = {"mood": 1.0, "craving_inv": 1.0, "sleep_hours": 0.5, "self_efficacy": 1.0}
-CALCULATION_VERSION = "structural-v2"
-# Preserve the old descriptive band's deviation boundaries, rather than
-# reusing its score thresholds after changing the similarity transform.
-STABLE_MAX_COMPOSITE_Z = 1.2
-TRANSITION_MAX_COMPOSITE_Z = 1.95
+# Population-prior floors on the within-person SD (see change_config / ADR 0003).
+STD_FLOORS = change_config.SD_FLOORS
+CALCULATION_VERSION = "structural-v3"
+# Versions whose deterioration band means "adverse, non-compensated" and can
+# count towards persistence. v1 (symmetric) rows are never reused.
+DETERIORATION_VERSIONS = ("structural-v2", "structural-v3")
+# Cut-offs on mean |z| (kept as names for traces and older readers).
+TRANSITION_MIN_COMPOSITE_Z = change_config.TRANSITION_Z
+UNSTABLE_MIN_COMPOSITE_Z = change_config.UNSTABLE_Z
 
 
 @dataclass
@@ -79,6 +84,10 @@ class StructuralScoreResult:
     recent_counts: dict[str, int] = field(default_factory=dict)
     baseline_is_stale: bool = False
     calculation_version: str = CALCULATION_VERSION
+    raw_differences: dict[str, float] = field(default_factory=dict)
+    reference_window: dict[str, str] | None = None
+    recent_window: dict[str, str] | None = None
+    config_version: str = change_config.CONFIG_VERSION
 
 
 @dataclass
@@ -132,11 +141,35 @@ def _baseline_is_stale(baseline: Baseline, now: datetime | None = None) -> bool:
 
 
 def _deviation_band(composite_z: float) -> str:
-    if composite_z <= STABLE_MAX_COMPOSITE_Z:
-        return "stable"
-    if composite_z <= TRANSITION_MAX_COMPOSITE_Z:
-        return "transition"
-    return "unstable"
+    """Statistical band only (no raw guard). Kept for older callers."""
+    return change_config.z_band(composite_z)
+
+
+def windows_for(now: datetime) -> tuple[datetime, datetime, datetime]:
+    """``(reference_start, reference_end, recent_start)``; reference_end == recent_start.
+
+    The reference is ``[reference_start, reference_end)`` and the recent window
+    ``[recent_start, now]``: no time point belongs to both.
+    """
+    recent_start = now - timedelta(days=RECENT_WINDOW_DAYS)
+    return recent_start - timedelta(days=BASELINE_WINDOW_DAYS), recent_start, recent_start
+
+
+def _day_means(checkins: list[CheckIn]) -> dict[str, list[float]]:
+    """Per-axis list of day means (several check-ins on one day count once)."""
+    by_day: dict[str, dict[str, list[float]]] = {}
+    for index, checkin in enumerate(checkins):
+        created = getattr(checkin, "created_at", None)
+        # A row without a timestamp cannot be placed on a day; it counts as
+        # its own unit rather than being dropped or merged with another.
+        day = local_day(created) if isinstance(created, datetime) else f"~undated-{index:06d}"
+        for key, value in _checkin_vector(checkin).items():
+            by_day.setdefault(day, {}).setdefault(key, []).append(value)
+    out: dict[str, list[float]] = {key: [] for key in VARIABLES}
+    for day in sorted(by_day):
+        for key, values in by_day[day].items():
+            out[key].append(statistics.fmean(values))
+    return out
 
 
 def _similarity(composite_z: float) -> float:
@@ -153,21 +186,24 @@ def _mean_std(values: list[float]) -> tuple[float, float]:
     return mean, std
 
 
-def compute_or_refresh_baseline(db: Session, user_id) -> Baseline | None:
-    now = datetime.utcnow()
-    window_start = now - timedelta(days=BASELINE_WINDOW_DAYS)
+def compute_or_refresh_baseline(db: Session, user_id, now: datetime | None = None) -> Baseline | None:
+    """Persist a reference that ENDS where the recent window starts.
+
+    Reference = day means of check-ins in ``[recent_start - 28 d, recent_start)``.
+    Returns None (and keeps nothing new) when an axis has fewer than
+    ``MIN_CHECKINS_FOR_BASELINE`` days: missing data is not zero.
+    """
+    now = now or datetime.utcnow()
+    window_start, window_end, _ = windows_for(now)
     checkins = (
         db.query(CheckIn)
-        .filter(CheckIn.user_id == user_id, CheckIn.created_at >= window_start, CheckIn.created_at <= now)
+        .filter(CheckIn.user_id == user_id, CheckIn.created_at >= window_start, CheckIn.created_at < window_end)
         .all()
     )
-    if len(checkins) < MIN_CHECKINS_FOR_BASELINE:
-        return None
-
-    vectors = [_checkin_vector(c) for c in checkins]
+    day_values = _day_means(checkins)
     stats: dict[str, dict[str, float]] = {}
     for var in VARIABLES:
-        values = [v[var] for v in vectors if var in v]
+        values = day_values.get(var, [])
         if len(values) < MIN_CHECKINS_FOR_BASELINE:
             return None
         mean, std = _mean_std(values)
@@ -179,7 +215,7 @@ def compute_or_refresh_baseline(db: Session, user_id) -> Baseline | None:
     baseline = Baseline(
         user_id=user_id,
         window_start=window_start,
-        window_end=now,
+        window_end=window_end,
         stats=stats,
         is_active=True,
     )
@@ -187,6 +223,12 @@ def compute_or_refresh_baseline(db: Session, user_id) -> Baseline | None:
     db.commit()
     db.refresh(baseline)
     return baseline
+
+
+def _naive_utc(value: datetime) -> datetime:
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
 
 def get_active_baseline(db: Session, user_id) -> Baseline | None:
@@ -198,27 +240,33 @@ def get_active_baseline(db: Session, user_id) -> Baseline | None:
     )
 
 
-def _current_baseline(db: Session, user_id) -> Baseline | None:
-    """The active baseline, recomputed when it has aged out.
+def _current_baseline(db: Session, user_id, now: datetime | None = None) -> Baseline | None:
+    """A reference that does not overlap the current recent window.
 
-    A stale baseline is not discarded before its replacement exists:
-    `compute_or_refresh_baseline` returns None when there are too few recent
-    check-ins, and in that case the old one keeps serving. Losing a person's
-    baseline because they stopped checking in for a fortnight would take the
-    structural axis offline exactly when it is worth watching.
+    Recomputed whenever the active row would overlap the recent window or no
+    longer ends at (within a day of) its start. When a fresh reference cannot be
+    built (too few days), an older active row is only reused if it ends before
+    the recent window starts; an overlapping one is never used.
     """
+    now = now or datetime.utcnow()
+    _, _, recent_start = windows_for(now)
     active = get_active_baseline(db, user_id)
-    if active is None:
-        return compute_or_refresh_baseline(db, user_id)
-
-    if not _baseline_is_stale(active):
+    active_end = getattr(active, "window_end", None) if active is not None else None
+    if isinstance(active_end, datetime):
+        active_end = _naive_utc(active_end)
+        if active_end <= recent_start and recent_start - active_end < timedelta(days=1):
+            return active
+    fresh = compute_or_refresh_baseline(db, user_id, now)
+    if fresh is not None:
+        return fresh
+    if isinstance(active_end, datetime) and active_end <= recent_start:
         return active
-    return compute_or_refresh_baseline(db, user_id) or active
+    return None
 
 
-def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
-    baseline = _current_baseline(db, user_id)
-    now = datetime.utcnow()
+def compute_structural_score(db: Session, user_id, now: datetime | None = None) -> StructuralScoreResult:
+    now = now or datetime.utcnow()
+    baseline = _current_baseline(db, user_id, now)
     if baseline is None:
         return StructuralScoreResult(
             score=None,
@@ -233,7 +281,14 @@ def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
 
     baseline_stats = baseline.stats if isinstance(baseline.stats, dict) else {}
     baseline_is_stale = _baseline_is_stale(baseline, now)
-    recent_start = now - timedelta(days=RECENT_WINDOW_DAYS)
+    _, _, recent_start = windows_for(now)
+    ref_start = getattr(baseline, "window_start", None)
+    ref_end = getattr(baseline, "window_end", None)
+    reference_window = {
+        "start": _naive_utc(ref_start).isoformat() if isinstance(ref_start, datetime) else None,
+        "end": _naive_utc(ref_end).isoformat() if isinstance(ref_end, datetime) else None,
+    }
+    recent_window = {"start": recent_start.isoformat(), "end": now.isoformat()}
     recent = (
         db.query(CheckIn)
         .filter(CheckIn.user_id == user_id, CheckIn.created_at >= recent_start, CheckIn.created_at <= now)
@@ -252,8 +307,9 @@ def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
             baseline_is_stale=baseline_is_stale,
         )
 
-    recent_vectors = [_checkin_vector(c) for c in recent]
+    recent_day_values = _day_means(recent)
     z_scores: dict[str, float] = {}
+    raw_differences: dict[str, float] = {}
     recent_means: dict[str, float] = {}
     recent_counts: dict[str, int] = {}
     effective_stds: dict[str, float] = {}
@@ -266,7 +322,7 @@ def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
         mean = _finite_number(var_stats.get("mean"))
         std = _finite_number(var_stats.get("std"))
         n = _finite_number(var_stats.get("n"))
-        values = [v[var] for v in recent_vectors if var in v]
+        values = recent_day_values.get(var, [])
         recent_counts[var] = len(values)
         if not values:
             continue
@@ -279,6 +335,7 @@ def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
         effective_stds[var] = effective_std
         z = (recent_mean - mean) / effective_std
         z_scores[var] = round(z, 3)
+        raw_differences[var] = round(recent_mean - mean, 3)
         abs_z_values.append(abs(z))
         # Sleep duration has no universally favourable direction. Both less
         # and more than the personal baseline merit review, without claiming
@@ -298,6 +355,7 @@ def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
             baseline_stats=baseline_stats, recent_means=recent_means, composite_z=None,
             adverse_z_scores=adverse_z_scores, effective_stds=effective_stds,
             recent_counts=recent_counts, baseline_is_stale=baseline_is_stale,
+            raw_differences=raw_differences, reference_window=reference_window, recent_window=recent_window,
         )
 
     composite_z = statistics.fmean(abs_z_values)
@@ -305,8 +363,12 @@ def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
     favourable_z = statistics.fmean(favourable_values)
     score = _similarity(composite_z)
     deterioration_score = _similarity(adverse_z)
-    band = _deviation_band(composite_z)
-    deterioration_band = _deviation_band(adverse_z)
+    band = change_config.composite_band(composite_z, raw_differences)
+    # Only adverse raw changes may lift the deterioration band (sleep bilateral).
+    adverse_raw = {
+        var: (abs(diff) if var == "sleep_hours" else max(-diff, 0.0)) for var, diff in raw_differences.items()
+    }
+    deterioration_band = change_config.composite_band(adverse_z, adverse_raw)
 
     signal = AlfaSignal(
         user_id=user_id,
@@ -318,6 +380,11 @@ def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
             "adverse_z_scores": adverse_z_scores, "effective_stds": effective_stds,
             "recent_counts": recent_counts, "baseline_is_stale": baseline_is_stale,
             "calculation_version": CALCULATION_VERSION,
+            "config_version": change_config.CONFIG_VERSION,
+            "calibration_status": change_config.CALIBRATION_STATUS,
+            "raw_differences": raw_differences,
+            "aggregation": change_config.AGGREGATION,
+            "reference_window": reference_window, "recent_window": recent_window,
             "baseline_id": str(baseline.id) if getattr(baseline, "id", None) is not None else None,
         },
         confidence_band=band,
@@ -342,18 +409,34 @@ def compute_structural_score(db: Session, user_id) -> StructuralScoreResult:
         effective_stds=effective_stds,
         recent_counts=recent_counts,
         baseline_is_stale=baseline_is_stale,
+        raw_differences=raw_differences,
+        reference_window=reference_window,
+        recent_window=recent_window,
     )
 
 
-def calculate_trend_detail(values: list[float]) -> TrendResult:
+# Trend labels per variable. A falling slope is only "worsening" where lower is
+# worse (sleep, as before); for craving a falling slope is "disminuyendo" and a
+# rising one "aumentando", so a rise in craving always reads as a rise.
+TREND_LABELS = {
+    "default": ("aumentando", "empeorando"),
+    "sleep_hours": ("aumentando", "empeorando"),
+    "craving": ("aumentando", "disminuyendo"),
+}
+
+
+def calculate_trend_detail(values: list, variable: str = "default") -> TrendResult:
     """Small linear-regression-slope trend classifier (doc 18 `calcular_tendencia`).
 
     Returns the label *and* the exact regression inputs used to derive it:
     insufficient data below 3 points, thresholded slope ->
     aumentando/empeorando/estable.
     """
+    # Missing values are skipped, never read as zero.
+    values = [v for v in (_finite_number(x) for x in values) if v is not None]
     if len(values) < 3:
         return TrendResult(label="insuficiente", slope=None, sample_count=len(values))
+    rising_label, falling_label = TREND_LABELS.get(variable, TREND_LABELS["default"])
 
     n = len(values)
     xs = list(range(n))
@@ -365,7 +448,7 @@ def calculate_trend_detail(values: list[float]) -> TrendResult:
 
     # thresholds are intentionally conservative / symmetric
     if slope > 0.15:
-        return TrendResult(label="aumentando", slope=round(slope, 4), sample_count=n)
+        return TrendResult(label=rising_label, slope=round(slope, 4), sample_count=n)
     if slope < -0.15:
-        return TrendResult(label="empeorando", slope=round(slope, 4), sample_count=n)
+        return TrendResult(label=falling_label, slope=round(slope, 4), sample_count=n)
     return TrendResult(label="estable", slope=round(slope, 4), sample_count=n)

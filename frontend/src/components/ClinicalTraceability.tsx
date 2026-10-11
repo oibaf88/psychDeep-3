@@ -115,12 +115,12 @@ function booleanValue(record: UnknownRecord | null | undefined, keys: string[]):
 function formatDate(value?: string | null): string {
   if (!value) return "—";
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("es-ES");
 }
 
 function formatNumber(value: number): string {
   if (Number.isInteger(value)) return String(value);
-  return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return value.toLocaleString("es-ES", { maximumFractionDigits: 4 });
 }
 
 function formatValue(value: unknown): string {
@@ -422,7 +422,9 @@ function RiskAssessmentCard({ assessment, featured }: { assessment: RiskAssessme
   const traceInputs = isRecord(trace.inputs) ? trace.inputs : {};
   const structuralInput = isRecord(traceInputs.structural) ? traceInputs.structural : {};
   const structuralVersion = stringValue(structuralInput, ["calculation_version"]) || stringValue(inputSignals, ["structural_calculation_version"]) || "structural-v1";
-  const meterThresholds = structuralVersion === "structural-v2"
+  const meterThresholds = structuralVersion === "structural-v3"
+    ? { low: 1 / 2.3, high: 1 / 2.0 }
+    : structuralVersion === "structural-v2"
     ? { low: 1 / 2.95, high: 1 / 2.2 }
     : structuralVersion === "structural-v1" ? { low: 0.35, high: 0.6 } : null;
   const agent2Input = isRecord(traceInputs.agent2) ? traceInputs.agent2 : {};
@@ -618,7 +620,7 @@ function Agent2TraceCard({ trace, assessment }: { trace: Agent2TraceOut; assessm
           <span>{formatDate(traceTimestamp(trace))}</span>
         </span>
         <span className="trace-summary-meta">
-          {trace.latency_ms != null ? `${trace.latency_ms.toLocaleString()} ms` : "Latencia —"}
+          {trace.latency_ms != null ? `${trace.latency_ms.toLocaleString("es-ES")} ms` : "Latencia —"}
           <span>{tokens || "Tokens —"}</span>
         </span>
       </summary>

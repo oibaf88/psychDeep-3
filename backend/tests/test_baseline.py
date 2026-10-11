@@ -31,11 +31,11 @@ def _checkin(*, mood=5.0, craving_inv=5.0, sleep_hours=5.0, self_efficacy=5.0):
     )
 
 
-def _compute(active, checkins):
+def _compute(active, checkins, now=None):
     db = MagicMock()
     db.query.return_value.filter.return_value.all.return_value = checkins
     with patch.object(baseline, "_current_baseline", return_value=active):
-        result = baseline.compute_structural_score(db, uuid.uuid4())
+        result = baseline.compute_structural_score(db, uuid.uuid4(), now=now)
     return result, db
 
 
@@ -57,7 +57,7 @@ class StructuralScoreTests(unittest.TestCase):
         self.assertEqual(result.effective_stds["self_efficacy"], 1.0)
         saved = db.add.call_args.args[0]
         self.assertIsInstance(saved, AlfaSignal)
-        self.assertEqual(saved.value["calculation_version"], "structural-v2")
+        self.assertEqual(saved.value["calculation_version"], "structural-v3")
         self.assertEqual(saved.value["deterioration_band"], "stable")
         self.assertEqual(saved.value["baseline_id"], str(active.id))
 
@@ -133,8 +133,9 @@ class StructuralScoreTests(unittest.TestCase):
 
     def test_identical_values_and_repeated_calculation_are_stable(self):
         active = _baseline()
-        first, _ = _compute(active, [_checkin()] * 7)
-        second, _ = _compute(active, [_checkin()] * 7)
+        fixed_now = datetime(2026, 10, 10, 12, 0, 0)
+        first, _ = _compute(active, [_checkin()] * 7, now=fixed_now)
+        second, _ = _compute(active, [_checkin()] * 7, now=fixed_now)
         self.assertEqual(first, second)
         self.assertEqual(first.score, 1.0)
         self.assertEqual(first.deterioration_score, 1.0)
@@ -148,11 +149,12 @@ class StructuralScoreTests(unittest.TestCase):
                 self.assertIsNone(result.deterioration_score)
                 self.assertEqual(result.deterioration_band, "insufficient_data")
 
-    def test_heuristic_bands_preserve_deviation_boundaries_not_old_score_cutoffs(self):
-        self.assertEqual(baseline._deviation_band(1.2), "stable")
-        self.assertEqual(baseline._deviation_band(1.20001), "transition")
-        self.assertEqual(baseline._deviation_band(1.95), "transition")
-        self.assertEqual(baseline._deviation_band(1.95001), "unstable")
+    def test_statistical_band_boundaries_follow_the_shared_config(self):
+        # structural-v3 / ADR 0003: |z| >= 1.0 transition, |z| >= 1.3 unstable.
+        self.assertEqual(baseline._deviation_band(0.99999), "stable")
+        self.assertEqual(baseline._deviation_band(1.0), "transition")
+        self.assertEqual(baseline._deviation_band(1.29999), "transition")
+        self.assertEqual(baseline._deviation_band(1.3), "unstable")
 
 
 class BaselineFreshnessTests(unittest.TestCase):

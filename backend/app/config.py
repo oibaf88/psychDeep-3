@@ -167,6 +167,10 @@ class Settings(BaseSettings):
 
     # --- Seed -------------------------------------------------------------
     seed_demo_data: bool = True
+    # Which local crisis/harm-reduction resources accompany the national ones
+    # (024, 112 are always shown). "madrid" keeps the current deployment's
+    # behaviour explicit; "none" shows national resources only.
+    local_resources_region: str = "madrid"
 
 
 @lru_cache

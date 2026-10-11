@@ -188,7 +188,7 @@ export default function AccountPage() {
           <p><strong>Rol:</strong> {user.role}</p>
           <p><strong>Email:</strong> {user.email}</p>
           <p><strong>ID de Sistema:</strong> {user.id}</p>
-          <p className="meta">Generado el {new Date().toLocaleDateString()} a las {new Date().toLocaleTimeString()}</p>
+          <p className="meta">Generado el {new Date().toLocaleDateString("es-ES")} a las {new Date().toLocaleTimeString("es-ES")}</p>
           <hr />
           <p>Este documento certifica que el usuario tiene nivel de acceso administrativo clínico en el sistema PsychDeep.</p>
         </div>
