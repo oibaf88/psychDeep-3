@@ -700,10 +700,11 @@ expresa, qué temas vuelven, qué le sostiene, qué eventos importantes ha \
 contado. Máximo unas 200 palabras, en español, descriptivo y sin \
 diagnosticar. Si el retrato actual lo corrigió un profesional, puedes \
 añadir, nunca contradecirlo ni borrar lo que escribió. Si no hay nada \
-nuevo que añadir, devuelve cadena vacía y NO lo reescribas. No conviertas \
-un estado transitorio o una crisis puntual en un rasgo permanente de la \
-persona. Distingue entre un cambio duradero y cómo se siente hoy. Mantén \
-siempre abierta la posibilidad de corrección o mejora.
+nuevo que añadir, devuelve cadena vacía y NO lo reescribas. Debes distinguir \
+explícitamente entre estados emocionales transitorios o crisis puntuales y \
+los rasgos permanentes de la persona. No conviertas un estado temporal \
+en un rasgo permanente. Mantén siempre abierta la posibilidad de corrección o mejora, \
+para evitar fijar a la persona en un estado clínico o de riesgo inmutable.
 - `open_threads`: temas que quedaron a medias o que conviene retomar. Es una \
 agenda viva, no un cuestionario: se añaden cuando aparecen y se quitan \
 cuando se han cerrado. Devuelve la lista completa como debería quedar, o \

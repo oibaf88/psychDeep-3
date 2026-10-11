@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed work
+- **Clinical/Scientific Review:** Drafted `docs/agentes/05_informe_revision_cientifica_profile_update.md` evaluating the memory state vs. trait separation in `profile_update` and ensuring we don't fixate the person in a clinical or immutable risk state.
 - **A11y Review:** Added `htmlFor` attributes and explicit visual required indicators to various form inputs across `ProfessionalDashboard.tsx`, `AdminUsersPage.tsx`, `DailyStatisticsPanel.tsx`, and `WavePage.tsx` to improve form accessibility and usability.
 - **CI Fix:** Changed c-opus-5 to `claude-3-5-sonnet-20240620` across the repository to resolve the '400 The requested model is not supported' error in GitHub Advanced Security Copilot Autofind.
 - **Security:** Removed secure `dev_token` leakage from the `/password-reset-request` endpoint response in `backend/app/routers/auth.py`.
