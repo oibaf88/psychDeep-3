@@ -141,3 +141,26 @@ export const partialLongitudinal: LongitudinalStateOut = {
     pending_features: [{ feature: "sleep_hours", reason: "recent", baseline_n: 21, recent_n: 0, minimum_reference_n: 5 }],
   },
 };
+
+/** All compared features calculated and stable (no adverse directions). */
+export const stableLongitudinal: LongitudinalStateOut = {
+  baseline: canonicalBaseline,
+  changes: [
+    signal("mood", "stable", 0.2, { recent: 6.5, reference: 6.4, z: 0.2, direction: "similar" }),
+    signal("craving", "stable", -0.3, { recent: 2.4, reference: 2.6, z: -0.3, direction: "similar" }),
+    signal("sleep_hours", "stable", 0.1, { recent: 7.0, reference: 6.9, z: 0.1, direction: "similar" }),
+    signal("self_efficacy", "stable", 0.15, { recent: 6.5, reference: 6.4, z: 0.15, direction: "similar" }),
+    signal("structural_composite", "stable", 0.2),
+  ],
+  summary: {
+    status: "calculated",
+    calculated_features: ["mood", "craving", "sleep_hours", "self_efficacy"],
+    pending_features: [],
+    computed_at: recentWindow.end,
+    recent_window: recentWindow,
+    reference_window: referenceWindow,
+    algorithm_version: "canonical-structural-v2",
+    is_stale: false,
+    minimum_reference_n: 5,
+  },
+};

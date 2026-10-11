@@ -19,6 +19,7 @@ import {
   calculatedLongitudinal,
   insufficientLongitudinal,
   migratedLongitudinal,
+  stableLongitudinal,
 } from "./longitudinalFixtures";
 
 type PatientStateResponse = Record<string, unknown>;
@@ -40,6 +41,13 @@ const migratedState: PatientStateResponse = {
   missing: [],
   safety: { alert_level: 1, assessment_id: "a" },
   longitudinal: migratedLongitudinal,
+};
+
+const stableState: PatientStateResponse = {
+  missing: [],
+  safety: { alert_level: 2, assessment_id: "must-not-drive-action" },
+  longitudinal: stableLongitudinal,
+  limits: ["La ausencia de una señal no demuestra ausencia de riesgo."],
 };
 
 function mockGets(state: PatientStateResponse) {
@@ -84,7 +92,10 @@ describe("PatientDashboard longitudinal change", () => {
     expect(summary).toHaveTextContent("4 de 4");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bastante distinto de lo habitual en ti");
     expect(screen.getByRole("button", { name: "Ocultar sugerencia por ahora" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ir a Regular" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ver Tendencias" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Abrir Tendencias" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Siguiente paso" })).not.toHaveTextContent(/sin riesgo|todo va bien/i);
     const checkin = screen.getByRole("heading", { name: "Check-in de hoy" });
     const detail = screen.getByRole("heading", { name: "Respecto a lo habitual en ti" });
     expect(checkin.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -103,6 +114,11 @@ describe("PatientDashboard longitudinal change", () => {
     expect(region).not.toHaveTextContent(/sin riesgo|no hay riesgo|0%/i);
     expect(region).not.toHaveTextContent("insufficient_data");
     expect(within(region).queryByText("0")).not.toBeInTheDocument();
+    const next = screen.getByRole("region", { name: "Siguiente paso" });
+    expect(within(next).getByRole("button", { name: "Ver Tendencias" })).toBeInTheDocument();
+    expect(next).toHaveTextContent("Registrar y observar");
+    expect(next).not.toHaveTextContent(/sin riesgo|todo va bien|todo está bien/i);
+    expect(within(next).queryByRole("button", { name: "Ir a Regular" })).not.toBeInTheDocument();
   });
 
   it("keeps No ahora and refreshes the comparison after a check-in", async () => {
@@ -146,5 +162,27 @@ describe("PatientDashboard longitudinal change", () => {
     await waitFor(() => expect(summary).toHaveTextContent("Todavía no se ha calculado tu comparación"));
     expect(document.body).not.toHaveTextContent(/Sirve como referencia|Cubre las áreas|Ya hay referencia/);
     expect(summary).toHaveTextContent("Comparación sin calcular");
+  });
+
+  it("with a stable-only longitudinal reading suggests Tendencias, not Regular", async () => {
+    mockGets(stableState);
+    renderHoy();
+
+    const next = await screen.findByRole("region", { name: "Siguiente paso" });
+    expect(within(next).getByRole("button", { name: "Ver Tendencias" })).toBeInTheDocument();
+    expect(next).toHaveTextContent(/explicación del cambio|Tendencias/i);
+    expect(within(next).queryByRole("button", { name: "Ir a Regular" })).not.toBeInTheDocument();
+    expect(next).not.toHaveTextContent(/Nivel 2|must-not-drive-action|sin riesgo/i);
+  });
+
+  it("insufficient longitudinal keeps No ahora and a soft Tendencias option", async () => {
+    mockGets(insufficientState);
+    const user = userEvent.setup();
+    renderHoy();
+
+    expect(await screen.findByRole("button", { name: "Ver Tendencias" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ocultar sugerencia por ahora" }));
+    expect(screen.getByRole("heading", { name: "Puedes dejarlo aquí" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ir a Regular" })).not.toBeInTheDocument();
   });
 });
