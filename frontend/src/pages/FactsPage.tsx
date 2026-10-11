@@ -47,26 +47,27 @@ export default function FactsPage() {
       <section className="card">
         <h2>Declarar un hecho</h2>
         <form onSubmit={onSubmit} className="stack-form">
-          <label>
+          <label htmlFor="fact-category">
             Categoría
-            <select value={category} onChange={(e) => setCategory(e.target.value)}>
-              {FACT_CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
           </label>
-          <label>
-            Contenido
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              required
-              rows={3}
-              placeholder="Describe el hecho de forma concreta…"
-            />
+          <select id="fact-category" value={category} onChange={(e) => setCategory(e.target.value)}>
+            {FACT_CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+          <label htmlFor="fact-content">
+            Contenido <span aria-hidden="true" title="Requerido" style={{ color: "var(--danger-color, #dc2626)" }}>*</span>
           </label>
+          <textarea
+            id="fact-content"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            required
+            rows={3}
+            placeholder="Describe el hecho de forma concreta…"
+          />
           <button type="submit" disabled={busy}>
             {busy ? "Guardando…" : "Registrar hecho"}
           </button>
