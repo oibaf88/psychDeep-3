@@ -154,12 +154,14 @@ export default function AlertsPage() {
             <div className="alert-actions stack-actions">
               {a.status === "open" && <button onClick={() => acknowledge(a.id)}>Marcar como recibida</button>}
               <input
+                aria-label="Notas de resolución"
                 placeholder="Notas de resolución"
                 value={notes[a.id] || ""}
                 onChange={(e) => setNotes({ ...notes, [a.id]: e.target.value })}
               />
               <button onClick={() => resolve(a.id)}>Resolver</button>
               <input
+                aria-label={a.alert_level === 4 ? "Justificación de descarte (obligatoria L4)" : "Motivo de descarte"}
                 placeholder={a.alert_level === 4 ? "Justificación de descarte (obligatoria L4)" : "Motivo de descarte"}
                 value={dismiss[a.id] || ""}
                 onChange={(e) => setDismiss({ ...dismiss, [a.id]: e.target.value })}
