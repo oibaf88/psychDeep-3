@@ -96,12 +96,14 @@ Why G2 is **not complete**: the operational analytics path and `GET /api/v1/stat
 - [x] ~~Ensure model outage does not remove core storage or deterministic safety processing.~~
 - [x] ~~Keep `ConfirmedFact` semantically separate from provisional LLM inference.~~
 - [~] Version all safety protocols/resources and prove every P0 scenario against the final vNext safety suite.
+  - Server-owned safety pack is now explicitly versioned as `safety-protocol-v1` (`SAFETY_PROTOCOL_VERSION` in `backend/app/content/safety_resources.py`). The pack covers national/local crisis resources, fixed LEVEL3/LEVEL4 patient and professional message templates, and forbidden/safe grounding lists. `GET /api/v1/safety-plan/resources` returns `protocol_version` alongside resources so clients can see which pack was served. Phone numbers, thresholds and message wording were not changed. Tests: `backend/tests/test_safety_resources_scope.py`.
+  - Still open: prove every P0 scenario against the final vNext safety suite; clinical review that listed resources remain current; formal clinical sign-off.
 - [~] Add/complete output validation that blocks or replaces unsafe LLM output with deterministic structured support and logs the event.
 - [ ] Complete formal clinical sign-off for vNext safety thresholds/protocol behaviour.
   - Not done. The structural band parameters changed on 2026-10-10 under product-owner authorisation (ADR 0003) as a provisional population prior. They still need formal clinical sign-off. N4 declaration rules, crisis resources and the other rule thresholds were not changed.
 - [ ] Complete the full model regression/gold safety suite including GHB/GBL withdrawal, ambiguous language, clear crisis, hallucination traps, prompt injection and boundary requests.
 
-Why G3 is **not complete**: independence from the LLM is materially improved, but the full specified safety validation package and clinical sign-off are not yet evidenced.
+Why G3 is **not complete**: independence from the LLM is materially improved and the server-owned safety resource pack is versioned (`safety-protocol-v1`), but the full specified safety validation package (P0 scenarios), output validation completion and clinical sign-off are not yet evidenced.
 
 ### G4 — Patient value loop
 
@@ -243,6 +245,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [x] ~~PM-004 Separate change signal from RiskAssessment in API **and UI**.~~
   - Evidence: patient state and Hoy, authorised professional summary and dossier, weekly review, roster, copilot, alerts, and the structural-score surfaces keep change bands apart from alert levels. A missing ChangeSignal is not zero and is not “sin riesgo”. See the G2 separation item for the test list.
 - [~] PM-005 Version safety protocols/resources and remove direct LLM dependency.
+  - Progress: crisis resources and fixed safety message templates are versioned as `safety-protocol-v1` and exposed on `GET /api/v1/safety-plan/resources` (`protocol_version`). P0 scenario proof and clinical sign-off remain open.
 - [~] PM-006 Resource-level authorization matrix and comprehensive negative tests.
 - [x] ~~PM-007 Split consent purposes and enforce linguistic-analysis revocation.~~
 - [~] PM-008 ModelRun audit with prompt/model/policy/content versions.
