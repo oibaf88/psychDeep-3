@@ -12,6 +12,7 @@ import {
 import "../wave-swell.css";
 
 interface ResourcesResponse {
+  protocol_version?: string;
   safe_grounding_alternatives: string[];
 }
 
