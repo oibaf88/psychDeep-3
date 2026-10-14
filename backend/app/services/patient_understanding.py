@@ -2125,10 +2125,10 @@ def latest_patient_model(db: Session, user_id) -> PatientModelVersion | None:
 
 
 def patient_model_context_block(db: Session, user_id, query: str, *, in_crisis: bool = False) -> str:
-    """Compact retrieval from the whole-person model for Agent 1.
+    """Compile a small, query-relevant view of the versioned whole-person model.
 
-    Crisis turns intentionally do not receive this broad narrative context.
-    The deterministic crisis instructions and source-backed current state retain priority.
+    Broad exploratory context is omitted in crisis mode. No model call occurs
+    here; the read path is bounded and the current user turn remains authoritative.
     """
     if in_crisis:
         return ""
@@ -2140,10 +2140,40 @@ def patient_model_context_block(db: Session, user_id, query: str, *, in_crisis: 
         sections: list[str] = []
         summary = model.get("patient_summary")
         if isinstance(summary, str) and summary.strip():
-            sections.append("Panorama longitudinal (síntesis provisional): " + summary.strip()[:900])
+            sections.append("Panorama longitudinal provisional: " + summary.strip()[:850])
+
+        coverage = snapshot.coverage if isinstance(snapshot.coverage, dict) else {}
+        coverage_parts = []
+        if coverage.get("earliest_episode"):
+            coverage_parts.append(f"primer episodio registrado={coverage['earliest_episode']}")
+        if coverage.get("latest_episode"):
+            coverage_parts.append(f"último episodio registrado={coverage['latest_episode']}")
+        if coverage.get("temporal_sampling_applied"):
+            coverage_parts.append("el modelo usa una muestra temporal distribuida, no todas las fuentes individuales")
+        if coverage.get("checkins_selected") is not None:
+            coverage_parts.append(f"check-ins incluidos={coverage['checkins_selected']}")
+        if coverage_parts:
+            sections.append(
+                "Cobertura del registro (describe datos disponibles, no la vida completa): "
+                + "; ".join(coverage_parts)
+            )
+
+        from app.services.clinical_memory import rank_memory_text
+
+        def select_ranked(rows: list[dict[str, Any]], rank_field: str, limit: int) -> list[dict[str, Any]]:
+            if not rows:
+                return []
+            if not query.strip():
+                return rows[:limit]
+            ranked = rank_memory_text(
+                query,
+                [(index, str(item.get(rank_field) or "")) for index, item in enumerate(rows)],
+            )
+            selected = [rows[index] for index in ranked if isinstance(index, int) and 0 <= index < len(rows)]
+            return selected[:limit]
 
         facets = model.get("facets") if isinstance(model.get("facets"), list) else []
-        facet_texts: list[tuple[str, str]] = []
+        facet_texts: list[dict[str, Any]] = []
         for facet in facets:
             if not isinstance(facet, dict):
                 continue
@@ -2151,74 +2181,143 @@ def patient_model_context_block(db: Session, user_id, query: str, *, in_crisis: 
             if not isinstance(statement, str) or not statement.strip():
                 continue
             refs = facet.get("source_refs") if isinstance(facet.get("source_refs"), list) else []
-            facet_texts.append((
-                str(facet.get("domain") or "context"),
-                f"- {statement.strip()} (perspectiva={facet.get('perspective', 'unknown')}; "
-                f"estado={facet.get('status', 'unknown')}; incertidumbre={facet.get('uncertainty', 'unknown')}; "
-                f"fuentes={', '.join(str(ref) for ref in refs[:4])})",
-            ))
-        if facet_texts:
-            if query.strip():
-                from app.services.clinical_memory import rank_memory_text
-
-                ranked = rank_memory_text(query, [(idx, f"{domain} {body}") for idx, (domain, body) in enumerate(facet_texts)])
-                selected_ids = [idx for idx in ranked if idx < len(facet_texts)]
-                selected = [facet_texts[idx] for idx in selected_ids[:4]]
-            else:
-                selected = facet_texts[:4]
-            if selected:
-                sections.append("Facetas longitudinales relevantes (no son hechos verificados ni diagnósticos):\n" + "\n".join(body for _domain, body in selected))
+            display = (
+                f"- {statement.strip()} (dominio={facet.get('domain', 'other')}; "
+                f"perspectiva={facet.get('perspective', 'unknown')}; estado={facet.get('status', 'unknown')}; "
+                f"incertidumbre={facet.get('uncertainty', 'unknown')}; "
+                f"fuentes={', '.join(str(ref) for ref in refs[:4])})"
+            )
+            facet_texts.append({"display": display, "rank": f"{facet.get('domain', '')} {statement} {facet.get('time_scope', '')}"})
+        selected_facets = select_ranked(facet_texts, "rank", 4)
+        if selected_facets:
+            sections.append(
+                "Facetas longitudinales relevantes (síntesis revisable, no hechos verificados ni diagnósticos):\n"
+                + "\n".join(item["display"] for item in selected_facets)
+            )
 
         patterns = model.get("patterns") if isinstance(model.get("patterns"), list) else []
-        if patterns:
-            pattern_texts = []
-            for pattern in patterns:
-                if not isinstance(pattern, dict):
-                    continue
-                refs = pattern.get("source_refs") if isinstance(pattern.get("source_refs"), list) else []
-                statement = pattern.get("pattern")
-                if not isinstance(statement, str) or not statement.strip():
-                    continue
-                pattern_texts.append({
-                    "text": f"- {statement.strip()} (incertidumbre={pattern.get('uncertainty', 'unknown')}; "
-                    f"explicaciones alternativas={'; '.join(pattern.get('alternative_explanations') or [])}; "
-                    f"fuentes={', '.join(str(ref) for ref in refs[:4])})",
-                    "rank_text": statement + " " + " ".join(str(x) for x in refs),
-                })
-            if pattern_texts:
-                if query.strip():
-                    from app.services.clinical_memory import rank_memory_text
+        pattern_texts: list[dict[str, Any]] = []
+        for pattern in patterns:
+            if not isinstance(pattern, dict):
+                continue
+            statement = pattern.get("pattern")
+            if not isinstance(statement, str) or not statement.strip():
+                continue
+            refs = pattern.get("source_refs") if isinstance(pattern.get("source_refs"), list) else []
+            alternatives = pattern.get("alternative_explanations") if isinstance(pattern.get("alternative_explanations"), list) else []
+            display = (
+                f"- {statement.strip()} (incertidumbre={pattern.get('uncertainty', 'unknown')}; "
+                f"alternativas={'; '.join(str(x) for x in alternatives[:3])}; "
+                f"fuentes={', '.join(str(ref) for ref in refs[:4])})"
+            )
+            pattern_texts.append({"display": display, "rank": f"{pattern.get('domain', '')} {statement} {' '.join(str(x) for x in alternatives)}"})
+        selected_patterns = select_ranked(pattern_texts, "rank", 3 if query.strip() else 2)
+        if selected_patterns:
+            sections.append(
+                "Patrones longitudinales provisionales (deben cotejarse con evidencia y contraejemplos):\n"
+                + "\n".join(item["display"] for item in selected_patterns)
+            )
 
-                    ranked = rank_memory_text(query, [(idx, item["rank_text"]) for idx, item in enumerate(pattern_texts)])
-                    selected_patterns = [pattern_texts[idx] for idx in ranked[:3] if idx < len(pattern_texts)]
-                else:
-                    selected_patterns = pattern_texts[:2]
-                if selected_patterns:
-                    sections.append("Patrones longitudinales provisionales (incluyen hipótesis alternativas):\n" + "\n".join(item["text"] for item in selected_patterns))
+        trajectories = model.get("trajectories") if isinstance(model.get("trajectories"), list) else []
+        trajectory_texts: list[dict[str, Any]] = []
+        for trajectory in trajectories:
+            if not isinstance(trajectory, dict):
+                continue
+            description = trajectory.get("description")
+            if not isinstance(description, str) or not description.strip():
+                continue
+            refs = trajectory.get("source_refs") if isinstance(trajectory.get("source_refs"), list) else []
+            turns = trajectory.get("turning_points") if isinstance(trajectory.get("turning_points"), list) else []
+            display = (
+                f"- {trajectory.get('domain', 'other')}: dirección descrita={trajectory.get('direction', 'unknown')}; "
+                f"{description.strip()}; puntos de inflexión={'; '.join(str(x) for x in turns[:3])}; "
+                f"incertidumbre={trajectory.get('uncertainty', 'unknown')}; "
+                f"fuentes={', '.join(str(ref) for ref in refs[:4])}"
+            )
+            trajectory_texts.append({"display": display, "rank": f"{trajectory.get('domain', '')} {trajectory.get('direction', '')} {description}"})
+        selected_trajectories = select_ranked(trajectory_texts, "rank", 2 if query.strip() else 1)
+        if selected_trajectories:
+            sections.append("Cambios y trayectorias documentadas:\n" + "\n".join(x["display"] for x in selected_trajectories))
+
+        protective = model.get("protective_factors") if isinstance(model.get("protective_factors"), list) else []
+        protective_texts: list[dict[str, Any]] = []
+        for factor in protective:
+            if not isinstance(factor, dict):
+                continue
+            value = factor.get("factor")
+            if not isinstance(value, str) or not value.strip():
+                continue
+            refs = factor.get("source_refs") if isinstance(factor.get("source_refs"), list) else []
+            display = (
+                f"- {value.strip()} (disponibilidad registrada={factor.get('availability', 'unclear')}; "
+                f"límites={factor.get('limitations', '')}; incertidumbre={factor.get('uncertainty', 'unknown')}; "
+                f"fuentes={', '.join(str(ref) for ref in refs[:4])})"
+            )
+            protective_texts.append({"display": display, "rank": value})
+        selected_protective = select_ranked(protective_texts, "rank", 2 if query.strip() else 1)
+        if selected_protective:
+            sections.append(
+                "Fortalezas y factores protectores (su disponibilidad debe confirmarse en el presente):\n"
+                + "\n".join(x["display"] for x in selected_protective)
+            )
 
         contradictions = model.get("contradictions") if isinstance(model.get("contradictions"), list) else []
-        relevant_contradictions = []
-        for item in contradictions[:3]:
-            if isinstance(item, dict):
-                refs = item.get("source_refs") if isinstance(item.get("source_refs"), list) else []
-                relevant_contradictions.append(
-                    f"- {item.get('topic', 'Tema no especificado')}: {item.get('description', '')} "
-                    f"(lectura={item.get('interpretation', 'unknown')}; fuentes={', '.join(str(ref) for ref in refs[:4])})"
-                )
-        if relevant_contradictions:
-            sections.append("Contradicciones o cambios de contexto no resueltos:\n" + "\n".join(relevant_contradictions))
+        contradiction_texts: list[dict[str, Any]] = []
+        for item in contradictions:
+            if not isinstance(item, dict):
+                continue
+            refs = item.get("source_refs") if isinstance(item.get("source_refs"), list) else []
+            description = str(item.get("description") or "").strip()
+            if not description:
+                continue
+            contradiction_texts.append({
+                "display": (
+                    f"- {item.get('topic', 'Tema no especificado')}: {description} "
+                    f"(lectura={item.get('interpretation', 'unknown')}; incertidumbre={item.get('uncertainty', 'unknown')}; "
+                    f"fuentes={', '.join(str(ref) for ref in refs[:4])})"
+                ),
+                "rank": f"{item.get('topic', '')} {description}",
+            })
+        selected_contradictions = select_ranked(contradiction_texts, "rank", 2 if query.strip() else 1)
+        if selected_contradictions:
+            sections.append(
+                "Contradicciones o cambios de contexto no resueltos (no elegir una versión arbitrariamente):\n"
+                + "\n".join(x["display"] for x in selected_contradictions)
+            )
+
+        # A theme gap means only that the application has no labelled records
+        # for an interval. It must never be read as proof of absence or improvement.
+        gaps = model.get("theme_gaps") if isinstance(model.get("theme_gaps"), list) else []
+        gap_texts: list[dict[str, Any]] = []
+        for gap in gaps:
+            if not isinstance(gap, dict):
+                continue
+            description = str(gap.get("description") or "").strip()
+            if not description:
+                continue
+            before = gap.get("evidence_before_refs") if isinstance(gap.get("evidence_before_refs"), list) else []
+            after = gap.get("evidence_after_refs") if isinstance(gap.get("evidence_after_refs"), list) else []
+            gap_texts.append({
+                "display": (
+                    f"- {gap.get('topic_key', 'tema')}: {description}; intervalo={gap.get('gap_start_at')}–{gap.get('gap_end_at')}; "
+                    f"solo hueco de registro, no ausencia del suceso; fuentes antes={', '.join(str(x) for x in before[:2])}; "
+                    f"fuentes después={', '.join(str(x) for x in after[:2])}"
+                ),
+                "rank": f"{gap.get('topic_key', '')} {description}",
+            })
+        selected_gaps = select_ranked(gap_texts, "rank", 1 if query.strip() else 0)
+        if selected_gaps:
+            sections.append("Huecos temáticos documentales (no permiten inferir lo que ocurrió durante el intervalo):\n" + "\n".join(x["display"] for x in selected_gaps))
 
         if not sections:
             return ""
-        text, _tokens, truncated = __import__("app.services.context_budget", fromlist=["fit_context_block"]).fit_context_block(
-            sections, 650
-        )
+        context, _tokens, truncated = fit_context_block(sections, 650)
         if truncated:
-            text += "\n[Parte del contexto longitudinal se ha omitido por presupuesto.]"
+            context += "\n[Parte del contexto longitudinal se ha omitido por presupuesto.]"
         return (
-            "MODELO LONGITUDINAL DE LA PERSONA (resumen derivado; no es diagnóstico, no prevalece sobre "
-            "lo que diga hoy y todas las hipótesis pueden revisarse):\n"
-            + text
+            "MODELO LONGITUDINAL DE LA PERSONA (síntesis derivada y revisable; no es diagnóstico, no calcula riesgo, "
+            "no prevalece sobre lo que diga hoy; las lagunas de registro no demuestran ausencia):\n"
+            + context
         )
     except Exception as exc:  # noqa: BLE001
         try:
