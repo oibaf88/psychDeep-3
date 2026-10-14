@@ -69,6 +69,7 @@ class OpenContextClient:
     def __init__(self, config: OpenContextConfig, *, allow_local_http: bool = False):
         config.validate(allow_local_http=allow_local_http)
         self.config = config
+        self._allow_local_http = allow_local_http
         self._opener = build_opener(_NoRedirect())
 
     @property
@@ -78,7 +79,9 @@ class OpenContextClient:
     def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.enabled:
             return {"ok": False, "disabled": True}
-        self.config.validate(allow_local_http=False)
+        parsed = urlsplit(self.config.base_url)
+        # HTTP is allowed only if explicitly enabled on this client and loopback-only.
+        self.config.validate(allow_local_http=(parsed.hostname in {"localhost", "127.0.0.1", "::1"} and self._allow_local_http))
         if not path.startswith("/") or path.startswith("//"):
             raise ValueError("OpenContext path must be an absolute API path")
         body = None if payload is None else json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
