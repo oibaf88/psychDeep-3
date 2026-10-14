@@ -20,7 +20,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
-from app.models import ConfirmedFact
+from app.models import ChatMessage, ConfirmedFact, Consent, DiaryEntry
 from app.models_vnext import (
     ClinicalAttentionNotice,
     DiscourseFact,
@@ -367,76 +367,130 @@ def commit_turn(
         logger.warning("Clinical memory commit skipped safely: %s", type(exc).__name__)
         return None
 
-    # Do not transfer or process source references when linguistic analysis
-    # consent is absent/revoked. _commit_turn records the skipped state.
-    if result is not None and result.status == "accepted":
+    # Queue the original source even if one-turn extraction failed, provided
+    # consent is still effective. The background whole-person workflow reads
+    # canonical chat/diary rows and is not limited to accepted per-turn extracts.
+    if result is not None:
         _queue_memory_pipeline_source(
             db,
             user_id=user_id,
             channel=channel,
             source_id=source_id,
             source_text=text,
+            commit_row=result,
+            correlation_id=correlation_id,
         )
     return result
 
 
 
 
-def _queue_memory_pipeline_source(db: Session, *, user_id: uuid.UUID, channel: str, source_id: uuid.UUID, source_text: str) -> None:
-    """Queue derived memory work for a source that is already committed.
-
-    Best-effort only: memory pipeline failures must never break conversational
-    safety. The stable source identity and content hash make ingestion
-    idempotent and let later workers resume without re-sending a transcript.
-    """
+def _queue_memory_pipeline_source(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    channel: str,
+    source_id: uuid.UUID,
+    source_text: str,
+    commit_row: MemoryCommit,
+    correlation_id: uuid.UUID,
+) -> None:
+    """Register a canonical source by hash and schedule idempotent analysis jobs."""
     try:
-        from app.services.memory_pipeline import stable_hash
-        from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
         from sqlalchemy import text as sql_text
+        from app.services.memory_pipeline import enqueue_memory_job, stable_hash
 
-        # Re-check immediately before queueing new derived processing.
-        if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+        # Re-check immediately before any derived processing or ledger write.
+        if channel not in {"chat", "diary"} or not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
             return
 
         source_table = "chat_messages" if channel == "chat" else "diary_entries"
-        digest = stable_hash(source_text)
-        # The ledger records a traceable reference/hash, not a second literal
-        # copy of the source. Consent is checked again before derived processing.
-        db.execute(
-            sql_text("""
-                insert into psychdeep_v12.memory_event_ledger
-                    (id, user_id, source_table, source_id, channel, event_type,
-                     source_content_hash, event_at, consent_purpose, consent_snapshot,
-                     schema_version, metadata)
-                values
-                    (gen_random_uuid(), :user_id, :source_table, :source_id, :channel, 'message',
-                     :digest, now(), 'linguistic_analysis', '{}'::jsonb,
-                     'memory-event-v1', '{"ingestion":"clinical_memory.commit_turn"}'::jsonb)
-                on conflict (user_id, source_table, source_id) do nothing
-            """),
-            {
-                "user_id": str(user_id),
-                "source_table": source_table,
-                "source_id": str(source_id),
-                "channel": channel,
-                "digest": digest,
-            },
+        source_model = ChatMessage if channel == "chat" else DiaryEntry
+        source_record = (
+            db.query(source_model)
+            .filter(source_model.id == source_id, source_model.user_id == user_id)
+            .first()
         )
-        db.flush()
-        from app.services.memory_pipeline import enqueue_memory_job
+        digest = stable_hash(source_text)
+        source_at = source_record.created_at if source_record is not None else commit_row.created_at
+        consent = (
+            db.query(Consent)
+            .filter(
+                Consent.user_id == user_id,
+                Consent.consent_type == LINGUISTIC_ANALYSIS,
+                Consent.revoked_at.is_(None),
+                Consent.granted.is_(True),
+            )
+            .order_by(Consent.granted_at.desc(), Consent.id.desc())
+            .first()
+        )
+        if consent is None:
+            return
 
+        consent_snapshot = json.dumps({
+            "purpose": LINGUISTIC_ANALYSIS,
+            "consent_id": str(consent.id),
+            "consent_version": consent.version,
+            "granted_at": consent.granted_at.isoformat() if consent.granted_at else None,
+        }, ensure_ascii=False)
+        metadata = json.dumps({
+            "correlation_id": str(correlation_id),
+            "memory_commit_id": str(commit_row.id),
+            "memory_commit_status": commit_row.status,
+            "hash_algorithm": "sha256",
+        }, ensure_ascii=False)
+
+        # The event ledger stores a secure source reference/hash, not a second
+        # transcript. Original content remains in chat_messages/diary_entries.
+        db.execute(sql_text("""
+            insert into psychdeep_v12.memory_event_ledger
+                (id, user_id, source_table, source_id, channel, event_type,
+                 source_content_hash, event_at, consent_purpose, consent_snapshot,
+                 schema_version, metadata)
+            values
+                (gen_random_uuid(), :user_id, :source_table, :source_id, :channel, :event_type,
+                 :digest, :event_at, :consent_purpose, cast(:consent_snapshot as jsonb),
+                 'memory-ledger-v1', cast(:metadata as jsonb))
+            on conflict (user_id, source_table, source_id) do nothing
+        """), {
+            "user_id": str(user_id),
+            "source_table": source_table,
+            "source_id": str(source_id),
+            "channel": channel,
+            "event_type": "message" if channel == "chat" else "diary_entry",
+            "digest": digest,
+            "event_at": source_at,
+            "consent_purpose": LINGUISTIC_ANALYSIS,
+            "consent_snapshot": consent_snapshot,
+            "metadata": metadata,
+        })
+
+        if commit_row.status == "accepted":
+            enqueue_memory_job(
+                db,
+                user_id=str(user_id),
+                job_type="extract_items",
+                source_table=source_table,
+                source_id=str(source_id),
+                idempotency_key=f"source-projection:{source_table}:{source_id}:{digest}",
+            )
+
+        # The same per-user/day key is also used by the worker's checkpoint
+        # logic, preventing duplicate deep-synthesis calls from two producers.
+        utc_day = datetime.now(timezone.utc).date().isoformat()
         enqueue_memory_job(
             db,
             user_id=str(user_id),
-            job_type="extract_items",
+            job_type="longitudinal_analysis",
             source_table=source_table,
             source_id=str(source_id),
-            idempotency_key=f"{source_table}:{source_id}:{digest}",
+            idempotency_key=f"patient-model:daily:{user_id}:{utc_day}",
         )
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         logger.warning("Memory pipeline enqueue skipped safely: %s", type(exc).__name__)
+
 
 def _commit_turn(
     db: Session,
@@ -604,25 +658,6 @@ def _commit_turn(
         db.commit()
     _store_embeddings(db, user_id, fact, formulation)
 
-    # Queue one whole-person rebuild per patient/day, never another LLM call on
-    # the conversational path. The worker processes source-linked temporal
-    # batches and can continue asynchronously if the history is large.
-    try:
-        from app.services.memory_pipeline import enqueue_memory_job
-
-        utc_day = datetime.now(timezone.utc).date().isoformat()
-        enqueue_memory_job(
-            db,
-            user_id=user_id,
-            job_type="longitudinal_analysis",
-            source_table="memory_commits",
-            source_id=commit.id,
-            idempotency_key=f"patient-model:daily:{user_id}:{utc_day}",
-        )
-        db.commit()
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        logger.warning("Patient-model job not queued; message archive remains committed: %s", type(exc).__name__)
     return commit
 
 
