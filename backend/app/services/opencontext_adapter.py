@@ -14,7 +14,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 logger = logging.getLogger("psychapp.opencontext")
@@ -114,6 +114,25 @@ class OpenContextClient:
         if not isinstance(decoded, dict) or decoded.get("ok") is False:
             raise RuntimeError("OpenContext returned an unsuccessful application result")
         return decoded
+
+    def recall(self, query: str, *, k: int = 5) -> dict[str, Any]:
+        """Compatibility route for the documented HTTP recall contract."""
+        if not query.strip():
+            return {"ok": True, "hits": [], "rendered": ""}
+        bounded_k = max(1, min(int(k), 8))
+        return self._request("GET", f"/api/recall?q={quote(query.strip(), safe='')}&k={bounded_k}")
+
+    def read(self, uri: str, *, tier: str = "l1", max_chars: int = 4000) -> dict[str, Any]:
+        """Read a memory URI using an explicit disclosure tier."""
+        if tier not in {"l0", "l1", "l2"}:
+            raise ValueError("tier must be l0, l1 or l2")
+        if not uri.strip():
+            raise ValueError("uri is required")
+        bounded_chars = max(1, min(int(max_chars), 8000))
+        return self._request(
+            "GET",
+            f"/api/read?uri={quote(uri.strip(), safe='')}&tier={tier}&max_chars={bounded_chars}",
+        )
 
     def health(self) -> dict[str, Any]:
         return self._request("GET", "/health")
