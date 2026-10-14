@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
@@ -279,7 +280,14 @@ def retrieve_longitudinal_context(
     from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 
     started_at = perf_counter()
-    user_uuid = user_id if isinstance(user_id, UUIDType) else UUIDType(str(user_id))
+    if in_crisis or task_type == "crisis" or not query.strip():
+        return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
+    if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+        return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
+    try:
+        user_uuid = user_id if isinstance(user_id, UUIDType) else UUIDType(str(user_id))
+    except (ValueError, TypeError, AttributeError):
+        return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
 
     def _aware(value):
         if value is None:
@@ -292,9 +300,6 @@ def retrieve_longitudinal_context(
         if not isinstance(value, list):
             return ()
         return tuple(str(ref) for ref in value if ref is not None and str(ref).strip())
-
-    if in_crisis or task_type == "crisis" or not is_granted(db, user_uuid, LINGUISTIC_ANALYSIS) or not query.strip():
-        return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
 
     candidates: list[MemoryEvidence] = []
     query_params = {"user_id": str(user_uuid), "query": query.strip()}
@@ -564,7 +569,17 @@ def run_memory_job(db: Session, job: dict[str, Any]) -> None:
     from uuid import UUID
     from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 
-    user_id = UUID(str(job["user_id"]))
+    try:
+        user_id = UUID(str(job["user_id"]))
+    except (ValueError, TypeError, AttributeError):
+        db.execute(text("""
+            update psychdeep_v12.memory_jobs
+               set status = 'cancelled', completed_at = now(),
+                   error_category = 'invalid_user_id', locked_at = null
+             where id = :job_id
+        """), {"job_id": str(job["id"])})
+        db.commit()
+        return
     job_type = str(job["job_type"])
     if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
         db.execute(text("""
