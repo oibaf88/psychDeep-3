@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
 from typing import Any, Sequence
+from time import perf_counter
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -277,6 +278,7 @@ def retrieve_longitudinal_context(
     from uuid import UUID as UUIDType
     from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 
+    started_at = perf_counter()
     user_uuid = user_id if isinstance(user_id, UUIDType) else UUIDType(str(user_id))
 
     def _aware(value):
@@ -526,12 +528,30 @@ def retrieve_longitudinal_context(
         logger.warning("Full-text memory retrieval skipped safely: %s", type(exc).__name__)
         return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
 
-    return compile_memory_context(
+    compiled = compile_memory_context(
         task_type=task_type,
         evidence=candidates,
         budget_tokens=budget_tokens,
         max_items=10 if task_type == "conversation" else 20,
     )
+    # Retrieval telemetry is deliberately aggregate: hashes, source IDs, coverage,
+    # estimated tokens and latency. Do not persist source text or the query itself.
+    try:
+        with db.begin_nested():
+            record_retrieval_run(
+                db,
+                user_id=str(user_uuid),
+                task_type=task_type,
+                query_hash=stable_hash(query.strip()),
+                compiled=compiled,
+                retrieval_version="fts-context-v1",
+                status="succeeded" if compiled.evidence_refs else "no_results",
+                latency_ms=max(0, int((perf_counter() - started_at) * 1000)),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger = logging.getLogger("psychapp.memory_pipeline")
+        logger.warning("Memory retrieval telemetry skipped safely: %s", type(exc).__name__)
+    return compiled
 
 def _query_words(value: str) -> set[str]:
     import re
