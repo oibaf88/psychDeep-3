@@ -1,78 +1,66 @@
-# OpenContext and Longitudinal Memory Refactor
+# OpenContext and whole-person longitudinal memory
 
-This document describes the integration path in ADR-0004 and the broader memory architecture in ADR-0005. Both features remain disabled/not wired to live patient traffic until the required privacy, security and validation gates pass.
+This integration uses selected OpenContext patterns — literal event envelopes, progressive L0/L1/L2 disclosure, query-aware retrieval and deferred processing — to strengthen PsychDeep's own longitudinal clinical memory. Supabase remains the canonical clinical data store.
 
-## Current problem being addressed
+## Why this is more than conversational recall
 
-PsychDeep already stores chat/diary source messages and a clinical-memory layer. Agent 1 currently constructs its context from recent messages, confirmed declarations, safety plan, check-ins, profile/open threads, psychosocial state, a small number of ranked discourse facts/readings and curated knowledge. The context has a budget, but the curated knowledge block can still contain every active, unexpired item. Deep longitudinal analysis and conversational recall should not be synonymous with placing as much historical text as possible into every prompt.
+The goal is to build a revisable, evidence-linked understanding of the patient over time: life context, relationships, health/treatment, recovery when relevant, emotional experience, coping, values, goals, routines, social conditions, strengths, recurring episodes, trajectories, contradictions and relevant unknowns. This is not created by putting an entire transcript in every prompt. Original records are retained, episodes are consolidated in bounded batches, higher-level digests are cached, and each task retrieves a bounded evidence bundle from that hierarchy plus source-linked records.
 
-The target approach separates **retention**, **analysis** and **prompt context**:
-- retain the original permitted source and provenance;
-- derive typed memories, source-linked observations and versioned summaries asynchronously;
-- retrieve the smallest evidence bundle that answers this turn's task;
-- build the prompt from ranked, attributed material under a measured token budget.
+See ADR-0005 for the token/context design and ADR-0006 for the whole-person model, epistemic rules and rollout gates.
 
-## Data authority
+## Longitudinal pipeline
 
-Supabase stays the canonical clinical source of truth. The expand-only memory pipeline migration adds references, normalized memory items, layered summary versions, idempotent analysis jobs and retrieval telemetry without rewriting the legacy sources. The OpenContext service is optional and disabled by default; it must not become a second clinical truth store by accident.
+1. **Canonical source:** the original chat message, diary entry, check-in, structured observation, confirmed fact, intervention or human annotation stays in its current authoritative table.
+2. **Consent-aware event ledger:** register the source reference, content hash, event time and consent snapshot. It does not create another transcript copy.
+3. **Temporal episodes:** a background worker reads raw chat/diary rows as well as derived observations and groups material into bounded monthly batches. Every source reference must be accounted for exactly once per batch, with unassigned references reported explicitly.
+4. **Hierarchical digests:** if the history has more than 80 active episodes, bounded groups of at most 12 adjacent episodes/digests are consolidated into versioned L0/L1/L2 time-window summaries. Stable source digests let later runs reuse completed nodes and continue only unfinished work.
+5. **Whole-person model:** a structured synthesis consumes the full digest hierarchy, recent higher-detail episodes, current structured measures, source-linked memories, prior hypotheses and counterevidence. Each facet, pattern, trajectory, protective factor, contradiction, recording gap and open question must reference known evidence.
+6. **Projections:** the model is published as a versioned patient_model_versions row, searchable memory_items and a global L0/L1/L2 summary. Previous projections are superseded, not overwritten as historical truth.
+7. **Query time:** Agent 1 can use the bounded patient model plus a small number of indexed historical source passages relevant to the current query. This does not run full-history synthesis on every user turn.
 
-No real patient data should be backfilled or exported by this proposal. OpenContext's own current documentation says SQLite is the verified default, Postgres/pgvector remains experimental, and a remote deployment does not include TLS termination, encrypted-at-rest storage, rate limiting, automatic key rotation or deployment certification by default.
+The tree is auditable: a higher-level summary points to child summary or episode IDs; episodes point to source IDs; canonical source tables hold the original text and structured observations.
 
-## Adapter environment
+## Epistemic rules
 
-\`\`\`dotenv
-OPENCONTEXT_ENABLED=false
-OPENCONTEXT_BASE_URL=
-OPENCONTEXT_API_TOKEN=
-OPENCONTEXT_AGENT_ID=psychdeep-agent1
-OPENCONTEXT_TIMEOUT_SECONDS=5
-OPENCONTEXT_MAX_CONTEXT_TOKENS=1000
-OPENCONTEXT_ALLOW_LOCAL_HTTP=false
-\`\`\`
+- User report, professional report, third-party report, system observation, assistant hypothesis and derived pattern remain distinct.
+- A user statement is evidence of what was said, not automatic proof of a world event.
+- A psychological hypothesis is not a diagnosis. A recurring pattern needs multiple source records and uncertainty.
+- Contradictions and corrections remain inspectable; the newest statement does not automatically erase an older one.
+- A missing record is a recording gap, not proof that an event, symptom or relationship state was absent.
+- Temporal association does not establish causality. Protective-factor availability can be historical or unclear, not assumed current.
+- The deterministic risk engine remains the only risk-level authority. Crisis replies bypass exploratory biography retrieval and preserve fixed safety logic.
+- When consent is revoked, new purpose-bound extraction, synthesis and retrieval stop. Jobs are cancelled rather than retried.
 
-Store the token only as a server-side secret. The remote service must use HTTPS, restricted network exposure and OpenContext's production credential policy. Loopback HTTP is permitted only for explicit local development.
+## Token efficiency
 
-Before any raw clinical text is sent:
-1. check the current user's linguistic-analysis consent immediately before the operation;
-2. derive the user's OpenContext principal from authenticated server-side identity;
-3. preserve role, speaker identity, source timestamp and available metadata;
-4. send the complete literal event envelope before any model-generated summary;
-5. reuse the same event ID only for an identical retry; reconcile uncertain timeouts before any retry;
-6. retain the canonical source inside PsychDeep and record the OpenContext sequence/hash in the appropriate audit metadata.
+A single global context budget includes recent turns, current state, legacy clinical memory, the patient model, historical excerpts, curated knowledge and tool output. The longitudinal query path uses PostgreSQL full-text indexes on atomic memory items, episode/digest summaries, discourse facts and raw user/diary source text. The SQL retrieval is user-scoped and bounded; raw passages are returned as short excerpts, not complete conversations.
 
-An ingestion response proves that the literal payload was persisted, not that asynchronous semantic analysis completed.
+The whole-person patient model and query retrieval serve different functions. The model provides compact longitudinal orientation and patterns; retrieval supplies specific historical passages for checking those patterns against original evidence. The retrieval feature flag remains off during initial shadow evaluation:
 
-## Retrieval and context compilation
+- MEMORY_PIPELINE_CONTEXT_ENABLED=false (current safe default).
+- MEMORY_PIPELINE_CONTEXT_BUDGET_TOKENS=800 (maximum addition for query-driven retrieval when enabled).
 
-1. Determine the task class (ordinary conversation, longitudinal analysis, professional review, crisis, psychoeducation or copilot).
-2. Retrieve by the current user query and authenticated namespace, not by a model-supplied user URI.
-3. Prefer L0/L1 summaries and compact source-linked evidence. Request L2 only for exact wording, contradiction checking or human review.
-4. Deduplicate the same memory item while retaining all its source references. Never silently remove a relevant contradiction or correction.
-5. Keep the current user turn, deterministic safety instructions and critical state outside the memory competition for budget.
-6. Attach perspective, attribution, time and uncertainty to retrieved items. A report is not proof of the world claim; a generated hypothesis is not a fact or diagnosis.
-7. Enforce a task-specific memory budget inside the existing global context budget. Telemetry stores hashes, selected references, token counts and failure classes, not clinical prompt bodies.
-8. If remote memory fails, continue with the existing Supabase path. The deterministic risk engine, crisis response and data entry do not wait on memory services.
+The feature can be enabled only after migrations and privacy/security checks pass, and retrieval quality/cost have been compared with the existing prompt path. No token-savings claim is made until actual provider usage is measured.
 
-## Asynchronous deep analysis
+## Worker and deployment
 
-The intended workers consume idempotent jobs for item extraction, summary refresh, embedding, contradiction detection, longitudinal analysis and optional OpenContext synchronization. Workers must be retryable and versioned. A stored source message is not blocked on a model call; jobs can remain pending if no appropriate model deployment is available.
+The background worker is a separate process, not part of the patient-facing chat request. Run it from the backend directory with the same approved database and model-gateway secrets:
 
-Generated summaries are cacheable projections, never replacements for their sources. Cache keys must include source digest, model/deployment, prompt/schema version and applicable consent revision. Re-embedding with a different model is a migration; vectors from incompatible embedding spaces must never be compared.
+    python scripts/run_memory_worker.py --limit 1
 
-## Phases
+A Render Background Worker or scheduled job can invoke it repeatedly. Each invocation claims an idempotent queued job, processes a bounded number of episodes/digest groups, records model/run provenance and enqueues a continuation if more work remains. The patient-facing response must never wait for deep synthesis.
 
-- **Phase 0 — schema and contract:** map every existing source table and verify migration apply/re-apply, forced RLS and negative authorization tests.
-- **Phase 1 — pipeline primitives:** validate typed memory items, provenance, context compilation, idempotency, token budgets and synthetic tests.
-- **Phase 2 — ingestion and outbox:** queue work in the same transaction as source references where feasible; backfill references only when source identity is recoverable.
-- **Phase 3 — workers:** incremental extraction, layered summaries, contradiction/temporal analysis, optional embeddings and retry/dead-letter handling.
-- **Phase 4 — retrieval wiring:** shadow-build Agent 1 and professional-review contexts from the new compiler, compare against the current pipeline, then enable behind a feature flag.
-- **Phase 5 — OpenContext staging:** synthetic-only service, scoped identity, tenant isolation, idempotent event ingestion and source recovery.
-- **Phase 6 — controlled rollout:** after security/privacy approval, enable for an internal test account and gradually increase traffic while measuring retrieval coverage, clinical review quality, actual token counts, latency and cost.
+The OpenContext adapter remains disabled unless explicitly configured. Before any real content is exported, an authenticated HTTPS deployment with scoped tenant-bound credentials, persistent storage, retention/erasure, backups, access logs, incident response and privacy review must be in place. The initial design does not backfill or duplicate production patient records into OpenContext.
+
+## Validation gates
+
+- Apply/re-apply all migrations in the supported Supabase role model; verify forced RLS and tenant-isolation negative tests.
+- Run the backend suite, frontend checks/build and Docker images.
+- Test synthetic histories containing hundreds/thousands of sources, a long single message, late-arriving historical sources, explicit corrections, contradictory reports and recording gaps.
+- Verify that each raw source is reachable through the hierarchy, every digest output source ref is valid, job retries do not duplicate active episodes and consent revocation cancels future processing.
+- Compare historical-question retrieval against the legacy context using source coverage, expert review, response quality, actual token counts, latency and cost.
+- Verify backup/restore, retention/erasure and security before enabling real clinical traffic or OpenContext export.
 
 ## Rollback
 
-Disable the relevant memory/OpenContext feature flags and restore the current Supabase memory compiler. Do not delete source data, summary history or canonical memory tables as part of rollback. OpenContext being offline must not impair core PsychDeep safety behavior.
-
-## Release conditions
-
-The schema and compiler foundation does not by itself mean the refactor is complete. Before live cutover, verify the full backend suite, database migration idempotency, RLS isolation, consent revocation, source traceability, source recovery after timeout/retry, prompt-injection handling, crisis behavior, backup/restore, data retention, privacy assessment and actual token savings measured against representative task benchmarks.
+Set MEMORY_PIPELINE_CONTEXT_ENABLED=false and disable the OpenContext feature. The app falls back to existing clinical memory and deterministic safety behavior. Do not delete source data, summary versions, memory history or the patient-model version trail as part of rollback.
