@@ -603,6 +603,26 @@ def _commit_turn(
         db.add(commit)
         db.commit()
     _store_embeddings(db, user_id, fact, formulation)
+
+    # Queue one whole-person rebuild per patient/day, never another LLM call on
+    # the conversational path. The worker processes source-linked temporal
+    # batches and can continue asynchronously if the history is large.
+    try:
+        from app.services.memory_pipeline import enqueue_memory_job
+
+        utc_day = datetime.now(timezone.utc).date().isoformat()
+        enqueue_memory_job(
+            db,
+            user_id=user_id,
+            job_type="longitudinal_analysis",
+            source_table="memory_commits",
+            source_id=commit.id,
+            idempotency_key=f"patient-model:daily:{user_id}:{utc_day}",
+        )
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.warning("Patient-model job not queued; message archive remains committed: %s", type(exc).__name__)
     return commit
 
 
