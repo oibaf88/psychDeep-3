@@ -400,9 +400,19 @@ def run_memory_job(db: Session, job: dict[str, Any]) -> None:
             raise RuntimeError("whole_person_episode_batch_failed")
         if result.get("status") in {"analysis_failed", "no_context_fit"}:
             raise RuntimeError("whole_person_synthesis_incomplete")
+        if result.get("status") in {"consent_required", "consent_revoked"}:
+            # Consent may be revoked while the worker is doing expensive analysis.
+            # Cancel this task explicitly; do not mark it successful or retry it.
+            db.execute(text("""
+                update psychdeep_v12.memory_jobs
+                   set status = 'cancelled', completed_at = now(),
+                       error_category = 'consent_revoked', locked_at = null
+                 where id = :job_id
+            """), {"job_id": str(job["id"])})
+            db.commit()
+            return
         if result.get("status") not in {
             "succeeded", "unchanged", "processing", "no_source_evidence",
-            "consent_required", "consent_revoked",
         }:
             raise RuntimeError("whole_person_synthesis_unexpected_status")
     elif job_type in {"refresh_summary", "detect_contradictions", "embed_items", "opencontext_sync"}:
