@@ -19,11 +19,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
-from app.models import CheckIn, ConfirmedFact, PatientProfile, PsychosocialObservation
+from app.models import ChatMessage, CheckIn, ConfirmedFact, DiaryEntry, PatientProfile, PsychosocialObservation
 from app.models_vnext import (
     DiscourseFact,
     FormulationVersion,
     MemoryAnalysisRun,
+    MemoryAnnotation,
     MemoryCommit,
     MemoryEpisode,
     MemoryItem,
@@ -419,11 +420,28 @@ def _ref(kind: str, row_id: Any) -> str:
 
 
 def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
-    """Collect source-linked timeline material from all existing PsychDeep channels."""
+    """Build a source-linked chronology from canonical records and derived clinical memory.
+
+    Raw chat messages and diary entries are included independently of whether
+    semantic extraction succeeded. Derived facts, formulations and observations
+    are additional evidence layers; they never substitute for the raw source.
+    """
     commits = (
         db.query(MemoryCommit)
         .filter(MemoryCommit.user_id == user_id, MemoryCommit.status == "accepted")
         .order_by(MemoryCommit.created_at.asc())
+        .all()
+    )
+    messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == user_id)
+        .order_by(ChatMessage.created_at.asc())
+        .all()
+    )
+    diary_entries = (
+        db.query(DiaryEntry)
+        .filter(DiaryEntry.user_id == user_id)
+        .order_by(DiaryEntry.created_at.asc())
         .all()
     )
     facts = (
@@ -456,26 +474,109 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
         .order_by(CheckIn.created_at.asc())
         .all()
     )
+    annotations = (
+        db.query(MemoryAnnotation)
+        .filter(MemoryAnnotation.user_id == user_id)
+        .order_by(MemoryAnnotation.created_at.asc())
+        .all()
+    )
 
     facts_by_commit: dict[str, list[Any]] = defaultdict(list)
+    facts_by_source: dict[str, list[Any]] = defaultdict(list)
     for row in facts:
         if row.memory_commit_id:
             facts_by_commit[str(row.memory_commit_id)].append(row)
+        if row.chat_message_id:
+            facts_by_source[str(row.chat_message_id)].append(row)
+        if row.diary_entry_id:
+            facts_by_source[str(row.diary_entry_id)].append(row)
+
     readings_by_commit: dict[str, list[Any]] = defaultdict(list)
     for row in readings:
         if row.memory_commit_id:
             readings_by_commit[str(row.memory_commit_id)].append(row)
+
     observations_by_source: dict[str, list[Any]] = defaultdict(list)
     for row in observations:
         source_id = row.chat_message_id if row.chat_message_id else row.diary_entry_id
         if source_id:
             observations_by_source[str(source_id)].append(row)
 
+    commits_by_source: dict[str, list[Any]] = defaultdict(list)
+    for row in commits:
+        if row.source_id:
+            commits_by_source[str(row.source_id)].append(row)
+
+    readings_by_source_fact: dict[str, list[Any]] = defaultdict(list)
+    fact_ids = {str(row.id): row for row in facts}
+    for reading in readings:
+        for ref in reading.evidence_refs or []:
+            source_id = str(ref)
+            if source_id in fact_ids:
+                readings_by_source_fact[source_id].append(reading)
+
     docs: list[dict[str, Any]] = []
     used_fact_ids: set[str] = set()
     used_reading_ids: set[str] = set()
     used_observation_ids: set[str] = set()
 
+    # Full literal messages are canonical evidence. Role attribution is
+    # explicit because assistant output must not be treated as patient report.
+    for message in messages:
+        source_id = str(message.id)
+        source_ref = _ref("chat_message", message.id)
+        related_refs = [source_ref]
+        related_facts = facts_by_source.get(source_id, [])
+        for fact in related_facts:
+            related_refs.append(_ref("discourse_fact", fact.id))
+            used_fact_ids.add(str(fact.id))
+            for reading in readings_by_source_fact.get(str(fact.id), []):
+                related_refs.append(_ref("psych_reading", reading.id))
+                used_reading_ids.add(str(reading.id))
+        for commit in commits_by_source.get(source_id, []):
+            related_refs.append(_ref("memory_commit", commit.id))
+        related_observations = observations_by_source.get(source_id, [])
+        for observation in related_observations:
+            related_refs.append(_ref("psychosocial_observation", observation.id))
+            used_observation_ids.add(str(observation.id))
+        content = str(message.content or "")
+        docs.append({
+            "timestamp": _normalise_dt(message.created_at),
+            "source_refs": list(dict.fromkeys(related_refs)),
+            "content": (
+                f"FUENTE LITERAL chat_message; role={message.role}; fecha={_dt_text(message.created_at)}. "
+                "Si el role es assistant, es una respuesta del sistema y no un autorrelato del paciente.\n"
+                + content
+            ),
+            "channel": "chat",
+            "kind": f"literal_chat_{message.role}",
+        })
+
+    for entry in diary_entries:
+        source_id = str(entry.id)
+        source_ref = _ref("diary_entry", entry.id)
+        related_refs = [source_ref]
+        for fact in facts_by_source.get(source_id, []):
+            related_refs.append(_ref("discourse_fact", fact.id))
+            used_fact_ids.add(str(fact.id))
+            for reading in readings_by_source_fact.get(str(fact.id), []):
+                related_refs.append(_ref("psych_reading", reading.id))
+                used_reading_ids.add(str(reading.id))
+        for commit in commits_by_source.get(source_id, []):
+            related_refs.append(_ref("memory_commit", commit.id))
+        for observation in observations_by_source.get(source_id, []):
+            related_refs.append(_ref("psychosocial_observation", observation.id))
+            used_observation_ids.add(str(observation.id))
+        docs.append({
+            "timestamp": _normalise_dt(entry.created_at),
+            "source_refs": list(dict.fromkeys(related_refs)),
+            "content": f"FUENTE LITERAL diary_entry; fecha={_dt_text(entry.created_at)}.\n{entry.content}",
+            "channel": "diary",
+            "kind": "literal_diary",
+        })
+
+    # The formulation/commit is another view of the event, not a replacement
+    # for the original message. Include it so its thematic hierarchy is visible.
     for commit in commits:
         commit_ref = _ref("memory_commit", commit.id)
         refs = [commit_ref]
@@ -505,15 +606,14 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
             used_reading_ids.add(str(reading.id))
             parts.append(
                 f"Hipótesis del sistema ({reading.kind}; incertidumbre={reading.uncertainty}; "
-                f"estado={reading.status}): {reading.hypothesis}. "
-                f"Fuentes citadas por esa hipótesis: {json.dumps(reading.evidence_refs, ensure_ascii=False)}"
+                f"estado={reading.status}): {reading.hypothesis}"
             )
         docs.append({
             "timestamp": _normalise_dt(timestamp),
             "source_refs": list(dict.fromkeys(refs)),
             "content": "\n".join(part for part in parts if part and part.strip()),
             "channel": commit.channel,
-            "kind": "conversation_or_diary_commit",
+            "kind": "derived_clinical_formulation",
         })
 
     for fact in facts:
@@ -522,7 +622,9 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
         docs.append({
             "timestamp": _normalise_dt(fact.spoken_at),
             "source_refs": [_ref("discourse_fact", fact.id)],
-            "content": f"Relato literal de canal {fact.channel} en {_dt_text(fact.spoken_at)}: {fact.quote}",
+            "content": (
+                f"Relato literal de canal {fact.channel} en {_dt_text(fact.spoken_at)}: {fact.quote}"
+            ),
             "channel": fact.channel,
             "kind": "unlinked_discourse_fact",
         })
@@ -562,9 +664,8 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
             "timestamp": _normalise_dt(fact.created_at),
             "source_refs": [_ref("confirmed_fact", fact.id)],
             "content": (
-                f"Hecho declarado/confirmado por {fact.declared_by}, categoría={fact.category}, "
-                f"activo={fact.is_active}: {fact.content}. Es una entrada confirmada en el registro, "
-                "no una licencia para inferir otros hechos no incluidos."
+                f"Entrada declarada/confirmada por {fact.declared_by}, categoría={fact.category}, "
+                f"activo={fact.is_active}: {fact.content}. Su alcance es exactamente el registrado."
             ),
             "channel": "confirmed_record",
             "kind": "confirmed_fact",
@@ -583,9 +684,57 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
             "kind": "structured_self_report",
         })
 
+    for annotation in annotations:
+        docs.append({
+            "timestamp": _normalise_dt(annotation.created_at),
+            "source_refs": [_ref("memory_annotation", annotation.id)],
+            "content": (
+                f"Anotación humana de memoria; autor={annotation.author_id}; "
+                f"objetivo={annotation.target_type}:{annotation.target_id}.\n{annotation.body}"
+            ),
+            "channel": "human_annotation",
+            "kind": "human_annotation",
+        })
+
     docs = [doc for doc in docs if doc["source_refs"] and doc["content"].strip()]
     docs.sort(key=lambda doc: (doc["timestamp"] is not None, doc["timestamp"] or datetime.min.replace(tzinfo=timezone.utc)))
-    return docs
+    return _split_long_source_docs(docs)
+
+
+def _split_long_source_docs(
+    docs: list[dict[str, Any]],
+    *,
+    max_chars: int = 11000,
+    overlap_chars: int = 350,
+) -> list[dict[str, Any]]:
+    """Split long literal sources into traceable chunks before model calls."""
+    result: list[dict[str, Any]] = []
+    for doc in docs:
+        content = str(doc.get("content") or "")
+        if len(content) <= max_chars:
+            result.append(doc)
+            continue
+        start = 0
+        part = 0
+        base_refs = [str(ref) for ref in doc.get("source_refs", [])]
+        while start < len(content):
+            end = min(len(content), start + max_chars)
+            if end < len(content):
+                boundary = content.rfind("\n", start + max_chars // 2, end)
+                if boundary > start:
+                    end = boundary
+            chunk = content[start:end]
+            chunk_refs = [f"{ref}#chunk-{part + 1:03d}" for ref in base_refs]
+            result.append({
+                **doc,
+                "source_refs": chunk_refs,
+                "content": f"[fragmento {part + 1}; fuente completa referenciada por el prefijo de source_refs]\n{chunk}",
+            })
+            if end >= len(content):
+                break
+            start = max(start + 1, end - overlap_chars)
+            part += 1
+    return result
 
 
 def _partition_source_docs(docs: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
