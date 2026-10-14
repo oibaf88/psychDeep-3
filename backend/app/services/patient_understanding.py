@@ -1237,6 +1237,317 @@ def _consolidate_batch(db: Session, user_id, docs: list[dict[str, Any]], correla
         return 0, [type(exc).__name__]
 
 
+
+def _episode_node(row: MemoryEpisode) -> dict[str, Any]:
+    stamp_start = _normalise_dt(row.start_at or row.created_at)
+    stamp_end = _normalise_dt(row.end_at or row.start_at or row.created_at)
+    return {
+        "ref": _ref("memory_episode", row.id),
+        "node_type": "episode",
+        "title": row.title,
+        "start_at": stamp_start,
+        "end_at": stamp_end,
+        "l0": row.l0,
+        "l1": row.l1,
+        "l2": row.l2,
+        "themes": list(row.themes or []),
+        "transitions": list(row.transitions or []),
+        "source_refs": list(dict.fromkeys(str(ref) for ref in (row.source_refs or []))),
+        "uncertainty": row.uncertainty,
+        "source_digest": row.source_digest,
+        "level": 0,
+    }
+
+
+def _render_episode_digest_input(nodes: list[dict[str, Any]], level: int) -> str:
+    refs = [str(node["ref"]) for node in nodes]
+    lines = [
+        f"Nivel de síntesis: {level}. Nodos de entrada y referencias citables: "
+        + json.dumps(refs, ensure_ascii=False),
+        "Las referencias de fuentes internas dentro de cada nodo son contexto de trazabilidad; "
+        "en el campo source_refs de salida debes citar exactamente una vez cada referencia de nodo de entrada.",
+    ]
+    for node in nodes:
+        lines.append(
+            f"\n[NODO {node['ref']}] fecha={_dt_text(node.get('start_at'))}–{_dt_text(node.get('end_at'))}; "
+            f"tipo={node.get('node_type')}; nivel={node.get('level', 0)}; incertidumbre={node.get('uncertainty', 'unknown')}\n"
+            f"Título: {node.get('title', '')}\n"
+            f"L0: {str(node.get('l0') or '')[:300]}\n"
+            f"L1: {str(node.get('l1') or '')[:1200]}\n"
+            f"Temas: {json.dumps(node.get('themes') or [], ensure_ascii=False)}\n"
+            f"Transiciones: {json.dumps(node.get('transitions') or [], ensure_ascii=False)}\n"
+            f"Ramas de procedencia: {json.dumps(node.get('source_refs') or [], ensure_ascii=False)}"
+        )
+    return "\n".join(lines)
+
+
+def build_hierarchical_episode_context(
+    db: Session,
+    user_id,
+    *,
+    correlation_id: uuid.UUID,
+    max_summary_calls: int = MAX_DIGEST_CALLS_PER_RUN,
+) -> dict[str, Any]:
+    """Build/reuse a provenance-linked summary tree over the entire episode timeline.
+
+    Every episode enters level 0. Where there are more than MAX_FINAL_EPISODE_NODES,
+    bounded model calls consolidate groups into versioned higher-level summaries.
+    The process is resumable and idempotent: completed groups are reused by digest;
+    unfinished work is continued by another background job, never by the chat turn.
+    """
+    if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+        return {"status": "consent_revoked", "nodes": [], "pending_digest": None, "created": 0}
+
+    rows = (
+        db.query(MemoryEpisode)
+        .filter(MemoryEpisode.user_id == user_id, MemoryEpisode.status == "active")
+        .order_by(MemoryEpisode.start_at.asc().nullsfirst(), MemoryEpisode.created_at.asc())
+        .all()
+    )
+    nodes = [_episode_node(row) for row in rows]
+    if len(nodes) <= MAX_FINAL_EPISODE_NODES:
+        return {"status": "succeeded", "nodes": nodes, "pending_digest": None, "created": 0}
+
+    created = 0
+    call_limit = max(0, int(max_summary_calls))
+    level = 1
+    while len(nodes) > MAX_FINAL_EPISODE_NODES and level <= 8:
+        groups = [
+            nodes[index:index + EPISODE_DIGEST_GROUP_SIZE]
+            for index in range(0, len(nodes), EPISODE_DIGEST_GROUP_SIZE)
+        ]
+        next_nodes: list[dict[str, Any]] = []
+        for group in groups:
+            child_refs = [str(node["ref"]) for node in group]
+            if len(child_refs) != len(set(child_refs)):
+                return {"status": "failed", "nodes": [], "pending_digest": None, "created": created, "errors": ["duplicate_child_ref"]}
+            input_digest = stable_hash({
+                "level": level,
+                "schema_version": EPISODE_DIGEST_SCHEMA_VERSION,
+                "prompt_version": PROMPT_VERSION,
+                "nodes": [{
+                    "ref": node["ref"],
+                    "source_digest": node.get("source_digest"),
+                    "l0": node.get("l0"),
+                    "l1": node.get("l1"),
+                    "themes": node.get("themes") or [],
+                    "transitions": node.get("transitions") or [],
+                } for node in group],
+            })
+            first_stamp = _normalise_dt(group[0].get("start_at"))
+            last_stamp = _normalise_dt(group[-1].get("end_at"))
+            first_id = str(group[0]["ref"]).split(":")[-1].split("#", 1)[0][:8]
+            last_id = str(group[-1]["ref"]).split(":")[-1].split("#", 1)[0][:8]
+            scope_key = (
+                f"episode-digest:l{level}:"
+                f"{first_stamp.strftime('%Y%m%d') if first_stamp else 'undated'}-"
+                f"{last_stamp.strftime('%Y%m%d') if last_stamp else 'undated'}:"
+                f"{first_id}:{last_id}"
+            )[:160]
+
+            from sqlalchemy import text as sql_text
+
+            cached = db.execute(sql_text("""
+                select id, l0, l1, l2, source_refs, source_digest, source_watermark, created_at
+                  from psychdeep_v12.memory_summary_versions
+                 where user_id = :user_id
+                   and scope_type = 'time_window'
+                   and scope_key = :scope_key
+                   and status = 'active'
+                 order by created_at desc
+                 limit 1
+            """), {"user_id": str(user_id), "scope_key": scope_key}).mappings().first()
+            if cached is not None and cached["source_digest"] == input_digest:
+                summary_id = cached["id"]
+                next_nodes.append({
+                    "ref": _ref("memory_summary", summary_id),
+                    "node_type": "summary",
+                    "title": f"Síntesis longitudinal nivel {level}",
+                    "start_at": first_stamp,
+                    "end_at": last_stamp,
+                    "l0": cached["l0"],
+                    "l1": cached["l1"],
+                    "l2": cached["l2"],
+                    "themes": [],
+                    "transitions": [],
+                    "source_refs": list(cached["source_refs"] or child_refs),
+                    "uncertainty": "medium",
+                    "source_digest": input_digest,
+                    "level": level,
+                })
+                continue
+
+            if created >= call_limit:
+                return {
+                    "status": "processing",
+                    "nodes": [],
+                    "pending_digest": input_digest,
+                    "created": created,
+                    "pending_groups": len(groups),
+                }
+
+            rendered_input = _render_episode_digest_input(group, level)
+            analysis_run = _as_analysis_run(
+                db,
+                user_id=user_id,
+                analysis_type="trajectory",
+                question_hash=input_digest,
+                question_label=f"Episode digest level {level}: {scope_key}",
+                source_refs=child_refs,
+                source_watermark=last_stamp,
+                estimated_tokens=estimate_tokens(rendered_input),
+            )
+            try:
+                if analysis_run.status == "succeeded" and isinstance(analysis_run.result_json, dict):
+                    parsed = EpisodeDigestDraft.model_validate(analysis_run.result_json)
+                    model_run_id = analysis_run.model_run_id
+                else:
+                    if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+                        _fail_run(db, analysis_run, "consent_revoked")
+                        return {"status": "consent_revoked", "nodes": [], "pending_digest": None, "created": created}
+                    from app.services.model_gateway import get_model_gateway
+
+                    outcome = get_model_gateway().analyze_structured(
+                        system_prompt=EPISODE_DIGEST_SYSTEM_PROMPT,
+                        user_text=rendered_input,
+                        tool_schema=EPISODE_DIGEST_TOOL_SCHEMA,
+                        purpose="memory_episode_digest",
+                        user_id=user_id,
+                        correlation_id=correlation_id,
+                        prompt_version=PROMPT_VERSION,
+                        schema_version=EPISODE_DIGEST_SCHEMA_VERSION,
+                        db=db,
+                    )
+                    parsed = EpisodeDigestDraft.model_validate(outcome.result.value)
+                    model_run_id = outcome.model_run_id
+                    returned_refs = list(parsed.source_refs)
+                    if sorted(returned_refs) != sorted(child_refs) or len(returned_refs) != len(set(returned_refs)):
+                        raise ValueError("episode_digest_source_coverage_invalid")
+                    if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+                        _fail_run(db, analysis_run, "consent_revoked")
+                        return {"status": "consent_revoked", "nodes": [], "pending_digest": None, "created": created}
+                    analysis_run.model_run_id = outcome.model_run_id
+                    analysis_run.result_json = parsed.model_dump()
+                    analysis_run.actual_input_tokens = None
+                    analysis_run.status = "succeeded"
+                    analysis_run.completed_at = datetime.now(timezone.utc)
+                    db.add(analysis_run)
+
+                summary_id = uuid.uuid5(
+                    user_id if isinstance(user_id, uuid.UUID) else uuid.UUID(str(user_id)),
+                    f"episode-digest:{level}:{scope_key}:{input_digest}",
+                )
+                prior_id = str(cached["id"]) if cached is not None else None
+                db.execute(sql_text("""
+                    update psychdeep_v12.memory_summary_versions
+                       set status = 'superseded'
+                     where user_id = :user_id
+                       and scope_type = 'time_window'
+                       and scope_key = :scope_key
+                       and status = 'active'
+                       and id <> :new_id
+                """), {
+                    "user_id": str(user_id),
+                    "scope_key": scope_key,
+                    "new_id": str(summary_id),
+                })
+                db.execute(sql_text("""
+                    insert into psychdeep_v12.memory_summary_versions
+                        (id, user_id, scope_type, scope_key, l0, l1, l2,
+                         source_watermark, source_refs, source_digest, supersedes_id,
+                         model_run_id, prompt_version, schema_version, generation_reason, status)
+                    values
+                        (:id, :user_id, 'time_window', :scope_key, :l0, :l1, :l2,
+                         :source_watermark, cast(:source_refs as jsonb), :source_digest,
+                         :supersedes_id, :model_run_id, :prompt_version, :schema_version,
+                         'episode_digest', 'active')
+                    on conflict (id) do update
+                        set l0 = excluded.l0,
+                            l1 = excluded.l1,
+                            l2 = excluded.l2,
+                            source_watermark = excluded.source_watermark,
+                            source_refs = excluded.source_refs,
+                            source_digest = excluded.source_digest,
+                            supersedes_id = excluded.supersedes_id,
+                            model_run_id = excluded.model_run_id,
+                            status = 'active'
+                """), {
+                    "id": str(summary_id),
+                    "user_id": str(user_id),
+                    "scope_key": scope_key,
+                    "l0": parsed.l0,
+                    "l1": parsed.l1,
+                    "l2": parsed.l2,
+                    "source_watermark": last_stamp,
+                    "source_refs": json.dumps(child_refs, ensure_ascii=False),
+                    "source_digest": input_digest,
+                    "supersedes_id": prior_id,
+                    "model_run_id": str(model_run_id) if model_run_id else None,
+                    "prompt_version": PROMPT_VERSION,
+                    "schema_version": EPISODE_DIGEST_SCHEMA_VERSION,
+                })
+                db.commit()
+                next_nodes.append({
+                    "ref": _ref("memory_summary", summary_id),
+                    "node_type": "summary",
+                    "title": f"Síntesis longitudinal nivel {level}",
+                    "start_at": first_stamp,
+                    "end_at": last_stamp,
+                    "l0": parsed.l0,
+                    "l1": parsed.l1,
+                    "l2": parsed.l2,
+                    "themes": parsed.themes,
+                    "transitions": parsed.transitions,
+                    "source_refs": child_refs,
+                    "uncertainty": parsed.uncertainty,
+                    "source_digest": input_digest,
+                    "level": level,
+                })
+                created += 1
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                logger.warning("Episode digest failed safely: %s", type(exc).__name__)
+                return {
+                    "status": "failed",
+                    "nodes": [],
+                    "pending_digest": input_digest,
+                    "created": created,
+                    "errors": [type(exc).__name__],
+                }
+        nodes = next_nodes
+        level += 1
+
+    if len(nodes) > MAX_FINAL_EPISODE_NODES:
+        return {"status": "failed", "nodes": [], "pending_digest": None, "created": created, "errors": ["episode_digest_depth_limit"]}
+    return {"status": "succeeded", "nodes": nodes, "pending_digest": None, "created": created}
+
+
+def _episode_context_node(node: dict[str, Any]) -> MemoryEvidence:
+    is_summary = node.get("node_type") == "summary"
+    text = (
+        f"{node.get('title', 'Episodio longitudinal')}\n"
+        f"L0: {str(node.get('l0') or '')}\n"
+    )
+    if node.get("themes"):
+        text += "Temas: " + "; ".join(str(value) for value in node["themes"][:10]) + "\n"
+    if node.get("transitions"):
+        text += "Transiciones: " + "; ".join(str(value) for value in node["transitions"][:6]) + "\n"
+    if node.get("l1"):
+        text += "L1: " + str(node["l1"])[:1500]
+    return MemoryEvidence(
+        ref=str(node["ref"]),
+        item_type="longitudinal_pattern" if is_summary else "episode",
+        perspective="derived_pattern",
+        attribution="episode-digest" if is_summary else "episodic-consolidator",
+        text=text,
+        occurred_at=_normalise_dt(node.get("end_at") or node.get("start_at")),
+        confidence=None,
+        uncertainty=str(node.get("uncertainty") or "unknown"),
+        source_refs=tuple(str(ref) for ref in (node.get("source_refs") or [])),
+        score=3.0 if is_summary else 2.6,
+    )
+
+
 def _balanced_episode_subset(episodes: list[MemoryEpisode], max_items: int = 100) -> list[MemoryEpisode]:
     """Retain coverage across the full timeline plus dense coverage of recent episodes."""
     if len(episodes) <= max_items:
