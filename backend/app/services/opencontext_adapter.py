@@ -78,7 +78,7 @@ class OpenContextClient:
     def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.enabled:
             return {"ok": False, "disabled": True}
-        self.config.validate(allow_local_http=urlsplit(self.config.base_url).hostname in {"localhost", "127.0.0.1", "::1"})
+        self.config.validate(allow_local_http=False)
         if not path.startswith("/") or path.startswith("//"):
             raise ValueError("OpenContext path must be an absolute API path")
         body = None if payload is None else json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
