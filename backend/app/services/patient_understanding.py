@@ -54,11 +54,15 @@ logger = logging.getLogger("psychapp.patient_understanding")
 PROMPT_VERSION = "whole-person-longitudinal-v1"
 EPISODE_SCHEMA_VERSION = "memory-episode-batch-v1"
 PATIENT_MODEL_SCHEMA_VERSION = "patient-model-v1"
+EPISODE_DIGEST_SCHEMA_VERSION = "episode-digest-v1"
 SOURCE_BATCH_SIZE = 10
 MAX_BATCHES_PER_RUN = 8
 EPISODE_INPUT_CHAR_BUDGET = 23000
 PATIENT_MODEL_CONTEXT_TOKENS = 11000
 PATIENT_MODEL_MAX_EVIDENCE_ITEMS = 180
+MAX_FINAL_EPISODE_NODES = 80
+EPISODE_DIGEST_GROUP_SIZE = 12
+MAX_DIGEST_CALLS_PER_RUN = 8
 
 PATIENT_DOMAINS = (
     "life_context", "relationships_and_attachment", "health_and_treatment",
@@ -246,6 +250,45 @@ WHOLE_PERSON_TOOL_SCHEMA = {
 }
 
 
+EPISODE_DIGEST_TOOL_SCHEMA = {
+    "name": "consolidate_episode_digest",
+    "description": "Synthesize a bounded group of source-linked episode summaries into a higher-level longitudinal digest.",
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["l0", "l1", "l2", "themes", "transitions", "source_refs", "uncertainty"],
+        "properties": {
+            "l0": {"type": "string", "maxLength": 256},
+            "l1": {"type": "string", "maxLength": 4000},
+            "l2": {"type": "string", "maxLength": 8000},
+            "themes": {"type": "array", "maxItems": 12, "items": {"type": "string", "maxLength": 120}},
+            "transitions": {"type": "array", "maxItems": 12, "items": {"type": "string", "maxLength": 240}},
+            "source_refs": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string"}},
+            "uncertainty": {"type": "string", "enum": list(UNCERTAINTIES)},
+        },
+    },
+}
+
+
+EPISODE_DIGEST_SYSTEM_PROMPT = """Eres el consolidator jerárquico de memoria longitudinal de PsychDeep.
+Recibes entre 1 y 12 episodios/resúmenes fechados, cada uno con referencias de origen.
+Tu objetivo es conservar los cambios y matices importantes en una síntesis de nivel superior
+para que historiales extensos puedan analizarse sin introducir todos los textos originales en un prompt.
+
+Reglas:
+- Resume el conjunto completo; no hagas una respuesta conversacional.
+- Conserva cronología, recurrencia, excepciones, contraejemplos, fortalezas, factores contextuales y contradicciones importantes.
+- Una coincidencia temporal no demuestra causalidad.
+- Distingue autorrelato, anotación profesional e hipótesis derivada cuando aparezcan en el material.
+- No diagnostiques ni calcules riesgo. Los episodios agudos no establecen rasgos estables.
+- Un hueco de registros solo significa que la aplicación no tiene observaciones etiquetadas durante ese intervalo.
+- No conviertas una hipótesis previa en hecho por verla repetida en un resumen.
+- Usa exclusivamente las referencias exactas de los nodos de entrada. Cada referencia debe aparecer exactamente una vez en source_refs; no inventes ni omitas fuentes.
+- L0 es orientación compacta, L1 conserva el hilo longitudinal, L2 anota excepciones y matices útiles para una revisión futura.
+- Si la evidencia no permite una conclusión, dilo explícitamente en vez de completarla por intuición.
+Responde solo con el esquema estructurado solicitado."""
+
+
 EPISODE_SYSTEM_PROMPT = """Eres el consolidator episódico de memoria longitudinal de PsychDeep.
 Recibes fuentes ya registradas sobre una sola persona. Agrupa material relacionado en episodios o
 tramos temporales únicamente cuando la relación esté apoyada por las fuentes.
@@ -312,6 +355,17 @@ class UnassignedSource(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     source_ref: str = Field(min_length=1, max_length=192)
     reason: str = Field(min_length=1, max_length=240)
+
+
+class EpisodeDigestDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    l0: str = Field(max_length=256)
+    l1: str = Field(max_length=4000)
+    l2: str = Field(max_length=8000)
+    themes: list[str] = Field(max_length=12)
+    transitions: list[str] = Field(max_length=12)
+    source_refs: list[str] = Field(min_length=1, max_length=20)
+    uncertainty: Literal["low", "medium", "high", "unknown"]
 
 
 class EpisodeBatchResult(BaseModel):
@@ -1048,7 +1102,11 @@ def _as_analysis_run(
         result_json={},
         limitations=[],
         prompt_version=PROMPT_VERSION,
-        schema_version=EPISODE_SCHEMA_VERSION if analysis_type == "episode" else PATIENT_MODEL_SCHEMA_VERSION,
+        schema_version=(
+            EPISODE_SCHEMA_VERSION if analysis_type == "episode"
+            else EPISODE_DIGEST_SCHEMA_VERSION if analysis_type == "trajectory"
+            else PATIENT_MODEL_SCHEMA_VERSION
+        ),
         estimated_input_tokens=estimated_tokens,
         status="processing",
     )
