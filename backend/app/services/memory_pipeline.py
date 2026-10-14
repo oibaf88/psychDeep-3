@@ -308,6 +308,7 @@ def retrieve_longitudinal_context(
               from psychdeep_v12.memory_items mi
               cross join q
              where mi.user_id = :user_id
+               and mi.attribution <> 'PsychDeep whole-person model'
                and mi.status = 'active'
                and (mi.expires_at is null or mi.expires_at > now())
                and to_tsvector('simple', coalesce(mi.content, '')) @@ q.tsq
@@ -513,32 +514,7 @@ def retrieve_longitudinal_context(
                 score=1.9 + min(1.5, float(row["relevance"] or 0) * 8),
             ))
 
-        # The global L0/L1 patient portrait remains available as a low-priority
-        # anchor even when the current turn uses different wording.
-        global_summary = db.execute(text("""
-            select id, l0, l1, source_refs, source_watermark, created_at
-              from psychdeep_v12.memory_summary_versions
-             where user_id = :user_id
-               and scope_type = 'topic'
-               and scope_key = 'longitudinal-v1'
-               and status = 'active'
-             order by created_at desc
-             limit 1
-        """), {"user_id": str(user_id)}).mappings().first()
-        if global_summary is not None:
-            summary_text = str(global_summary["l1"] or global_summary["l0"] or "").strip()
-            if summary_text:
-                candidates.append(MemoryEvidence(
-                    ref=f"memory_summary:{global_summary['id']}",
-                    item_type="longitudinal_pattern",
-                    perspective="derived_pattern",
-                    attribution="psychDeep whole-person formulation",
-                    text=summary_text[:1500],
-                    occurred_at=_aware(global_summary["source_watermark"] or global_summary["created_at"]),
-                    uncertainty="medium",
-                    source_refs=_list_refs(global_summary["source_refs"]),
-                    score=0.3,
-                ))
+
     except Exception as exc:  # noqa: BLE001
         # A failing index/query must not suppress existing clinical memory. Roll
         # back the failed Postgres transaction so Agent 1 can continue safely.
