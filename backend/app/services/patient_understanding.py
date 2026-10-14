@@ -29,6 +29,7 @@ from app.models_vnext import (
     MemoryEpisode,
     MemoryItem,
     MemoryJob,
+    ModelRun,
     PatientModelQuestion,
     PatientModelVersion,
     PsychReading,
@@ -1862,12 +1863,27 @@ def rebuild_patient_model(
     db.add(snapshot)
     db.flush()
     _upsert_open_questions(db, user_id, parsed.open_questions, snapshot.id)
+    _persist_patient_model_projections(
+        db,
+        user_id=user_id,
+        snapshot=snapshot,
+        model=parsed,
+        source_refs=selected_refs,
+        source_watermark=watermark,
+        source_digest=source_digest,
+        model_run_id=outcome.model_run_id,
+    )
     run = db.query(MemoryAnalysisRun).filter(MemoryAnalysisRun.id == run.id).first()
+    model_usage = (
+        db.query(ModelRun).filter(ModelRun.id == outcome.model_run_id).first()
+        if outcome.model_run_id else None
+    )
     if run is not None:
         run.model_run_id = outcome.model_run_id
         run.result_json = model_json
         run.limitations = parsed.limitations
-        run.actual_input_tokens = None
+        run.actual_input_tokens = model_usage.input_tokens if model_usage is not None else None
+        run.output_tokens = model_usage.output_tokens if model_usage is not None else None
         run.status = "succeeded"
         run.completed_at = datetime.now(timezone.utc)
         db.add(run)
