@@ -422,27 +422,18 @@ def run_memory_job(db: Session, job: dict[str, Any]) -> None:
 
 
 def _enqueue_longitudinal_checkpoint(db: Session, user_id, job: dict[str, Any]) -> None:
-    """Schedule one deep analysis per ten accepted source events, not per turn."""
-    from sqlalchemy import text as sql_text
+    """Request one deep synthesis per UTC day; the unique key deduplicates producers."""
+    from datetime import datetime, timezone
 
-    row = db.execute(sql_text("""
-        select count(*) as n
-          from psychdeep_v12.memory_event_ledger
-         where user_id = :user_id
-           and consent_purpose = 'linguistic_analysis'
-    """), {"user_id": str(user_id)}).mappings().first()
-    n = int(row["n"] or 0) if row else 0
-    if n == 0 or n % 10 != 0:
-        return
+    utc_day = datetime.now(timezone.utc).date().isoformat()
     enqueue_memory_job(
         db,
         user_id=str(user_id),
         job_type="longitudinal_analysis",
-        source_table="memory_event_ledger",
+        source_table=str(job.get("source_table") or "memory_event_ledger"),
         source_id=str(job["source_id"]),
-        idempotency_key=f"checkpoint:{n}",
+        idempotency_key=f"patient-model:daily:{user_id}:{utc_day}",
     )
-
 
 def _materialize_committed_summary(db: Session, job: dict[str, Any], user_id) -> None:
     """Project the accepted clinical formulation into the L0/L1/L2 memory index."""
