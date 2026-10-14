@@ -235,10 +235,21 @@ def test_fulltext_retrieval_is_user_scoped_and_returns_source_evidence(monkeypat
         def mappings(self):
             return FakeMappings(self.rows)
 
+    class FakeNested:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
     class FakeDB:
+        def begin_nested(self):
+            return FakeNested()
+
         def execute(self, statement, params):
             sql = str(statement)
             calls.append((sql, params))
+            if "insert into psychdeep_v12.memory_retrieval_runs" in sql:
+                return FakeResult()
             if "from psychdeep_v12.memory_items mi" in sql:
                 return FakeResult([{
                     "id": uuid.uuid4(), "item_type": "preference",
@@ -314,6 +325,9 @@ def test_fulltext_retrieval_is_user_scoped_and_returns_source_evidence(monkeypat
     assert "chat_message:source-1" in result.text or "source-1" in result.text
     assert "chat_message:" in result.text
     assert all(params.get("user_id") == str(user_id) for _sql, params in calls)
+    telemetry = [params for sql, params in calls if "insert into psychdeep_v12.memory_retrieval_runs" in sql]
+    assert telemetry and telemetry[0]["query_hash"]
+    assert telemetry[0]["estimated_tokens"] == result.estimated_tokens
     assert seen_consent_identities == [user_id]
 
 
