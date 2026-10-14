@@ -1169,26 +1169,52 @@ def _consolidate_batch(db: Session, user_id, docs: list[dict[str, Any]], correla
             raise ValueError("source_coverage_invalid")
 
         episode_count = 0
+        # Keep an in-memory view of active episodes while updating this batch.
+        # A title-only key is not stable enough: a revised consolidation can
+        # rename an episode or split/merge it. Match by source-reference overlap.
+        active_episodes = (
+            db.query(MemoryEpisode)
+            .filter(MemoryEpisode.user_id == user_id, MemoryEpisode.status == "active")
+            .all()
+        )
         for episode in parsed.episodes:
             refs = list(dict.fromkeys(episode.source_refs))
-            digest = stable_hash(sorted(refs))
             period = (episode.start_at[:7] if episode.start_at else (start.strftime("%Y-%m") if start else "undated"))
-            key = f"{period}-{_slug(episode.title)}"
-            current = (
-                db.query(MemoryEpisode)
-                .filter(
-                    MemoryEpisode.user_id == user_id,
-                    MemoryEpisode.episode_key == key,
-                    MemoryEpisode.status == "active",
-                )
-                .order_by(MemoryEpisode.created_at.desc())
-                .first()
+            key = f"{period}-{stable_hash(sorted(refs))[:24]}"
+            digest = stable_hash({
+                "batch_digest": batch_digest,
+                "source_refs": sorted(refs),
+                "title": episode.title.strip(),
+                "start_at": episode.start_at,
+                "end_at": episode.end_at,
+                "l0": episode.l0.strip(),
+                "l1": episode.l1.strip(),
+                "l2": episode.l2.strip(),
+                "themes": sorted(set(theme.strip() for theme in episode.themes if theme.strip())),
+                "transitions": [point.strip() for point in episode.transitions if point.strip()],
+                "uncertainty": episode.uncertainty,
+            })
+            ref_set = set(refs)
+            overlap_candidates = [
+                existing for existing in active_episodes
+                if existing.status == "active"
+                and ref_set.intersection(str(ref) for ref in (existing.source_refs or []))
+            ]
+            current = max(
+                overlap_candidates,
+                key=lambda existing: len(ref_set.intersection(str(ref) for ref in (existing.source_refs or []))),
+                default=None,
             )
-            if current is not None and current.source_digest == digest:
+            if (
+                current is not None
+                and current.source_digest == digest
+                and set(str(ref) for ref in (current.source_refs or [])) == ref_set
+                and current.episode_key == key
+            ):
                 continue
-            if current is not None:
-                current.status = "superseded"
-                db.add(current)
+            for existing in overlap_candidates:
+                existing.status = "superseded"
+                db.add(existing)
             row_id = uuid.uuid5(uuid.NAMESPACE_URL, f"psychdeep:episode:{user_id}:{key}:{digest}")
             row = MemoryEpisode(
                 id=row_id,
@@ -1212,6 +1238,7 @@ def _consolidate_batch(db: Session, user_id, docs: list[dict[str, Any]], correla
                 schema_version=EPISODE_SCHEMA_VERSION,
             )
             db.add(row)
+            active_episodes.append(row)
             episode_count += 1
         run.model_run_id = outcome.model_run_id
         run.result_json = {
