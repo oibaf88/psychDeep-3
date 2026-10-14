@@ -267,100 +267,292 @@ def retrieve_longitudinal_context(
     budget_tokens: int = 800,
     in_crisis: bool = False,
 ) -> CompiledMemoryContext:
-    """Retrieve bounded, source-attributed longitudinal context from Supabase.
+    """Retrieve longitudinal summaries, derived memories and source excerpts by indexed FTS.
 
-    The function never reads another user's namespace and never performs an
-    LLM call. Crisis mode intentionally returns no exploratory memory block;
-    the deterministic safety context and current turn remain authoritative.
+    The query path searches the full per-user corpus rather than scanning only the
+    newest N memories. Every SQL path is user-scoped and bounded. Crisis mode returns
+    no exploratory memory. No LLM or embedding provider is called during retrieval.
     """
+    from datetime import datetime, timezone
     from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 
-    if in_crisis or not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
-        return compile_memory_context(
-            task_type=task_type, evidence=[], budget_tokens=budget_tokens,
-        )
-    if not query.strip():
-        return compile_memory_context(
-            task_type=task_type, evidence=[], budget_tokens=budget_tokens,
-        )
+    def _aware(value):
+        if value is None:
+            return None
+        if not isinstance(value, datetime):
+            return None
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
-    # Query and row counts are bounded. This first implementation uses a
-    # transparent lexical ranker; vector/hybrid ranking can be substituted
-    # once the existing memory_embeddings model-space versioning is enforced.
-    rows = db.execute(text("""
-        select id, item_type, perspective, attribution, content, uncertainty,
-               confidence, created_at, source_refs
-          from psychdeep_v12.memory_items
-         where user_id = :user_id
-           and status = 'active'
-           and (expires_at is null or expires_at > now())
-         order by created_at desc
-         limit 500
-    """), {"user_id": user_id}).mappings().all()
+    def _list_refs(value) -> tuple[str, ...]:
+        if not isinstance(value, list):
+            return ()
+        return tuple(str(ref) for ref in value if ref is not None and str(ref).strip())
 
-    summary_rows = db.execute(text("""
-        select id, l0, l1, source_refs, source_watermark, created_at
-          from psychdeep_v12.memory_summary_versions
-         where user_id = :user_id
-           and scope_type = 'topic'
-           and scope_key = 'longitudinal-v1'
-           and status = 'active'
-         order by created_at desc
-         limit 1
-    """), {"user_id": user_id}).mappings().first()
+    if in_crisis or not is_granted(db, user_id, LINGUISTIC_ANALYSIS) or not query.strip():
+        return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
 
-    query_terms = {word for word in _query_words(query) if len(word) >= 3}
     candidates: list[MemoryEvidence] = []
-    for row in rows:
-        content = str(row["content"] or "")
-        terms = _query_words(content)
-        overlap = len(query_terms.intersection(terms))
-        # Generic long-term themes can still be considered, but not when
-        # there is no lexical relevance to the current turn.
-        if overlap <= 0:
-            continue
-        score = overlap / max(1, len(query_terms))
-        source_refs = row["source_refs"] or []
-        if not isinstance(source_refs, list):
-            source_refs = []
-        candidates.append(MemoryEvidence(
-            ref=str(row["id"]),
-            item_type=str(row["item_type"]),
-            perspective=str(row["perspective"]),
-            attribution=str(row["attribution"]),
-            text=content,
-            occurred_at=row["created_at"],
-            confidence=float(row["confidence"]) if row["confidence"] is not None else None,
-            uncertainty=str(row["uncertainty"]),
-            source_refs=tuple(str(ref) for ref in source_refs),
-            score=score,
-        ))
+    query_params = {"user_id": str(user_id), "query": query.strip()}
 
-    # A compact summary provides longitudinal continuity even if the current
-    # turn's wording differs from earlier descriptions. The summary stays
-    # explicitly labelled as derived and includes its own source references.
-    if summary_rows is not None:
-        summary_text = str(summary_rows["l1"] or summary_rows["l0"] or "").strip()
-        if summary_text:
+    try:
+        # 1) Atomic derived memories: GIN full-text index covers every active,
+        # non-expired row, not a recency-limited slice.
+        item_rows = db.execute(text("""
+            with q as (select plainto_tsquery('simple', :query) as tsq)
+            select mi.id, mi.item_type, mi.perspective, mi.attribution, mi.content,
+                   mi.uncertainty, mi.confidence, mi.created_at, mi.source_refs,
+                   ts_rank(to_tsvector('simple', coalesce(mi.content, '')), q.tsq) as relevance
+              from psychdeep_v12.memory_items mi
+              cross join q
+             where mi.user_id = :user_id
+               and mi.status = 'active'
+               and (mi.expires_at is null or mi.expires_at > now())
+               and to_tsvector('simple', coalesce(mi.content, '')) @@ q.tsq
+             order by relevance desc, mi.created_at desc
+             limit 16
+        """), query_params).mappings().all()
+        for row in item_rows:
+            relevance = float(row["relevance"] or 0)
             candidates.append(MemoryEvidence(
-                ref=str(summary_rows["id"]),
+                ref=f"memory_item:{row['id']}",
+                item_type=str(row["item_type"]),
+                perspective=str(row["perspective"]),
+                attribution=str(row["attribution"]),
+                text=str(row["content"] or "")[:1600],
+                occurred_at=_aware(row["created_at"]),
+                confidence=float(row["confidence"]) if row["confidence"] is not None else None,
+                uncertainty=str(row["uncertainty"] or "unknown"),
+                source_refs=_list_refs(row["source_refs"]),
+                score=1.0 + min(1.5, relevance * 8),
+            ))
+
+        # 2) Episodic summaries: exact historical windows are retrieved by
+        # their title, L0/L1 and themes, again over the full time range.
+        episode_rows = db.execute(text("""
+            with q as (select plainto_tsquery('simple', :query) as tsq),
+                 documents as (
+                    select e.*,
+                           to_tsvector('simple',
+                               coalesce(e.title, '') || ' ' || coalesce(e.l0, '') || ' ' ||
+                               coalesce(e.l1, '') || ' ' || coalesce(e.themes::text, '') || ' ' ||
+                               coalesce(e.transitions::text, '')
+                           ) as document
+                      from psychdeep_v12.memory_episodes e
+                     where e.user_id = :user_id and e.status = 'active'
+                 )
+            select e.id, e.title, e.l0, e.l1, e.themes, e.transitions,
+                   e.source_refs, e.uncertainty, e.start_at, e.end_at, e.created_at,
+                   ts_rank(e.document, q.tsq) as relevance
+              from documents e cross join q
+             where e.document @@ q.tsq
+             order by relevance desc, e.start_at desc nulls last
+             limit 10
+        """), query_params).mappings().all()
+        for row in episode_rows:
+            themes = row["themes"] if isinstance(row["themes"], list) else []
+            transitions = row["transitions"] if isinstance(row["transitions"], list) else []
+            text_block = (
+                f"Episodio: {row['title']}\nL0: {row['l0']}\n"
+                + ("Temas: " + "; ".join(str(x) for x in themes[:8]) + "\n" if themes else "")
+                + ("Transiciones: " + "; ".join(str(x) for x in transitions[:5]) + "\n" if transitions else "")
+                + "L1: " + str(row["l1"] or "")[:1300]
+            )
+            candidates.append(MemoryEvidence(
+                ref=f"memory_episode:{row['id']}",
+                item_type="episode",
+                perspective="derived_pattern",
+                attribution="episodic-consolidator",
+                text=text_block,
+                occurred_at=_aware(row["end_at"] or row["start_at"] or row["created_at"]),
+                uncertainty=str(row["uncertainty"] or "unknown"),
+                source_refs=_list_refs(row["source_refs"]),
+                score=1.15 + min(1.5, float(row["relevance"] or 0) * 8),
+            ))
+
+        # 3) Versioned hierarchical digests for older timeline segments. These
+        # may refer to a child summary or episode; that child chain is the audit trail.
+        summary_rows = db.execute(text("""
+            with q as (select plainto_tsquery('simple', :query) as tsq),
+                 documents as (
+                    select s.*,
+                           to_tsvector('simple',
+                               coalesce(s.scope_key, '') || ' ' ||
+                               coalesce(s.l0, '') || ' ' || coalesce(s.l1, '')
+                           ) as document
+                      from psychdeep_v12.memory_summary_versions s
+                     where s.user_id = :user_id and s.status = 'active'
+                       and (
+                           (s.scope_type = 'topic' and s.scope_key = 'longitudinal-v1')
+                           or (s.scope_type = 'time_window' and s.scope_key like 'episode-digest:%')
+                       )
+                 )
+            select s.id, s.scope_type, s.scope_key, s.l0, s.l1, s.source_refs,
+                   s.source_watermark, s.created_at, ts_rank(s.document, q.tsq) as relevance
+              from documents s cross join q
+             where s.scope_type = 'time_window' and s.document @@ q.tsq
+             order by relevance desc, s.source_watermark desc nulls last
+             limit 6
+        """), query_params).mappings().all()
+        for row in summary_rows:
+            summary_text = str(row["l1"] or row["l0"] or "").strip()
+            if not summary_text:
+                continue
+            candidates.append(MemoryEvidence(
+                ref=f"memory_summary:{row['id']}",
                 item_type="longitudinal_pattern",
                 perspective="derived_pattern",
-                attribution="psychDeep longitudinal synthesis",
-                text=summary_text,
-                occurred_at=summary_rows["source_watermark"] or summary_rows["created_at"],
+                attribution=f"hierarchical-memory:{row['scope_key']}",
+                text=summary_text[:1800],
+                occurred_at=_aware(row["source_watermark"] or row["created_at"]),
                 uncertainty="medium",
-                source_refs=tuple(str(ref) for ref in (summary_rows["source_refs"] or [])),
-                score=0.35,
+                source_refs=_list_refs(row["source_refs"]),
+                score=0.75 + min(1.5, float(row["relevance"] or 0) * 8),
             ))
+
+        # 4) Exact source passages from the original record. If a discourse
+        # fact already matches the query, do not also return its matching raw
+        # message; the fact keeps the source message/diary ID in its references.
+        fact_rows = db.execute(text("""
+            with q as (select plainto_tsquery('simple', :query) as tsq)
+            select f.id, f.channel, f.quote, f.spoken_at, f.chat_message_id,
+                   f.diary_entry_id,
+                   ts_rank(to_tsvector('simple', coalesce(f.quote, '')), q.tsq) as relevance
+              from psychdeep_v12.discourse_facts f cross join q
+             where f.user_id = :user_id
+               and to_tsvector('simple', coalesce(f.quote, '')) @@ q.tsq
+             order by relevance desc, f.spoken_at desc
+             limit 8
+        """), query_params).mappings().all()
+        matched_chat_ids = set()
+        matched_diary_ids = set()
+        for row in fact_rows:
+            refs = [f"discourse_fact:{row['id']}"]
+            if row["chat_message_id"] is not None:
+                refs.append(f"chat_message:{row['chat_message_id']}")
+                matched_chat_ids.add(str(row["chat_message_id"]))
+            if row["diary_entry_id"] is not None:
+                refs.append(f"diary_entry:{row['diary_entry_id']}")
+                matched_diary_ids.add(str(row["diary_entry_id"]))
+            candidates.append(MemoryEvidence(
+                ref=f"discourse_fact:{row['id']}",
+                item_type="other",
+                perspective="user_report",
+                attribution=f"literal-speech:{row['channel']}",
+                text="Fragmento literal recuperado: " + str(row["quote"] or "")[:1200],
+                occurred_at=_aware(row["spoken_at"]),
+                uncertainty="unknown",
+                source_refs=tuple(refs),
+                score=1.8 + min(1.5, float(row["relevance"] or 0) * 8),
+            ))
+
+        chat_rows = db.execute(text("""
+            with q as (select plainto_tsquery('simple', :query) as tsq)
+            select m.id, m.content, m.created_at,
+                   ts_rank(to_tsvector('simple', coalesce(m.content, '')), q.tsq) as relevance,
+                   ts_headline('simple', m.content, q.tsq,
+                       'StartSel=⟦,StopSel=⟧,MaxFragments=2,MaxWords=24,MinWords=8') as excerpt
+              from psychdeep_v12.chat_messages m cross join q
+             where m.user_id = :user_id
+               and m.role = 'user'
+               and to_tsvector('simple', coalesce(m.content, '')) @@ q.tsq
+               and not exists (
+                   select 1 from psychdeep_v12.discourse_facts f
+                    where f.user_id = m.user_id and f.chat_message_id = m.id
+                      and to_tsvector('simple', coalesce(f.quote, '')) @@ q.tsq
+               )
+             order by relevance desc, m.created_at desc
+             limit 5
+        """), query_params).mappings().all()
+        for row in chat_rows:
+            # ts_headline returns a bounded excerpt instead of shipping the
+            # entire raw transcript into the prompt.
+            excerpt = str(row["excerpt"] or row["content"] or "")[:1500]
+            candidates.append(MemoryEvidence(
+                ref=f"chat_message:{row['id']}",
+                item_type="other",
+                perspective="user_report",
+                attribution="literal-chat-user",
+                text="Pasaje original recuperado; los marcadores ⟦ ⟧ señalan coincidencias: " + excerpt,
+                occurred_at=_aware(row["created_at"]),
+                uncertainty="unknown",
+                source_refs=(f"chat_message:{row['id']}",),
+                score=1.9 + min(1.5, float(row["relevance"] or 0) * 8),
+            ))
+
+        diary_rows = db.execute(text("""
+            with q as (select plainto_tsquery('simple', :query) as tsq)
+            select d.id, d.content, d.created_at,
+                   ts_rank(to_tsvector('simple', coalesce(d.content, '')), q.tsq) as relevance,
+                   ts_headline('simple', d.content, q.tsq,
+                       'StartSel=⟦,StopSel=⟧,MaxFragments=2,MaxWords=24,MinWords=8') as excerpt
+              from psychdeep_v12.diary_entries d cross join q
+             where d.user_id = :user_id
+               and to_tsvector('simple', coalesce(d.content, '')) @@ q.tsq
+               and not exists (
+                   select 1 from psychdeep_v12.discourse_facts f
+                    where f.user_id = d.user_id and f.diary_entry_id = d.id
+                      and to_tsvector('simple', coalesce(f.quote, '')) @@ q.tsq
+               )
+             order by relevance desc, d.created_at desc
+             limit 5
+        """), query_params).mappings().all()
+        for row in diary_rows:
+            excerpt = str(row["excerpt"] or row["content"] or "")[:1500]
+            candidates.append(MemoryEvidence(
+                ref=f"diary_entry:{row['id']}",
+                item_type="other",
+                perspective="user_report",
+                attribution="literal-diary",
+                text="Pasaje original de diario recuperado; los marcadores ⟦ ⟧ señalan coincidencias: " + excerpt,
+                occurred_at=_aware(row["created_at"]),
+                uncertainty="unknown",
+                source_refs=(f"diary_entry:{row['id']}",),
+                score=1.9 + min(1.5, float(row["relevance"] or 0) * 8),
+            ))
+
+        # The global L0/L1 patient portrait remains available as a low-priority
+        # anchor even when the current turn uses different wording.
+        global_summary = db.execute(text("""
+            select id, l0, l1, source_refs, source_watermark, created_at
+              from psychdeep_v12.memory_summary_versions
+             where user_id = :user_id
+               and scope_type = 'topic'
+               and scope_key = 'longitudinal-v1'
+               and status = 'active'
+             order by created_at desc
+             limit 1
+        """), {"user_id": str(user_id)}).mappings().first()
+        if global_summary is not None:
+            summary_text = str(global_summary["l1"] or global_summary["l0"] or "").strip()
+            if summary_text:
+                candidates.append(MemoryEvidence(
+                    ref=f"memory_summary:{global_summary['id']}",
+                    item_type="longitudinal_pattern",
+                    perspective="derived_pattern",
+                    attribution="psychDeep whole-person formulation",
+                    text=summary_text[:1500],
+                    occurred_at=_aware(global_summary["source_watermark"] or global_summary["created_at"]),
+                    uncertainty="medium",
+                    source_refs=_list_refs(global_summary["source_refs"]),
+                    score=0.3,
+                ))
+    except Exception as exc:  # noqa: BLE001
+        # A failing index/query must not suppress existing clinical memory. Roll
+        # back the failed Postgres transaction so Agent 1 can continue safely.
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger = logging.getLogger("psychapp.memory_pipeline")
+        logger.warning("Full-text memory retrieval skipped safely: %s", type(exc).__name__)
+        return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
 
     return compile_memory_context(
         task_type=task_type,
         evidence=candidates,
         budget_tokens=budget_tokens,
-        max_items=8 if task_type == "conversation" else 16,
+        max_items=10 if task_type == "conversation" else 20,
     )
-
 
 def _query_words(value: str) -> set[str]:
     import re
