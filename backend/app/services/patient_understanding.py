@@ -1319,6 +1319,55 @@ def _group_episode_nodes(
     return [nodes[index:index + group_size] for index in range(0, len(nodes), group_size)]
 
 
+def _retire_orphaned_episode_digests(
+    db: Session,
+    user_id,
+    nodes: list[dict[str, Any]],
+) -> int:
+    """Retire stale active digests not reachable from the current root timeline."""
+    from sqlalchemy import text as sql_text
+
+    rows = db.execute(sql_text("""
+        select id, source_refs
+          from psychdeep_v12.memory_summary_versions
+         where user_id = :user_id
+           and scope_type = 'time_window'
+           and scope_key like 'episode-digest:%'
+           and status = 'active'
+    """), {"user_id": str(user_id)}).mappings().all()
+    by_id = {str(row["id"]): row for row in rows}
+    reachable: set[str] = set()
+    pending = [
+        str(node.get("ref")).split(":", 1)[1]
+        for node in nodes
+        if node.get("node_type") == "summary"
+        and isinstance(node.get("ref"), str)
+        and node["ref"].startswith("memory_summary:")
+    ]
+    while pending:
+        summary_id = pending.pop()
+        if summary_id in reachable:
+            continue
+        reachable.add(summary_id)
+        row = by_id.get(summary_id)
+        if row is None:
+            continue
+        refs = row["source_refs"] if isinstance(row["source_refs"], list) else []
+        for ref in refs:
+            if isinstance(ref, str) and ref.startswith("memory_summary:"):
+                pending.append(ref.split(":", 1)[1])
+    stale_ids = [summary_id for summary_id in by_id if summary_id not in reachable]
+    for summary_id in stale_ids:
+        db.execute(sql_text("""
+            update psychdeep_v12.memory_summary_versions
+               set status = 'superseded'
+             where user_id = :user_id and id = :summary_id and status = 'active'
+        """), {"user_id": str(user_id), "summary_id": summary_id})
+    if stale_ids:
+        db.commit()
+    return len(stale_ids)
+
+
 def build_hierarchical_episode_context(
     db: Session,
     user_id,
@@ -1344,7 +1393,11 @@ def build_hierarchical_episode_context(
     )
     nodes = [_episode_node(row) for row in rows]
     if len(nodes) <= MAX_FINAL_EPISODE_NODES:
-        return {"status": "succeeded", "nodes": nodes, "pending_digest": None, "created": 0}
+        retired = _retire_orphaned_episode_digests(db, user_id, nodes)
+        return {
+            "status": "succeeded", "nodes": nodes, "pending_digest": None,
+            "created": 0, "stale_digests_retired": retired,
+        }
 
     created = 0
     call_limit = max(0, int(max_summary_calls))
@@ -1554,7 +1607,14 @@ def build_hierarchical_episode_context(
 
     if len(nodes) > MAX_FINAL_EPISODE_NODES:
         return {"status": "failed", "nodes": [], "pending_digest": None, "created": created, "errors": ["episode_digest_depth_limit"]}
-    return {"status": "succeeded", "nodes": nodes, "pending_digest": None, "created": created}
+    retired = _retire_orphaned_episode_digests(db, user_id, nodes)
+    return {
+        "status": "succeeded",
+        "nodes": nodes,
+        "pending_digest": None,
+        "created": created,
+        "stale_digests_retired": retired,
+    }
 
 
 def _episode_context_node(node: dict[str, Any]) -> MemoryEvidence:
