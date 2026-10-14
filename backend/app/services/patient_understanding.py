@@ -1054,9 +1054,15 @@ def _build_final_evidence(db: Session, user_id) -> tuple[list[MemoryEvidence], d
         when = _normalise_dt(episode.start_at or episode.end_at or episode.created_at)
         if when:
             source_watermarks.append(when)
-        text = f"{episode.title}\nL0: {episode.l0}\n"
+        themes = [str(value) for value in (episode.themes or []) if str(value).strip()]
+        transitions = [str(value) for value in (episode.transitions or []) if str(value).strip()]
+        text = (
+            f"Episodio: {episode.title}\nL0: {episode.l0}\n"
+            + (f"Temas observados: {'; '.join(themes[:8])}\n" if themes else "")
+            + (f"Cambios/transiciones descritos: {'; '.join(transitions[:6])}\n" if transitions else "")
+        )
         if episode.l1:
-            text += f"L1: {episode.l1[:900]}\n"
+            text += f"L1: {episode.l1[:1200]}\n"
         evidence.append(MemoryEvidence(
             ref=_ref("memory_episode", episode.id),
             item_type="episode",
