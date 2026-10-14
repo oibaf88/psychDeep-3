@@ -731,15 +731,37 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
         for observation in related_observations:
             related_refs.append(_ref("psychosocial_observation", observation.id))
             used_observation_ids.add(str(observation.id))
-        content = str(message.content or "")
+        derived_lines: list[str] = []
+        for fact in related_facts:
+            manner = fact.manner if isinstance(fact.manner, dict) else {}
+            derived_lines.append(
+                f"EXTRACCIÓN DE HABLA (no sustituye al original): cita={fact.quote}; "
+                f"canal={fact.channel}; manera={json.dumps(manner, ensure_ascii=False, default=str)}"
+            )
+        for fact in related_facts:
+            for reading in readings_by_source_fact.get(str(fact.id), []):
+                derived_lines.append(
+                    f"HIPÓTESIS DEL SISTEMA (incierta, no diagnóstico): tipo={reading.kind}; "
+                    f"incertidumbre={reading.uncertainty}; estado={reading.status}; {reading.hypothesis}"
+                )
+        for observation in related_observations:
+            derived_lines.append(
+                f"OBSERVACIÓN PSICOSOCIAL DERIVADA (estado={observation.status}; "
+                f"confianza={observation.confidence}; valencia={observation.valence}; "
+                f"intensidad={observation.intensity}): {observation.summary}; "
+                f"cita={observation.evidence_quote}"
+            )
+        content = (
+            f"FUENTE LITERAL chat_message; role={message.role}; fecha={_dt_text(message.created_at)}. "
+            "Si el role es assistant, es una respuesta del sistema y no un autorrelato del paciente.\n"
+            + str(message.content or "")
+        )
+        if derived_lines:
+            content += "\n\nCAPA DERIVADA Y ATRIBUIDA (no elevar a hecho):\n" + "\n".join(derived_lines)
         docs.append({
             "timestamp": _normalise_dt(message.created_at),
             "source_refs": list(dict.fromkeys(related_refs)),
-            "content": (
-                f"FUENTE LITERAL chat_message; role={message.role}; fecha={_dt_text(message.created_at)}. "
-                "Si el role es assistant, es una respuesta del sistema y no un autorrelato del paciente.\n"
-                + content
-            ),
+            "content": content,
             "channel": "chat",
             "kind": f"literal_chat_{message.role}",
         })
@@ -756,13 +778,39 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
                 used_reading_ids.add(str(reading.id))
         for commit in commits_by_source.get(source_id, []):
             related_refs.append(_ref("memory_commit", commit.id))
-        for observation in observations_by_source.get(source_id, []):
+        related_observations = observations_by_source.get(source_id, [])
+        derived_lines: list[str] = []
+        for observation in related_observations:
             related_refs.append(_ref("psychosocial_observation", observation.id))
             used_observation_ids.add(str(observation.id))
+            derived_lines.append(
+                f"OBSERVACIÓN PSICOSOCIAL DERIVADA (estado={observation.status}; "
+                f"confianza={observation.confidence}; dominio={observation.domain}): "
+                f"{observation.summary}; cita={observation.evidence_quote}"
+            )
+        related_facts = facts_by_source.get(source_id, [])
+        for fact in related_facts:
+            manner = fact.manner if isinstance(fact.manner, dict) else {}
+            related_refs.append(_ref("discourse_fact", fact.id))
+            used_fact_ids.add(str(fact.id))
+            derived_lines.append(
+                f"EXTRACCIÓN DE HABLA (no sustituye al original): cita={fact.quote}; "
+                f"manera={json.dumps(manner, ensure_ascii=False, default=str)}"
+            )
+            for reading in readings_by_source_fact.get(str(fact.id), []):
+                related_refs.append(_ref("psych_reading", reading.id))
+                used_reading_ids.add(str(reading.id))
+                derived_lines.append(
+                    f"HIPÓTESIS DEL SISTEMA (incierta, no diagnóstico): tipo={reading.kind}; "
+                    f"incertidumbre={reading.uncertainty}; estado={reading.status}; {reading.hypothesis}"
+                )
+        content = f"FUENTE LITERAL diary_entry; fecha={_dt_text(entry.created_at)}.\n{entry.content}"
+        if derived_lines:
+            content += "\n\nCAPA DERIVADA Y ATRIBUIDA (no elevar a hecho):\n" + "\n".join(derived_lines)
         docs.append({
             "timestamp": _normalise_dt(entry.created_at),
             "source_refs": list(dict.fromkeys(related_refs)),
-            "content": f"FUENTE LITERAL diary_entry; fecha={_dt_text(entry.created_at)}.\n{entry.content}",
+            "content": content,
             "channel": "diary",
             "kind": "literal_diary",
         })
