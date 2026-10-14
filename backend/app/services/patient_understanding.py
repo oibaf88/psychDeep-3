@@ -1576,14 +1576,23 @@ def _balanced_episode_subset(episodes: list[MemoryEpisode], max_items: int = 100
     return sorted(selected, key=lambda row: _normalise_dt(row.start_at) or datetime.min.replace(tzinfo=timezone.utc))
 
 
-def _build_final_evidence(db: Session, user_id) -> tuple[list[MemoryEvidence], dict[str, Any], datetime | None, str]:
+def _build_final_evidence(
+    db: Session,
+    user_id,
+    *,
+    episode_nodes: list[dict[str, Any]] | None = None,
+) -> tuple[list[MemoryEvidence], dict[str, Any], datetime | None, str]:
     all_episodes = (
         db.query(MemoryEpisode)
         .filter(MemoryEpisode.user_id == user_id, MemoryEpisode.status == "active")
         .order_by(MemoryEpisode.start_at.asc().nullsfirst(), MemoryEpisode.created_at.asc())
         .all()
     )
-    selected_episodes = _balanced_episode_subset(all_episodes)
+    selected_episodes = all_episodes[-12:]
+    # The hierarchical digest tree carries the entire historical timeline.
+    # Add the latest original episodes as a higher-detail window to preserve
+    # recent nuance; old periods are represented by versioned summaries.
+    hierarchy_nodes = list(episode_nodes or [])
     active_items = (
         db.query(MemoryItem)
         .filter(
@@ -1642,12 +1651,12 @@ def _build_final_evidence(db: Session, user_id) -> tuple[list[MemoryEvidence], d
         themes = [str(value) for value in (episode.themes or []) if str(value).strip()]
         transitions = [str(value) for value in (episode.transitions or []) if str(value).strip()]
         text = (
-            f"Episodio: {episode.title}\nL0: {episode.l0}\n"
+            f"Episodio reciente: {episode.title}\nL0: {episode.l0}\n"
             + (f"Temas observados: {'; '.join(themes[:8])}\n" if themes else "")
             + (f"Cambios/transiciones descritos: {'; '.join(transitions[:6])}\n" if transitions else "")
         )
         if episode.l1:
-            text += f"L1: {episode.l1[:1200]}\n"
+            text += f"L1: {episode.l1[:1500]}\n"
         evidence.append(MemoryEvidence(
             ref=_ref("memory_episode", episode.id),
             item_type="episode",
@@ -1657,8 +1666,24 @@ def _build_final_evidence(db: Session, user_id) -> tuple[list[MemoryEvidence], d
             occurred_at=when,
             uncertainty=episode.uncertainty,
             source_refs=tuple(str(ref) for ref in (episode.source_refs or [])),
-            score=1.0,
+            score=2.8,
         ))
+
+    # Digest nodes are summaries of nodes, not sources of new clinical facts.
+    # Their child refs allow the final synthesis to recurse into the evidence tree.
+    seen_episode_refs = {item.ref for item in evidence if item.item_type == "episode"}
+    for node in hierarchy_nodes:
+        try:
+            item = _episode_context_node(node)
+        except Exception:
+            continue
+        if item.ref in seen_episode_refs:
+            continue
+        evidence.append(item)
+        seen_episode_refs.add(item.ref)
+        when = _normalise_dt(item.occurred_at)
+        if when:
+            source_watermarks.append(when)
 
     for item in active_items:
         when = _normalise_dt(item.created_at)
@@ -1761,14 +1786,17 @@ def _build_final_evidence(db: Session, user_id) -> tuple[list[MemoryEvidence], d
     watermark = max(source_watermarks) if source_watermarks else None
     coverage = {
         "active_episodes_total": len(all_episodes),
-        "active_episodes_in_model_context": len(selected_episodes),
+        "active_episodes_in_model_context": len(hierarchy_nodes) + len(selected_episodes),
+        "episode_hierarchy_nodes": len(hierarchy_nodes),
+        "episode_digest_nodes": sum(1 for node in hierarchy_nodes if node.get("node_type") == "summary"),
+        "latest_raw_episodes_in_context": len(selected_episodes),
         "active_memory_items_selected": len(active_items),
         "confirmed_facts_selected": len(confirmed),
         "psychosocial_observations_selected": len(recent_observations),
         "checkins_selected": len(checkins),
         "earliest_episode": _dt_text(_normalise_dt(all_episodes[0].start_at)) if all_episodes else None,
         "latest_episode": _dt_text(_normalise_dt(all_episodes[-1].end_at or all_episodes[-1].start_at)) if all_episodes else None,
-        "temporal_sampling_applied": len(selected_episodes) < len(all_episodes),
+        "temporal_sampling_applied": len(hierarchy_nodes) < len(all_episodes),
         "profile_available": bool(prior_portrait),
         "prior_formulation_available": bool(prior_formulation),
         "prior_model_version": previous_model.version_no if previous_model else None,
@@ -2308,7 +2336,48 @@ def rebuild_patient_model(
     if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
         return {"status": "consent_revoked", "episodes_created": episodes_created, "model_version": None}
 
-    evidence, context_meta, watermark, source_digest = _build_final_evidence(db, user_id)
+    hierarchy = build_hierarchical_episode_context(
+        db,
+        user_id,
+        correlation_id=correlation_id,
+        max_summary_calls=MAX_DIGEST_CALLS_PER_RUN,
+    )
+    if hierarchy.get("errors") or hierarchy.get("status") == "failed":
+        return {
+            "status": "partial",
+            "episodes_created": episodes_created,
+            "errors": hierarchy.get("errors", ["episode_digest_failed"]),
+            "model_version": None,
+        }
+    if hierarchy.get("status") == "processing":
+        continuation_key = f"patient-model:digest-continue:{hierarchy.get('pending_digest')}"
+        try:
+            enqueue_memory_job(
+                db,
+                user_id=user_id,
+                job_type="longitudinal_analysis",
+                source_table="patient_model",
+                source_id=uuid.UUID(str(user_id)),
+                idempotency_key=continuation_key,
+            )
+            db.commit()
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            logger.warning("Episode digest continuation could not be queued: %s", type(exc).__name__)
+            return {"status": "partial", "episodes_created": episodes_created, "errors": [type(exc).__name__], "model_version": None}
+        return {
+            "status": "processing",
+            "episodes_created": episodes_created,
+            "digest_summaries_created": hierarchy.get("created", 0),
+            "pending_digest": hierarchy.get("pending_digest"),
+            "model_version": None,
+        }
+    if hierarchy.get("status") == "consent_revoked" or not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+        return {"status": "consent_revoked", "episodes_created": episodes_created, "model_version": None}
+
+    evidence, context_meta, watermark, source_digest = _build_final_evidence(
+        db, user_id, episode_nodes=hierarchy.get("nodes", []),
+    )
     doc_watermarks = [doc["timestamp"] for doc in docs if doc.get("timestamp") is not None]
     if doc_watermarks:
         watermark = max([watermark] + doc_watermarks) if watermark else max(doc_watermarks)
@@ -2421,6 +2490,7 @@ def rebuild_patient_model(
     model_json = parsed.model_dump()
     coverage = {
         **context_meta["coverage"],
+        "digest_summaries_created_this_run": hierarchy.get("created", 0),
         "selected_evidence_items": len(compiled.evidence_refs),
         "source_refs_available_to_model": len(all_allowed_refs),
         "estimated_context_tokens": compiled.estimated_tokens,
