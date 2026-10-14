@@ -189,10 +189,10 @@ def compile_memory_context(
 def enqueue_memory_job(
     db: Session,
     *,
-    user_id: str,
+    user_id: Any,
     job_type: str,
     source_table: str,
-    source_id: str,
+    source_id: Any,
     idempotency_key: str,
 ) -> bool:
     """Queue one derivation job idempotently. Does not call any model."""
@@ -204,6 +204,10 @@ def enqueue_memory_job(
         raise ValueError("unsupported memory job type")
     if not idempotency_key.strip():
         raise ValueError("idempotency key is required")
+    import uuid
+
+    user_uuid = user_id if isinstance(user_id, uuid.UUID) else uuid.UUID(str(user_id))
+    source_uuid = source_id if isinstance(source_id, uuid.UUID) else uuid.UUID(str(source_id))
     result = db.execute(text("""
         insert into psychdeep_v12.memory_jobs
           (id, user_id, job_type, source_table, source_id, idempotency_key, status)
@@ -212,8 +216,8 @@ def enqueue_memory_job(
         on conflict (user_id, job_type, idempotency_key) do nothing
         returning id
     """), {
-        "user_id": user_id, "job_type": job_type, "source_table": source_table,
-        "source_id": source_id, "idempotency_key": idempotency_key,
+        "user_id": user_uuid, "job_type": job_type, "source_table": source_table,
+        "source_id": source_uuid, "idempotency_key": idempotency_key,
     })
     return result.first() is not None
 
