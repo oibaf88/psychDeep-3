@@ -352,7 +352,7 @@ def commit_turn(
 ) -> MemoryCommit | None:
     """Archive one turn. Never raises into chat or diary. Never writes risk or world facts."""
     try:
-        return _commit_turn(
+        result = _commit_turn(
             db,
             user_id=user_id,
             text=text,
@@ -366,16 +366,18 @@ def commit_turn(
         db.rollback()
         logger.warning("Clinical memory commit skipped safely: %s", type(exc).__name__)
         return None
-    # The canonical clinical-memory commit remains authoritative. The separate
-    # analysis pipeline only receives a source reference/hash after the current
-    # consent check in _commit_turn succeeds.
-    _queue_memory_pipeline_source(
-        db,
-        user_id=user_id,
-        channel=channel,
-        source_id=source_id,
-        source_text=text,
-    )
+
+    # Do not transfer or process source references when linguistic analysis
+    # consent is absent/revoked. _commit_turn records the skipped state.
+    if result is not None and result.status == "accepted":
+        _queue_memory_pipeline_source(
+            db,
+            user_id=user_id,
+            channel=channel,
+            source_id=source_id,
+            source_text=text,
+        )
+    return result
 
 
 
