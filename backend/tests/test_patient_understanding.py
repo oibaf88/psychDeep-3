@@ -55,7 +55,8 @@ def test_partition_source_docs_covers_each_ref_once_per_input_document():
 
     batches = _partition_source_docs(docs)
     refs = [ref for batch in batches for doc in batch for ref in doc["source_refs"]]
-    assert sorted(refs) == [f"source:{i}" for i in range(27)]
+    assert len(refs) == 27
+    assert set(refs) == {f"source:{i}" for i in range(27)}
     assert all(len(batch) <= 10 for batch in batches)
 
 
@@ -127,7 +128,7 @@ def test_whole_person_model_rejects_unrecognized_source_references():
             uncertainty="high",
             alternative_explanations=[],
             counterevidence_refs=[],
-            source_refs=["chat_message:not-authorized"],
+            source_refs=["chat_message:not-authorized", "chat_message:also-not-authorized"],
         )],
         trajectories=[],
         protective_factors=[],
