@@ -31,6 +31,7 @@ class OpenContextConfig:
     base_url: str
     token: str
     agent_id: str
+    allow_local_http: bool = False
     timeout_seconds: float = 5.0
     max_context_tokens: int = 1000
 
@@ -40,6 +41,7 @@ class OpenContextConfig:
         base_url = os.getenv("OPENCONTEXT_BASE_URL", "").strip().rstrip("/")
         token = os.getenv("OPENCONTEXT_API_TOKEN", "")
         agent_id = os.getenv("OPENCONTEXT_AGENT_ID", "psychdeep-agent1").strip()
+        allow_local_http = os.getenv("OPENCONTEXT_ALLOW_LOCAL_HTTP", "false").strip().lower() == "true"
         try:
             timeout = max(0.5, min(float(os.getenv("OPENCONTEXT_TIMEOUT_SECONDS", "5")), 15.0))
         except ValueError:
@@ -48,7 +50,7 @@ class OpenContextConfig:
             budget = max(0, min(int(os.getenv("OPENCONTEXT_MAX_CONTEXT_TOKENS", "1000")), 3000))
         except ValueError:
             budget = 1000
-        return cls(enabled, base_url, token, agent_id, timeout, budget)
+        return cls(enabled, base_url, token, agent_id, allow_local_http, timeout, budget)
 
     def validate(self, *, allow_local_http: bool = False) -> None:
         if not self.enabled:
@@ -67,9 +69,9 @@ class OpenContextClient:
     """Minimal HTTP client that checks HTTP and application-level outcomes."""
 
     def __init__(self, config: OpenContextConfig, *, allow_local_http: bool = False):
-        config.validate(allow_local_http=allow_local_http)
+        config.validate(allow_local_http=allow_local_http or config.allow_local_http)
         self.config = config
-        self._allow_local_http = allow_local_http
+        self._allow_local_http = allow_local_http or config.allow_local_http
         self._opener = build_opener(_NoRedirect())
 
     @property
