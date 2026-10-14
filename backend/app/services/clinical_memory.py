@@ -391,7 +391,12 @@ def _queue_memory_pipeline_source(db: Session, *, user_id: uuid.UUID, channel: s
     """
     try:
         from app.services.memory_pipeline import stable_hash
+        from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
         from sqlalchemy import text as sql_text
+
+        # Re-check immediately before queueing new derived processing.
+        if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+            return
 
         source_table = "chat_messages" if channel == "chat" else "diary_entries"
         digest = stable_hash(source_text)
