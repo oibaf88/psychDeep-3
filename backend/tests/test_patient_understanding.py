@@ -139,3 +139,176 @@ def test_whole_person_model_rejects_unrecognized_source_references():
 
 def test_crisis_context_does_not_load_whole_person_narrative():
     assert patient_model_context_block(None, None, "synthetic query", in_crisis=True) == ""
+
+
+def test_hierarchical_episode_groups_are_bounded_and_lossless():
+    from app.services.patient_understanding import _group_episode_nodes
+
+    nodes = [
+        {
+            "ref": f"memory_episode:{i}",
+            "node_type": "episode",
+            "start_at": datetime(2020, 1, 1, tzinfo=timezone.utc),
+            "end_at": datetime(2020, 1, 1, tzinfo=timezone.utc),
+            "source_refs": [f"chat_message:{i}"],
+        }
+        for i in range(1003)
+    ]
+    groups = _group_episode_nodes(nodes, group_size=12)
+    assert all(1 <= len(group) <= 12 for group in groups)
+    assert [node["ref"] for group in groups for node in group] == [node["ref"] for node in nodes]
+    assert len({node["ref"] for group in groups for node in group}) == 1003
+
+
+def test_hierarchical_digest_input_carries_node_and_provenance_references():
+    from app.services.patient_understanding import _render_episode_digest_input
+
+    nodes = [{
+        "ref": "memory_summary:digest-1",
+        "node_type": "summary",
+        "title": "Síntesis de episodios",
+        "start_at": datetime(2023, 1, 1, tzinfo=timezone.utc),
+        "end_at": datetime(2024, 1, 1, tzinfo=timezone.utc),
+        "l0": "Cambio longitudinal descrito.",
+        "l1": "Resumen sintético con matices.",
+        "themes": ["relaciones", "afrontamiento"],
+        "transitions": ["cambio de rutina"],
+        "source_refs": ["memory_episode:e1", "memory_episode:e2"],
+        "uncertainty": "medium",
+        "level": 1,
+    }]
+    rendered = _render_episode_digest_input(nodes, level=2)
+    assert "memory_summary:digest-1" in rendered
+    assert "memory_episode:e1" in rendered
+    assert "Cambio longitudinal descrito." in rendered
+    assert "Nivel de síntesis: 2" in rendered
+
+
+def test_episode_context_node_preserves_hierarchical_child_refs():
+    from app.services.patient_understanding import _episode_context_node
+
+    item = _episode_context_node({
+        "ref": "memory_summary:digest-2",
+        "node_type": "summary",
+        "title": "Síntesis de etapa",
+        "start_at": datetime(2021, 1, 1, tzinfo=timezone.utc),
+        "end_at": datetime(2022, 1, 1, tzinfo=timezone.utc),
+        "l0": "Resumen breve",
+        "l1": "Resumen con evidencia y contradicciones",
+        "themes": ["rutinas"],
+        "transitions": ["reorientación"],
+        "source_refs": ["memory_episode:old-a", "memory_episode:old-b"],
+        "uncertainty": "medium",
+        "level": 2,
+    })
+    assert item.ref == "memory_summary:digest-2"
+    assert item.item_type == "longitudinal_pattern"
+    assert "Resumen con evidencia" in item.text
+    assert item.source_refs == ("memory_episode:old-a", "memory_episode:old-b")
+
+
+def test_fulltext_retrieval_is_user_scoped_and_returns_source_evidence(monkeypatch):
+    from app.services import consent
+    from app.services.memory_pipeline import retrieve_longitudinal_context
+
+    user_id = uuid.uuid4()
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    calls = []
+
+    class FakeMappings:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def all(self):
+            return self.rows
+
+        def first(self):
+            return self.rows[0] if self.rows else None
+
+    class FakeResult:
+        def __init__(self, rows=()):
+            self.rows = rows
+
+        def mappings(self):
+            return FakeMappings(self.rows)
+
+    class FakeDB:
+        def execute(self, statement, params):
+            sql = str(statement)
+            calls.append((sql, params))
+            if "from psychdeep_v12.memory_items mi" in sql:
+                return FakeResult([{
+                    "id": uuid.uuid4(), "item_type": "preference",
+                    "perspective": "user_report", "attribution": "user",
+                    "content": "La persona refiere que los cambios de rutina preceden a su malestar.",
+                    "uncertainty": "unknown", "confidence": None,
+                    "created_at": now, "source_refs": ["chat_message:source-1"],
+                    "relevance": 0.2,
+                }])
+            if "from documents e cross join q" in sql:
+                return FakeResult([{
+                    "id": uuid.uuid4(), "title": "Episodio longitudinal",
+                    "l0": "Cambio de rutina", "l1": "Resumen del episodio",
+                    "themes": ["rutina"], "transitions": [],
+                    "source_refs": ["chat_message:source-2"],
+                    "uncertainty": "medium", "start_at": now, "end_at": now,
+                    "created_at": now, "relevance": 0.25,
+                }])
+            if "from documents s cross join q" in sql:
+                return FakeResult([{
+                    "id": uuid.uuid4(), "scope_type": "time_window",
+                    "scope_key": "episode-digest:l1:synthetic",
+                    "l0": "Digest L0", "l1": "Digest L1",
+                    "source_refs": ["memory_episode:source-3"],
+                    "source_watermark": now, "created_at": now, "relevance": 0.2,
+                }])
+            if "from psychdeep_v12.discourse_facts f" in sql:
+                return FakeResult([{
+                    "id": uuid.uuid4(), "channel": "chat",
+                    "quote": "Literalmente contó el cambio de rutina.",
+                    "spoken_at": now, "chat_message_id": uuid.uuid4(),
+                    "diary_entry_id": None, "relevance": 0.4,
+                }])
+            if "from psychdeep_v12.chat_messages m" in sql:
+                return FakeResult([{
+                    "id": uuid.uuid4(), "content": "Mensaje original sobre cambios de rutina.",
+                    "created_at": now, "relevance": 0.3,
+                    "excerpt": "Mensaje original ⟦cambios de rutina⟧.",
+                }])
+            if "from psychdeep_v12.diary_entries d" in sql:
+                return FakeResult([{
+                    "id": uuid.uuid4(), "content": "Entrada de diario sobre cambios de rutina.",
+                    "created_at": now, "relevance": 0.3,
+                    "excerpt": "Diario ⟦cambios de rutina⟧.",
+                }])
+            if "from psychdeep_v12.memory_summary_versions" in sql:
+                return FakeResult([{
+                    "id": uuid.uuid4(), "l0": "Resumen global",
+                    "l1": "Resumen longitudinal global con contexto.",
+                    "source_refs": ["memory_episode:root"],
+                    "source_watermark": now, "created_at": now,
+                }])
+            raise AssertionError("Unexpected SQL retrieval query: " + sql[:150])
+
+        def rollback(self):
+            pass
+
+    seen_consent_identities = []
+    def fake_is_granted(db, candidate_user_id, purpose):
+        seen_consent_identities.append(candidate_user_id)
+        return True
+
+    monkeypatch.setattr(consent, "is_granted", fake_is_granted)
+    result = retrieve_longitudinal_context(
+        FakeDB(),
+        user_id=str(user_id),
+        query="cambios de rutina y malestar",
+        task_type="conversation",
+        budget_tokens=1100,
+    )
+    assert result.text
+    assert "RETRIEVED MEMORY" in result.text
+    assert "chat_message:source-1" in result.text or "source-1" in result.text
+    assert "chat_message:" in result.text
+    assert all(params.get("user_id") == str(user_id) for _sql, params in calls)
+    assert seen_consent_identities == [user_id]
