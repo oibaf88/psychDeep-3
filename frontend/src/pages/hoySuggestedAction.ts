@@ -5,11 +5,28 @@
  * ChangeSignal ≠ RiskAssessment: this never reads alert levels.
  * No new clinical thresholds — only existing bands/directions and the same
  * form cut-offs already used on Hoy (craving ≥ 7, self_efficacy ≤ 3).
+ *
+ * Each action carries a stable actionId so accept / postpone / usefulness
+ * feedback can be recorded on InterventionEvent without inventing clinical meaning.
  */
 import type { CheckInIn } from "../api";
 import type { ComparisonReading } from "./longitudinalModel";
 
+export type HoyActionId =
+  | "hoy.suggest.regular_wave"
+  | "hoy.suggest.trends_explain"
+  | "hoy.suggest.register_observe";
+
+export type HoyActionDriver =
+  | "acute_craving"
+  | "acute_self_efficacy"
+  | "longitudinal_adverse"
+  | "calculated_explain"
+  | "insufficient_observe";
+
 export type SuggestedAction = {
+  actionId: HoyActionId;
+  driver: HoyActionDriver;
   title: string;
   body: string;
   button: string;
@@ -60,6 +77,8 @@ export function suggestedActionFromReading(
 ): SuggestedAction {
   if (form.craving >= 7) {
     return {
+      actionId: "hoy.suggest.regular_wave",
+      driver: "acute_craving",
       title: "Regular una ola",
       body: "Tienes una urgencia alta en este momento. Puedes probar la práctica de la ola sin necesidad de resolver nada más ahora.",
       button: "Ir a Regular",
@@ -69,6 +88,8 @@ export function suggestedActionFromReading(
 
   if (form.self_efficacy <= 3) {
     return {
+      actionId: "hoy.suggest.regular_wave",
+      driver: "acute_self_efficacy",
       title: "Bajar el ritmo",
       body: "Cuando la confianza está baja, una práctica breve puede ayudarte a recuperar espacio antes de decidir el siguiente paso.",
       button: "Ir a Regular",
@@ -78,6 +99,8 @@ export function suggestedActionFromReading(
 
   if (readingShowsAdverseForRegular(reading)) {
     return {
+      actionId: "hoy.suggest.regular_wave",
+      driver: "longitudinal_adverse",
       title: "Regular una ola",
       body: "Tu comparación reciente muestra un cambio respecto a lo habitual en ti. Puedes probar la práctica de la ola como un siguiente paso breve, sin necesidad de resolver nada más ahora.",
       button: "Ir a Regular",
@@ -87,6 +110,8 @@ export function suggestedActionFromReading(
 
   if (reading && (reading.status === "calculated" || reading.status === "partial")) {
     return {
+      actionId: "hoy.suggest.trends_explain",
+      driver: "calculated_explain",
       title: "Mirar la explicación del cambio",
       body: "Hay una comparación con tu referencia. En Tendencias puedes ver qué se está moviendo y con qué valores, sin interpretarlo como un nivel de alerta.",
       button: "Ver Tendencias",
@@ -95,6 +120,8 @@ export function suggestedActionFromReading(
   }
 
   return {
+    actionId: "hoy.suggest.register_observe",
+    driver: "insufficient_observe",
     title: "Registrar y observar",
     body: "Aún no hay una comparación suficiente con tu referencia. Puedes registrar y observar tu trayectoria en Tendencias. Eso no significa que todo vaya bien ni que no haya riesgo.",
     button: "Ver Tendencias",
