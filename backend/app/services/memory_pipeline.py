@@ -530,7 +530,12 @@ def retrieve_longitudinal_context(
         except Exception:
             pass
         logger = logging.getLogger("psychapp.memory_pipeline")
-        logger.warning("Full-text memory retrieval skipped safely: %s", type(exc).__name__)
+        missing_key = str(exc.args[0])[:80] if isinstance(exc, KeyError) and exc.args else None
+        logger.warning(
+            "Full-text memory retrieval skipped safely type=%s missing_key=%s",
+            type(exc).__name__,
+            missing_key,
+        )
         return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
 
     compiled = compile_memory_context(
