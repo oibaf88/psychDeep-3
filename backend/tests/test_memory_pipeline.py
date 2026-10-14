@@ -37,42 +37,24 @@ def test_context_compiler_deduplicates_and_keeps_attribution():
     now = datetime.now(timezone.utc)
     evidence = [
         MemoryEvidence(
-            ref="event-1",
-            item_type="preference",
-            perspective="user_report",
-            attribution="user",
-            text="Prefiere respuestas breves",
-            occurred_at=now,
-            source_refs=("chat:1",),
-            score=1.0,
+            ref="event-1", item_type="preference", perspective="user_report",
+            attribution="user", text="Prefiere respuestas breves", occurred_at=now,
+            source_refs=("chat:1",), score=1.0,
         ),
         MemoryEvidence(
-            ref="event-1",
-            item_type="preference",
-            perspective="user_report",
-            attribution="user",
-            text="Prefiere respuestas breves",
-            occurred_at=now,
-            source_refs=("chat:1",),
-            score=0.5,
+            ref="event-1", item_type="preference", perspective="user_report",
+            attribution="user", text="Prefiere respuestas breves", occurred_at=now,
+            source_refs=("chat:1",), score=0.5,
         ),
         MemoryEvidence(
-            ref="event-2",
-            item_type="psychological_hypothesis",
-            perspective="assistant_hypothesis",
-            attribution="assistant",
-            text="Hipótesis sintética, no diagnóstico",
-            occurred_at=now,
-            uncertainty="high",
-            source_refs=("chat:2",),
-            score=0.1,
+            ref="event-2", item_type="psychological_hypothesis",
+            perspective="assistant_hypothesis", attribution="assistant",
+            text="Hipótesis sintética, no diagnóstico", occurred_at=now,
+            uncertainty="high", source_refs=("chat:2",), score=0.1,
         ),
     ]
     result = compile_memory_context(
-        task_type="conversation",
-        evidence=evidence,
-        budget_tokens=500,
-        reserved_tokens=50,
+        task_type="conversation", evidence=evidence, budget_tokens=500, reserved_tokens=50,
     )
     assert result.budget_tokens == 450
     assert result.evidence_refs.count("event-1") == 1
@@ -84,9 +66,7 @@ def test_context_compiler_deduplicates_and_keeps_attribution():
 def test_context_compiler_respects_zero_budget():
     result = compile_memory_context(
         task_type="crisis",
-        evidence=[
-            MemoryEvidence("event-1", "episode", "user_report", "user", "synthetic", score=1)
-        ],
+        evidence=[MemoryEvidence("event-1", "episode", "user_report", "user", "synthetic", score=1)],
         budget_tokens=20,
         reserved_tokens=100,
     )
@@ -97,7 +77,12 @@ def test_context_compiler_respects_zero_budget():
 def test_longitudinal_task_prioritizes_source_linked_patterns():
     evidence = [
         MemoryEvidence("pref", "preference", "user_report", "user", "Prefiere el modo oscuro", score=0.5),
-        MemoryEvidence("pattern", "longitudinal_pattern", "derived_pattern", "system", "Cambios descritos en tres episodios", score=0.5, source_refs=("e1", "e2", "e3")),
+        MemoryEvidence(
+            "pattern", "longitudinal_pattern", "derived_pattern", "system",
+            "Cambios descritos en tres episodios", score=0.5, source_refs=("e1", "e2", "e3"),
+        ),
     ]
-    result = compile_memory_context(task_type="longitudinal_analysis", evidence=evidence, budget_tokens=600)
+    result = compile_memory_context(
+        task_type="longitudinal_analysis", evidence=evidence, budget_tokens=600,
+    )
     assert result.evidence_refs[0] == "pattern"
