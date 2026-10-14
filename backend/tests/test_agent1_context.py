@@ -8,7 +8,7 @@ forbids revealing any of it.
 """
 import unittest
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from types import SimpleNamespace
 from unittest.mock import patch
 
