@@ -324,3 +324,122 @@ class MemoryEmbedding(Base):
     provider: Mapped[str] = mapped_column(String(96), nullable=False)
     embedding_model: Mapped[str] = mapped_column(String(192), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MemoryEpisode(Base):
+    """Derived episode; the literal source messages remain in their canonical tables."""
+
+    __tablename__ = "memory_episodes"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    episode_key: Mapped[str] = mapped_column(String(192), nullable=False)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    l0: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    l1: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    l2: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_refs: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    themes: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    transitions: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    uncertainty: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="active")
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("memory_episodes.id", ondelete="SET NULL"))
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    prompt_version: Mapped[str] = mapped_column(String(96), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MemoryRelation(Base):
+    """Evidence-linked relationship between derived memories, not a causal assertion."""
+
+    __tablename__ = "memory_relations"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    from_item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("memory_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    to_item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("memory_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    relation_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    evidence_refs: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    confidence: Mapped[float | None] = mapped_column(Float)
+    uncertainty: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="provisional")
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PatientModelVersion(Base):
+    """Versioned whole-person formulation with source coverage and explicit uncertainty."""
+
+    __tablename__ = "patient_model_versions"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    model_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_json: Mapped[dict] = mapped_column(JSON_DOC, nullable=False)
+    evidence_refs: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    coverage: Mapped[dict] = mapped_column(JSON_DOC, nullable=False, default=dict)
+    unresolved_contradictions: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    unanswered_questions: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    source_watermark: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("patient_model_versions.id", ondelete="SET NULL"))
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    prompt_version: Mapped[str] = mapped_column(String(96), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="provisional")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PatientModelQuestion(Base):
+    """Non-intrusive follow-up question representing a documented knowledge gap."""
+
+    __tablename__ = "patient_model_questions"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    topic_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    priority: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=3)
+    evidence_refs: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="open")
+    decline_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_asked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_model_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("patient_model_versions.id", ondelete="SET NULL"))
+    resolved_by_source_ref: Mapped[str | None] = mapped_column(String(192))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class MemoryAnalysisRun(Base):
+    """Auditable deep analysis result over a fixed, source-referenced evidence set."""
+
+    __tablename__ = "memory_analysis_runs"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    analysis_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    question_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    question_label: Mapped[str] = mapped_column(String(240), nullable=False, default="")
+    window_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_watermark: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evidence_refs: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    result_json: Mapped[dict] = mapped_column(JSON_DOC, nullable=False, default=dict)
+    limitations: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    prompt_version: Mapped[str] = mapped_column(String(96), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    estimated_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    actual_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    error_category: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
