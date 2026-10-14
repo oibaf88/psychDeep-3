@@ -443,3 +443,52 @@ class MemoryAnalysisRun(Base):
     error_category: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MemoryItem(Base):
+    """Atomic memory claim that always points back to its source evidence."""
+
+    __tablename__ = "memory_items"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_type: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    subject_ref: Mapped[str | None] = mapped_column(String(160))
+    perspective: Mapped[str] = mapped_column(String(32), nullable=False, default="user_report")
+    attribution: Mapped[str] = mapped_column(String(64), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_key: Mapped[str | None] = mapped_column(String(256), index=True)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    uncertainty: Mapped[str] = mapped_column(String(16), nullable=False, default="high")
+    temporal_scope: Mapped[dict] = mapped_column(JSON_DOC, nullable=False, default=dict)
+    source_refs: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="active")
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("memory_items.id", ondelete="SET NULL"))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sensitivity: Mapped[str] = mapped_column(String(24), nullable=False, default="clinical")
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MemoryJob(Base):
+    """Persistent idempotent work item; workers may retry without repeating writes."""
+
+    __tablename__ = "memory_jobs"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    job_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    source_table: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(192), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_category: Mapped[str | None] = mapped_column(String(64))
+    output_refs: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
