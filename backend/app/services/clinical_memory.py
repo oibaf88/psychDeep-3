@@ -352,7 +352,7 @@ def commit_turn(
 ) -> MemoryCommit | None:
     """Archive one turn. Never raises into chat or diary. Never writes risk or world facts."""
     try:
-        return _commit_turn(
+        result = _commit_turn(
             db,
             user_id=user_id,
             text=text,
@@ -367,6 +367,76 @@ def commit_turn(
         logger.warning("Clinical memory commit skipped safely: %s", type(exc).__name__)
         return None
 
+    # Do not transfer or process source references when linguistic analysis
+    # consent is absent/revoked. _commit_turn records the skipped state.
+    if result is not None and result.status == "accepted":
+        _queue_memory_pipeline_source(
+            db,
+            user_id=user_id,
+            channel=channel,
+            source_id=source_id,
+            source_text=text,
+        )
+    return result
+
+
+
+
+def _queue_memory_pipeline_source(db: Session, *, user_id: uuid.UUID, channel: str, source_id: uuid.UUID, source_text: str) -> None:
+    """Queue derived memory work for a source that is already committed.
+
+    Best-effort only: memory pipeline failures must never break conversational
+    safety. The stable source identity and content hash make ingestion
+    idempotent and let later workers resume without re-sending a transcript.
+    """
+    try:
+        from app.services.memory_pipeline import stable_hash
+        from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+        from sqlalchemy import text as sql_text
+
+        # Re-check immediately before queueing new derived processing.
+        if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+            return
+
+        source_table = "chat_messages" if channel == "chat" else "diary_entries"
+        digest = stable_hash(source_text)
+        # The ledger records a traceable reference/hash, not a second literal
+        # copy of the source. Consent is checked again before derived processing.
+        db.execute(
+            sql_text("""
+                insert into psychdeep_v12.memory_event_ledger
+                    (id, user_id, source_table, source_id, channel, event_type,
+                     source_content_hash, event_at, consent_purpose, consent_snapshot,
+                     schema_version, metadata)
+                values
+                    (gen_random_uuid(), :user_id, :source_table, :source_id, :channel, 'message',
+                     :digest, now(), 'linguistic_analysis', '{}'::jsonb,
+                     'memory-event-v1', '{"ingestion":"clinical_memory.commit_turn"}'::jsonb)
+                on conflict (user_id, source_table, source_id) do nothing
+            """),
+            {
+                "user_id": str(user_id),
+                "source_table": source_table,
+                "source_id": str(source_id),
+                "channel": channel,
+                "digest": digest,
+            },
+        )
+        db.flush()
+        from app.services.memory_pipeline import enqueue_memory_job
+
+        enqueue_memory_job(
+            db,
+            user_id=str(user_id),
+            job_type="extract_items",
+            source_table=source_table,
+            source_id=str(source_id),
+            idempotency_key=f"{source_table}:{source_id}:{digest}",
+        )
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.warning("Memory pipeline enqueue skipped safely: %s", type(exc).__name__)
 
 def _commit_turn(
     db: Session,
