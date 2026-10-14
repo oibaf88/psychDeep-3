@@ -33,26 +33,27 @@ def test_job_without_linguistic_consent_is_cancelled_without_model(monkeypatch):
     assert any("status = 'cancelled'" in statement for statement in sql)
 
 
-def test_longitudinal_checkpoint_only_scheduled_on_tenth_event():
+def test_longitudinal_checkpoint_is_idempotently_coalesced_per_day():
     db = MagicMock()
-    db.execute.return_value = _Row({"n": 9})
-    with patch.object(memory_pipeline, "enqueue_memory_job") as enqueue:
+    with patch.object(memory_pipeline, "enqueue_memory_job", return_value=False) as enqueue:
         memory_pipeline._enqueue_longitudinal_checkpoint(
             db,
             "user-synthetic",
-            {"source_id": "source-synthetic"},
+            {"source_id": "source-synthetic", "source_table": "memory_event_ledger"},
         )
-    enqueue.assert_not_called()
+    enqueue.assert_called_once()
+    kwargs = enqueue.call_args.kwargs
+    assert kwargs["job_type"] == "longitudinal_analysis"
+    assert kwargs["idempotency_key"].startswith("patient-model:daily:user-synthetic:")
 
 
-def test_tenth_event_queues_one_idempotent_longitudinal_job():
+def test_longitudinal_checkpoint_uses_stable_source_reference_and_daily_key():
     db = MagicMock()
-    db.execute.return_value = _Row({"n": 10})
     with patch.object(memory_pipeline, "enqueue_memory_job", return_value=True) as enqueue:
         memory_pipeline._enqueue_longitudinal_checkpoint(
             db,
             "user-synthetic",
-            {"source_id": "source-synthetic"},
+            {"source_id": "source-synthetic", "source_table": "memory_event_ledger"},
         )
     enqueue.assert_called_once_with(
         db,
@@ -60,8 +61,9 @@ def test_tenth_event_queues_one_idempotent_longitudinal_job():
         job_type="longitudinal_analysis",
         source_table="memory_event_ledger",
         source_id="source-synthetic",
-        idempotency_key="checkpoint:10",
+        idempotency_key=enqueue.call_args.kwargs["idempotency_key"],
     )
+    assert enqueue.call_args.kwargs["idempotency_key"].startswith("patient-model:daily:user-synthetic:")
 
 
 def test_longitudinal_retrieval_does_not_query_when_consent_is_absent():
