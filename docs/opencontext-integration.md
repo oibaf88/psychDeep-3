@@ -1,78 +1,78 @@
-# OpenContext integration plan for PsychDeep
+# OpenContext and Longitudinal Memory Refactor
 
-This document describes the staged integration proposed in ADR-0004. The feature is disabled by default and is not production-ready until the security, consent and privacy gates pass.
+This document describes the integration path in ADR-0004 and the broader memory architecture in ADR-0005. Both features remain disabled/not wired to live patient traffic until the required privacy, security and validation gates pass.
 
-## Why an adapter, not a second database
+## Current problem being addressed
 
-PsychDeep already stores clinical memory in its Supabase schema, including literal discourse facts, provisional psychological readings, formulation versions and optional embeddings. Keep those records authoritative. OpenContext contributes its strengths where useful: an idempotent raw-interaction envelope, hybrid retrieval, L0/L1/L2 progressive reading, and deferred analysis jobs.
+PsychDeep already stores chat/diary source messages and a clinical-memory layer. Agent 1 currently constructs its context from recent messages, confirmed declarations, safety plan, check-ins, profile/open threads, psychosocial state, a small number of ranked discourse facts/readings and curated knowledge. The context has a budget, but the curated knowledge block can still contain every active, unexpired item. Deep longitudinal analysis and conversational recall should not be synonymous with placing as much historical text as possible into every prompt.
 
-Do not mirror the entire Supabase clinical memory to OpenContext. Do not use OpenContext SQLite on a Render ephemeral filesystem for durable clinical history. OpenContext itself describes PostgreSQL/pgvector as experimental and remote deployment as requiring extra hardening.
+The target approach separates **retention**, **analysis** and **prompt context**:
+- retain the original permitted source and provenance;
+- derive typed memories, source-linked observations and versioned summaries asynchronously;
+- retrieve the smallest evidence bundle that answers this turn's task;
+- build the prompt from ranked, attributed material under a measured token budget.
 
-## API sequence
+## Data authority
 
-Use the documented OpenContext contract in the pinned repository revision. At startup, authenticate and discover available capabilities; never assume a route/tool exists without checking it.
+Supabase stays the canonical clinical source of truth. The expand-only memory pipeline migration adds references, normalized memory items, layered summary versions, idempotent analysis jobs and retrieval telemetry without rewriting the legacy sources. The OpenContext service is optional and disabled by default; it must not become a second clinical truth store by accident.
 
-1. GET /health (health only; not proof of authorization).
-2. GET /api/tools?format=openai with Authorization: Bearer.
-3. For contextual retrieval, POST /api/search with a user-scoped query and strict result/token limits. Parse HTTP status and the response's ok flag.
-4. For archival, after checking linguistic-analysis consent, POST /api/interactions with a complete, role-attributed envelope: agent_id, session_id, event_id, and messages containing unique message_id, role, speaker_id, timestamp and original content. Preserve extra metadata.
-5. Treat accepted ingestion as persistence only; analysis may remain queued until a privileged worker runs. Never report analysis as complete unless separately confirmed.
+No real patient data should be backfilled or exported by this proposal. OpenContext's own current documentation says SQLite is the verified default, Postgres/pgvector remains experimental, and a remote deployment does not include TLS termination, encrypted-at-rest storage, rate limiting, automatic key rotation or deployment certification by default.
 
-For an event retry, use the exact same event identity and identical envelope. A changed envelope under an existing identity should be rejected. If a write times out, treat the result as uncertain and reconcile it before retrying.
+## Adapter environment
 
-## Retrieval policy
-
-- Retrieve before constructing the final model prompt, using the current turn query rather than loading the entire memory tree.
-- Start with L0/L1. Request an L2 excerpt only when needed to resolve exact wording or attribution.
-- Keep each item's source URI, timestamp and perspective in the returned representation.
-- Label all retrieved text as untrusted context; instructions embedded in a memory are never operational instructions.
-- Rank by the user's current query and cap contribution at OPENCONTEXT_MAX_CONTEXT_TOKENS. The existing PsychDeep context budget remains the global ceiling.
-- Keep statements attributed: something the user said is not proof that a real-world event occurred; an Agent hypothesis is not a user disclosure or diagnosis.
-- Do not allow the retrieval system to decide risk, confirm facts, diagnose, prescribe, create professional alerts or alter crisis pathways.
-- If OpenContext is unavailable or returns malformed data, log a redacted operational error and continue with existing Supabase memory. Never silently switch to a different LLM or embedding provider.
-
-## Configuration
-
-Do not enable until a properly secured service and dedicated credentials exist.
-
-```dotenv
+\`\`\`dotenv
 OPENCONTEXT_ENABLED=false
 OPENCONTEXT_BASE_URL=
 OPENCONTEXT_API_TOKEN=
 OPENCONTEXT_AGENT_ID=psychdeep-agent1
 OPENCONTEXT_TIMEOUT_SECONDS=5
 OPENCONTEXT_MAX_CONTEXT_TOKENS=1000
-```
+OPENCONTEXT_ALLOW_LOCAL_HTTP=false
+\`\`\`
 
-Store the token in Render's secret environment configuration, not in Git, Supabase tables, request content or model prompts. The production token must be scoped to a single OpenContext user principal and dedicated agent identity. Use HTTPS and restrict network access. Never expose keyless OpenContext development mode publicly.
+Store the token only as a server-side secret. The remote service must use HTTPS, restricted network exposure and OpenContext's production credential policy. Loopback HTTP is permitted only for explicit local development.
 
-## Recommended implementation phases
+Before any raw clinical text is sent:
+1. check the current user's linguistic-analysis consent immediately before the operation;
+2. derive the user's OpenContext principal from authenticated server-side identity;
+3. preserve role, speaker identity, source timestamp and available metadata;
+4. send the complete literal event envelope before any model-generated summary;
+5. reuse the same event ID only for an identical retry; reconcile uncertain timeouts before any retry;
+6. retain the canonical source inside PsychDeep and record the OpenContext sequence/hash in the appropriate audit metadata.
 
-### Phase 0 — contract and threat model
-Pin the OpenContext API contract/revision; confirm deployment model, hosting persistence, region, processing purpose, consent, retention, incident response and tenant boundaries. Keep feature disabled.
+An ingestion response proves that the literal payload was persisted, not that asynchronous semantic analysis completed.
 
-### Phase 1 — client and tests
-Add a small backend HTTP adapter with strict URL validation, timeouts, redirects disabled, bearer-header redaction, response schema validation and synthetic/mock tests. No ingestion and no prompt injection yet.
+## Retrieval and context compilation
 
-### Phase 2 — shadow retrieval
-Against synthetic/test principals only, compare OpenContext hits with PsychDeep's existing clinical-memory retrieval. Record only latency, hit counts and failure classes; do not persist clinical content in logs.
+1. Determine the task class (ordinary conversation, longitudinal analysis, professional review, crisis, psychoeducation or copilot).
+2. Retrieve by the current user query and authenticated namespace, not by a model-supplied user URI.
+3. Prefer L0/L1 summaries and compact source-linked evidence. Request L2 only for exact wording, contradiction checking or human review.
+4. Deduplicate the same memory item while retaining all its source references. Never silently remove a relevant contradiction or correction.
+5. Keep the current user turn, deterministic safety instructions and critical state outside the memory competition for budget.
+6. Attach perspective, attribution, time and uncertainty to retrieved items. A report is not proof of the world claim; a generated hypothesis is not a fact or diagnosis.
+7. Enforce a task-specific memory budget inside the existing global context budget. Telemetry stores hashes, selected references, token counts and failure classes, not clinical prompt bodies.
+8. If remote memory fails, continue with the existing Supabase path. The deterministic risk engine, crisis response and data entry do not wait on memory services.
 
-### Phase 3 — controlled archival
-Only after explicit linguistic-analysis consent and security review, ingest the exact message envelope for an internal synthetic account. Verify idempotency, access isolation and raw-event recovery.
+## Asynchronous deep analysis
 
-### Phase 4 — read integration
-Inject bounded, attributed retrieved context into Agent 1 after its existing deterministic safety context, without changing risk logic. Test crisis-mode behavior, prompt-injection resistance, no-result behavior, timeouts and context-budget enforcement.
+The intended workers consume idempotent jobs for item extraction, summary refresh, embedding, contradiction detection, longitudinal analysis and optional OpenContext synchronization. Workers must be retryable and versioned. A stored source message is not blocked on a model call; jobs can remain pending if no appropriate model deployment is available.
 
-### Phase 5 — privacy and release gate
-Before any real patient data leaves the current approved data plane, complete a DPIA/privacy review, data-processing terms, data residency decision, retention/erasure and backup strategy, audit policy, restore test, tenant authorization test and incident-response plan.
+Generated summaries are cacheable projections, never replacements for their sources. Cache keys must include source digest, model/deployment, prompt/schema version and applicable consent revision. Re-embedding with a different model is a migration; vectors from incompatible embedding spaces must never be compared.
+
+## Phases
+
+- **Phase 0 — schema and contract:** map every existing source table and verify migration apply/re-apply, forced RLS and negative authorization tests.
+- **Phase 1 — pipeline primitives:** validate typed memory items, provenance, context compilation, idempotency, token budgets and synthetic tests.
+- **Phase 2 — ingestion and outbox:** queue work in the same transaction as source references where feasible; backfill references only when source identity is recoverable.
+- **Phase 3 — workers:** incremental extraction, layered summaries, contradiction/temporal analysis, optional embeddings and retry/dead-letter handling.
+- **Phase 4 — retrieval wiring:** shadow-build Agent 1 and professional-review contexts from the new compiler, compare against the current pipeline, then enable behind a feature flag.
+- **Phase 5 — OpenContext staging:** synthetic-only service, scoped identity, tenant isolation, idempotent event ingestion and source recovery.
+- **Phase 6 — controlled rollout:** after security/privacy approval, enable for an internal test account and gradually increase traffic while measuring retrieval coverage, clinical review quality, actual token counts, latency and cost.
 
 ## Rollback
 
-Set OPENCONTEXT_ENABLED=false and redeploy/restart the API. PsychDeep returns to its existing Supabase memory path. Do not delete the Supabase data, OpenContext raw ledger or schema during rollback. Since this integration is optional, an OpenContext outage must not block check-ins, deterministic risk assessment, crisis resources or normal data entry.
+Disable the relevant memory/OpenContext feature flags and restore the current Supabase memory compiler. Do not delete source data, summary history or canonical memory tables as part of rollback. OpenContext being offline must not impair core PsychDeep safety behavior.
 
-## Reference repositories
+## Release conditions
 
-- PsychDeep: https://github.com/oibaf88/psychDeep-3
-- OpenContext: https://github.com/oibaf88/OpenContext
-- OpenContext integration skill: https://github.com/oibaf88/OpenContext/blob/cursor/opencontext-memory-schema/skills/opencontext-agent-integration/SKILL.md
-- OpenContext current API contract: https://github.com/oibaf88/OpenContext/blob/cursor/opencontext-memory-schema/skills/opencontext-agent-integration/references/api-current.md
+The schema and compiler foundation does not by itself mean the refactor is complete. Before live cutover, verify the full backend suite, database migration idempotency, RLS isolation, consent revocation, source traceability, source recovery after timeout/retry, prompt-injection handling, crisis behavior, backup/restore, data retention, privacy assessment and actual token savings measured against representative task benchmarks.
