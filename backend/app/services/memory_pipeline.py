@@ -430,7 +430,10 @@ def _materialize_committed_summary(db: Session, job: dict[str, Any], user_id) ->
     from sqlalchemy import text as sql_text
     from app.services.memory_pipeline import stable_hash
 
-    channel = str(job.get("source_table") or "")
+    source_table = str(job.get("source_table") or "")
+    if source_table not in {"chat_messages", "diary_entries"}:
+        raise ValueError("unsupported memory source table")
+    channel = source_table
     source_id = str(job["source_id"])
     row = db.execute(sql_text("""
         select fc.id, fc.l0, fc.l1, fc.l2, fc.created_at, fc.prompt_version,
