@@ -1269,6 +1269,364 @@ def _upsert_open_questions(db: Session, user_id, questions: list[PatientOpenQues
         ))
 
 
+
+def _projection_items(model: WholePersonModelDraft) -> list[dict[str, Any]]:
+    """Turn the versioned whole-person model into independently retrievable memories."""
+    entries: list[dict[str, Any]] = []
+
+    domain_types = {
+        "relationships_and_attachment": "relationship_context",
+        "goals_and_agency": "goal",
+        "communication_and_support_preferences": "preference",
+        "recurrent_episodes": "episode",
+    }
+
+    for facet in model.facets:
+        item_type = (
+            "psychological_hypothesis"
+            if facet.perspective == "assistant_hypothesis"
+            else domain_types.get(facet.domain, "other")
+        )
+        content = facet.statement.strip()
+        if facet.time_scope:
+            content += f" [alcance temporal: {facet.time_scope.strip()}]"
+        content += f" [estado: {facet.status}]"
+        entries.append({
+            "item_type": item_type,
+            "perspective": facet.perspective,
+            "content": content,
+            "confidence": facet.confidence,
+            "uncertainty": facet.uncertainty,
+            "source_refs": list(dict.fromkeys(facet.source_refs)),
+            "domain": facet.domain,
+        })
+
+    for pattern in model.patterns:
+        content = pattern.pattern.strip()
+        if pattern.temporal_description:
+            content += f" [evolución temporal: {pattern.temporal_description.strip()}]"
+        if pattern.alternative_explanations:
+            content += " [alternativas: " + "; ".join(x.strip() for x in pattern.alternative_explanations if x.strip()) + "]"
+        if pattern.counterevidence_refs:
+            content += " [contraevidencia: " + ", ".join(pattern.counterevidence_refs) + "]"
+        entries.append({
+            "item_type": "longitudinal_pattern",
+            "perspective": "derived_pattern",
+            "content": content,
+            "confidence": pattern.confidence,
+            "uncertainty": pattern.uncertainty,
+            "source_refs": list(dict.fromkeys(pattern.source_refs + pattern.counterevidence_refs)),
+            "domain": pattern.domain,
+        })
+
+    for trajectory in model.trajectories:
+        content = f"Trayectoria {trajectory.direction}: {trajectory.description.strip()}"
+        if trajectory.turning_points:
+            content += " [puntos de inflexión: " + "; ".join(trajectory.turning_points) + "]"
+        entries.append({
+            "item_type": "longitudinal_pattern",
+            "perspective": "derived_pattern",
+            "content": content,
+            "confidence": None,
+            "uncertainty": trajectory.uncertainty,
+            "source_refs": list(dict.fromkeys(trajectory.source_refs)),
+            "domain": trajectory.domain,
+        })
+
+    for factor in model.protective_factors:
+        content = f"Factor de protección: {factor.factor.strip()} [disponibilidad: {factor.availability}]"
+        if factor.limitations:
+            content += f" [límites: {factor.limitations.strip()}]"
+        entries.append({
+            "item_type": "other",
+            "perspective": "derived_pattern",
+            "content": content,
+            "confidence": None,
+            "uncertainty": factor.uncertainty,
+            "source_refs": list(dict.fromkeys(factor.source_refs)),
+            "domain": "strengths_and_protective_factors",
+        })
+
+    for contradiction in model.contradictions:
+        content = (
+            f"Contradicción/cambio de contexto sobre {contradiction.topic.strip()}: "
+            f"{contradiction.description.strip()} [interpretación: {contradiction.interpretation}]"
+        )
+        entries.append({
+            "item_type": "contradiction",
+            "perspective": "derived_pattern",
+            "content": content,
+            "confidence": None,
+            "uncertainty": contradiction.uncertainty,
+            "source_refs": list(dict.fromkeys(contradiction.source_refs)),
+            "domain": "contradiction",
+        })
+
+    for gap in model.theme_gaps:
+        content = (
+            f"Hueco de registro del tema {gap.topic_key.strip()}: {gap.description.strip()} "
+            f"[solo ausencia de registros entre {gap.gap_start_at} y {gap.gap_end_at}; "
+            "no indica ausencia del suceso ni del estado privado]"
+        )
+        refs = list(dict.fromkeys(gap.evidence_before_refs + gap.evidence_after_refs))
+        entries.append({
+            "item_type": "open_thread",
+            "perspective": "derived_pattern",
+            "content": content,
+            "confidence": None,
+            "uncertainty": gap.uncertainty,
+            "source_refs": refs,
+            "domain": gap.topic_key,
+        })
+
+    return [entry for entry in entries if entry["content"].strip() and entry["source_refs"]]
+
+
+def _persist_patient_model_projections(
+    db: Session,
+    *,
+    user_id,
+    snapshot: PatientModelVersion,
+    model: WholePersonModelDraft,
+    source_refs: list[str],
+    source_watermark: datetime | None,
+    source_digest: str,
+    model_run_id: uuid.UUID | None,
+) -> None:
+    """Publish source-linked memories and the L0/L1/L2 summary as projections.
+
+    The original messages, diary entries, confirmed records and observations
+    remain authoritative. Previous model-derived projections are superseded,
+    never deleted, and each generated memory keeps source IDs plus model-run
+    provenance so retrieval can distinguish evidence from interpretation.
+    """
+    from sqlalchemy import text as sql_text
+
+    uid = user_id if isinstance(user_id, uuid.UUID) else uuid.UUID(str(user_id))
+    entries = _projection_items(model)
+
+    # Only retire the projection created by this whole-person pipeline; memory
+    # items generated by other, reviewed workflows are left untouched.
+    db.execute(sql_text("""
+        update psychdeep_v12.memory_items
+           set status = 'superseded'
+         where user_id = :user_id
+           and attribution = 'PsychDeep whole-person model'
+           and status = 'active'
+    """), {"user_id": str(uid)})
+
+    allowed_types = {
+        "preference", "goal", "open_thread", "episode", "world_claim",
+        "psychological_hypothesis", "recurring_theme", "contradiction",
+        "correction", "plan", "relationship_context", "manner_observation",
+        "longitudinal_pattern", "other",
+    }
+    allowed_perspectives = set(PERSPECTIVES)
+    for raw in entries:
+        if raw["item_type"] not in allowed_types or raw["perspective"] not in allowed_perspectives:
+            continue
+        refs = list(dict.fromkeys(str(ref) for ref in raw["source_refs"] if str(ref).strip()))
+        if not refs:
+            continue
+        item = {
+            "item_type": raw["item_type"],
+            "perspective": raw["perspective"],
+            "attribution": "PsychDeep whole-person model",
+            "content": raw["content"][:1200],
+            "confidence": raw["confidence"],
+            "uncertainty": raw["uncertainty"],
+            "source_refs": refs,
+        }
+        if item["item_type"] == "psychological_hypothesis" and item["perspective"] not in {"assistant_hypothesis", "derived_pattern"}:
+            item["perspective"] = "derived_pattern"
+        validated = validate_derived_item(item)
+        normalized_key = stable_hash({
+            "item_type": validated["item_type"],
+            "content": " ".join(validated["content"].casefold().split()),
+        })
+        item_id = uuid.uuid5(uid, f"patient-model-item:{validated['item_type']}:{normalized_key}")
+        db.execute(sql_text("""
+            insert into psychdeep_v12.memory_items
+                (id, user_id, item_type, subject_ref, perspective, attribution,
+                 content, normalized_key, confidence, uncertainty, temporal_scope,
+                 source_refs, status, sensitivity, model_run_id, schema_version)
+            values
+                (:id, :user_id, :item_type, :subject_ref, :perspective, :attribution,
+                 :content, :normalized_key, :confidence, :uncertainty,
+                 cast(:temporal_scope as jsonb), cast(:source_refs as jsonb),
+                 'active', 'clinical', :model_run_id, :schema_version)
+            on conflict (id) do update
+                set perspective = excluded.perspective,
+                    attribution = excluded.attribution,
+                    content = excluded.content,
+                    confidence = excluded.confidence,
+                    uncertainty = excluded.uncertainty,
+                    temporal_scope = excluded.temporal_scope,
+                    source_refs = excluded.source_refs,
+                    status = 'active',
+                    model_run_id = excluded.model_run_id,
+                    schema_version = excluded.schema_version
+        """), {
+            "id": str(item_id),
+            "user_id": str(uid),
+            "item_type": validated["item_type"],
+            "subject_ref": str(raw.get("domain") or "")[:160] or None,
+            "perspective": validated["perspective"],
+            "attribution": validated["attribution"],
+            "content": validated["content"],
+            "normalized_key": normalized_key,
+            "confidence": validated["confidence"],
+            "uncertainty": validated["uncertainty"],
+            "temporal_scope": json.dumps({
+                "patient_model_version_id": str(snapshot.id),
+                "domain": raw.get("domain"),
+                "source_watermark": _dt_text(source_watermark),
+            }, ensure_ascii=False),
+            "source_refs": json.dumps(refs, ensure_ascii=False),
+            "model_run_id": str(model_run_id) if model_run_id else None,
+            "schema_version": PATIENT_MODEL_SCHEMA_VERSION,
+        })
+
+        # Populate the relational source index where a canonical UUID can be
+        # resolved. Chunk suffixes from long literal messages are retained in
+        # JSON source_refs; this table anchors the reference to its source row.
+        for source_ref in refs:
+            if ":" not in source_ref:
+                continue
+            source_type, source_value = source_ref.split(":", 1)
+            source_value = source_value.split("#chunk-", 1)[0]
+            try:
+                source_uuid = uuid.UUID(source_value)
+            except (ValueError, TypeError):
+                continue
+            if source_type == "chat_message":
+                db.execute(sql_text("""
+                    insert into psychdeep_v12.memory_item_sources
+                        (id, user_id, memory_item_id, source_type, source_id,
+                         source_message_id, relation)
+                    values
+                        (gen_random_uuid(), :user_id, :memory_item_id, :source_type,
+                         :source_id, :source_message_id, 'derived_from')
+                    on conflict (memory_item_id, source_type, source_id, source_message_id, relation) do nothing
+                """), {
+                    "user_id": str(uid),
+                    "memory_item_id": str(item_id),
+                    "source_type": source_type,
+                    "source_id": str(source_uuid),
+                    "source_message_id": str(source_uuid),
+                })
+            else:
+                # source_message_id is intentionally null for non-chat refs.
+                # Use NOT EXISTS because ordinary UNIQUE constraints treat NULLs
+                # as distinct in PostgreSQL.
+                db.execute(sql_text("""
+                    insert into psychdeep_v12.memory_item_sources
+                        (id, user_id, memory_item_id, source_type, source_id, relation)
+                    select gen_random_uuid(), :user_id, :memory_item_id, :source_type, :source_id, 'derived_from'
+                    where not exists (
+                        select 1 from psychdeep_v12.memory_item_sources
+                         where user_id = :user_id
+                           and memory_item_id = :memory_item_id
+                           and source_type = :source_type
+                           and source_id = :source_id
+                           and relation = 'derived_from'
+                    )
+                """), {
+                    "user_id": str(uid),
+                    "memory_item_id": str(item_id),
+                    "source_type": source_type[:48],
+                    "source_id": str(source_uuid),
+                })
+
+    l0 = (model.patient_summary.strip() or "Sin síntesis longitudinal suficiente")[:256]
+    l1_parts = [model.patient_summary.strip()]
+    for label, values, key in (
+        ("Facetas", model.facets, "statement"),
+        ("Patrones longitudinales", model.patterns, "pattern"),
+        ("Trayectorias", model.trajectories, "description"),
+        ("Factores de protección", model.protective_factors, "factor"),
+        ("Contradicciones", model.contradictions, "description"),
+        ("Huecos de registro", model.theme_gaps, "description"),
+        ("Preguntas pendientes", model.open_questions, "question"),
+    ):
+        if not values:
+            continue
+        l1_parts.append(label + ":")
+        for value in values[:12]:
+            text_value = str(getattr(value, key, "") or "").strip()
+            refs = []
+            for attr in ("source_refs", "evidence_before_refs", "evidence_after_refs"):
+                refs.extend(getattr(value, attr, []) or [])
+            refs = list(dict.fromkeys(str(ref) for ref in refs))[:5]
+            if text_value:
+                l1_parts.append("- " + text_value + (f" [fuentes: {', '.join(refs)}]" if refs else ""))
+    l1 = "\n".join(l1_parts)[:4000]
+    l2_sections = [
+        "MODELO LONGITUDINAL VERSIONADO — derivado, revisable; no es diagnóstico ni motor de riesgo.",
+        "Resumen: " + model.patient_summary,
+        "Facetas: " + json.dumps([x.model_dump() for x in model.facets], ensure_ascii=False),
+        "Patrones: " + json.dumps([x.model_dump() for x in model.patterns], ensure_ascii=False),
+        "Trayectorias: " + json.dumps([x.model_dump() for x in model.trajectories], ensure_ascii=False),
+        "Factores de protección: " + json.dumps([x.model_dump() for x in model.protective_factors], ensure_ascii=False),
+        "Contradicciones: " + json.dumps([x.model_dump() for x in model.contradictions], ensure_ascii=False),
+        "Huecos de registro: " + json.dumps([x.model_dump() for x in model.theme_gaps], ensure_ascii=False),
+        "Preguntas pendientes: " + json.dumps([x.model_dump() for x in model.open_questions], ensure_ascii=False),
+        "Limitaciones: " + json.dumps(model.limitations, ensure_ascii=False),
+    ]
+    l2 = "\n\n".join(l2_sections)[:8000]
+    summary_digest = stable_hash({
+        "source_digest": source_digest,
+        "model_schema": PATIENT_MODEL_SCHEMA_VERSION,
+        "model": model.model_dump(),
+    })
+    summary_id = uuid.uuid5(uid, "whole-person-summary:" + summary_digest)
+    prior_summary = db.execute(sql_text("""
+        select id from psychdeep_v12.memory_summary_versions
+         where user_id = :user_id and scope_type = 'topic'
+           and scope_key = 'longitudinal-v1' and status = 'active'
+         order by created_at desc limit 1
+    """), {"user_id": str(uid)}).mappings().first()
+    db.execute(sql_text("""
+        update psychdeep_v12.memory_summary_versions
+           set status = 'superseded'
+         where user_id = :user_id and scope_type = 'topic'
+           and scope_key = 'longitudinal-v1' and status = 'active'
+           and id <> :new_id
+    """), {"user_id": str(uid), "new_id": str(summary_id)})
+    db.execute(sql_text("""
+        insert into psychdeep_v12.memory_summary_versions
+            (id, user_id, scope_type, scope_key, l0, l1, l2,
+             source_watermark, source_refs, source_digest, supersedes_id,
+             model_run_id, prompt_version, schema_version, generation_reason, status)
+        values
+            (:id, :user_id, 'topic', 'longitudinal-v1', :l0, :l1, :l2,
+             :source_watermark, cast(:source_refs as jsonb), :source_digest,
+             :supersedes_id, :model_run_id, :prompt_version, :schema_version,
+             'whole_person_synthesis', 'active')
+        on conflict (id) do update
+            set l0 = excluded.l0,
+                l1 = excluded.l1,
+                l2 = excluded.l2,
+                source_watermark = excluded.source_watermark,
+                source_refs = excluded.source_refs,
+                supersedes_id = excluded.supersedes_id,
+                model_run_id = excluded.model_run_id,
+                status = 'active'
+    """), {
+        "id": str(summary_id),
+        "user_id": str(uid),
+        "l0": l0,
+        "l1": l1,
+        "l2": l2,
+        "source_watermark": source_watermark,
+        "source_refs": json.dumps(list(dict.fromkeys(source_refs)), ensure_ascii=False),
+        "source_digest": summary_digest,
+        "supersedes_id": str(prior_summary["id"]) if prior_summary else None,
+        "model_run_id": str(model_run_id) if model_run_id else None,
+        "prompt_version": PROMPT_VERSION,
+        "schema_version": PATIENT_MODEL_SCHEMA_VERSION,
+    })
+
 def rebuild_patient_model(
     db: Session,
     user_id,
