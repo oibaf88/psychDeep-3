@@ -353,6 +353,28 @@ def build(db: Session, user_id, assessment, *, in_crisis: bool, query: str | Non
         if memory:
             sections.append(memory)
 
+        # Incremental, source-attributed longitudinal memory is an optional
+        # small addition to the existing clinical memory. Never retrieve
+        # exploratory material during deterministic crisis handling.
+        try:
+            from app.services.memory_pipeline import retrieve_longitudinal_context
+
+            settings_for_memory = get_settings()
+            if getattr(settings_for_memory, "memory_pipeline_context_enabled", False):
+                longitudinal = retrieve_longitudinal_context(
+                    db,
+                    user_id=str(user_id),
+                    query=query or "",
+                    task_type="crisis" if in_crisis else "conversation",
+                    budget_tokens=getattr(settings_for_memory, "memory_pipeline_context_budget_tokens", 800),
+                    in_crisis=in_crisis,
+                )
+                if longitudinal.text:
+                    sections.append(longitudinal.text)
+        except Exception as exc:  # noqa: BLE001
+            _release_failed_read(db)
+            logger.warning("Longitudinal memory retrieval skipped safely: %s", type(exc).__name__)
+
         knowledge = _knowledge_block(db, query=query or "")
         if knowledge:
             sections.append(knowledge.strip())
