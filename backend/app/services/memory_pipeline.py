@@ -274,7 +274,10 @@ def retrieve_longitudinal_context(
     no exploratory memory. No LLM or embedding provider is called during retrieval.
     """
     from datetime import datetime, timezone
+    from uuid import UUID as UUIDType
     from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+
+    user_uuid = user_id if isinstance(user_id, UUIDType) else UUIDType(str(user_id))
 
     def _aware(value):
         if value is None:
@@ -288,11 +291,11 @@ def retrieve_longitudinal_context(
             return ()
         return tuple(str(ref) for ref in value if ref is not None and str(ref).strip())
 
-    if in_crisis or not is_granted(db, user_id, LINGUISTIC_ANALYSIS) or not query.strip():
+    if in_crisis or task_type == "crisis" or not is_granted(db, user_uuid, LINGUISTIC_ANALYSIS) or not query.strip():
         return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
 
     candidates: list[MemoryEvidence] = []
-    query_params = {"user_id": str(user_id), "query": query.strip()}
+    query_params = {"user_id": str(user_uuid), "query": query.strip()}
 
     try:
         # 1) Atomic derived memories: GIN full-text index covers every active,
