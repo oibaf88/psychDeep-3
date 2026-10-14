@@ -121,7 +121,7 @@ WHOLE_PERSON_TOOL_SCHEMA = {
         "additionalProperties": False,
         "required": [
             "patient_summary", "facets", "patterns", "trajectories",
-            "protective_factors", "contradictions", "open_questions", "limitations",
+            "protective_factors", "contradictions", "open_questions", "theme_gaps", "limitations",
         ],
         "properties": {
             "patient_summary": {"type": "string", "maxLength": 3000},
@@ -216,6 +216,23 @@ WHOLE_PERSON_TOOL_SCHEMA = {
                     },
                 },
             },
+            "theme_gaps": {
+                "type": "array", "maxItems": 16,
+                "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["topic_key", "description", "gap_start_at", "gap_end_at", "interpretation", "evidence_before_refs", "evidence_after_refs", "uncertainty"],
+                    "properties": {
+                        "topic_key": {"type": "string", "minLength": 1, "maxLength": 160},
+                        "description": {"type": "string", "minLength": 1, "maxLength": 500},
+                        "gap_start_at": {"type": "string", "maxLength": 48},
+                        "gap_end_at": {"type": "string", "maxLength": 48},
+                        "interpretation": {"type": "string", "enum": ["recording_gap_only"]},
+                        "evidence_before_refs": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"type": "string"}},
+                        "evidence_after_refs": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"type": "string"}},
+                        "uncertainty": {"type": "string", "enum": list(UNCERTAINTIES)},
+                    },
+                },
+            },
             "limitations": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 500}},
         },
     },
@@ -259,6 +276,7 @@ Disciplina epistemológica:
 - Incluye contraevidencia y explicaciones alternativas. Conserva contradicciones materiales.
 - Marca la diferencia entre estado actual, historia y dato no conocido. Una fuente antigua no demuestra disponibilidad actual.
 - La ausencia de mención o un hueco en el timeline nunca demuestra ausencia del acontecimiento.
+- Los huecos temáticos solo describen un intervalo sin registros etiquetados. No infieras que el tema desapareció de la vida real, que la persona está mejor/peor ni que ocurrió o no ocurrió un suceso. Solo declara un hueco si hay evidencia etiquetada antes y después y cita ambos extremos.
 - No infieras causalidad desde asociación; usa lenguaje de hipótesis.
 - No diagnostiques, no asignes rasgos estables por episodios aislados y no propongas niveles de riesgo.
 - No inventes datos demográficos, experiencias, motivaciones, traumas, relaciones, adherencia o respuesta terapéutica.
@@ -378,6 +396,18 @@ class PatientOpenQuestion(BaseModel):
     source_refs: list[str] = Field(max_length=20)
 
 
+class PatientThemeGap(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    topic_key: str = Field(min_length=1, max_length=160)
+    description: str = Field(min_length=1, max_length=500)
+    gap_start_at: str = Field(max_length=48)
+    gap_end_at: str = Field(max_length=48)
+    interpretation: Literal["recording_gap_only"]
+    evidence_before_refs: list[str] = Field(min_length=1, max_length=10)
+    evidence_after_refs: list[str] = Field(min_length=1, max_length=10)
+    uncertainty: Literal["low", "medium", "high", "unknown"]
+
+
 class WholePersonModelDraft(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     patient_summary: str = Field(max_length=3000)
@@ -387,6 +417,7 @@ class WholePersonModelDraft(BaseModel):
     protective_factors: list[PatientProtectiveFactor] = Field(max_length=20)
     contradictions: list[PatientContradiction] = Field(max_length=24)
     open_questions: list[PatientOpenQuestion] = Field(max_length=16)
+    theme_gaps: list[PatientThemeGap] = Field(max_length=16)
     limitations: list[str] = Field(max_length=20)
 
 
@@ -1190,6 +1221,9 @@ def _validate_source_refs(model: WholePersonModelDraft, allowed_refs: set[str]) 
         ref_fields.extend(item.source_refs)
     for item in model.open_questions:
         ref_fields.extend(item.source_refs)
+    for gap in model.theme_gaps:
+        ref_fields.extend(gap.evidence_before_refs)
+        ref_fields.extend(gap.evidence_after_refs)
     invalid = sorted({ref for ref in ref_fields if ref and ref not in allowed_refs})
     if invalid:
         raise ValueError("model_output_contains_unknown_source_refs")
