@@ -13,7 +13,7 @@ import logging
 import re
 import uuid
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -33,7 +33,7 @@ from app.models_vnext import (
     PsychReading,
 )
 from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
-from app.services.context_budget import estimate_tokens
+from app.services.context_budget import estimate_tokens, fit_context_block
 from app.services.memory_pipeline import (
     MemoryEvidence,
     compile_memory_context,
@@ -532,9 +532,7 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
             continue
         docs.append({
             "timestamp": _normalise_dt(reading.created_at),
-            "source_refs": [_ref("psych_reading", reading.id)] + [
-                str(ref) for ref in (reading.evidence_refs or []) if isinstance(ref, str)
-            ],
+            "source_refs": [_ref("psych_reading", reading.id)],
             "content": (
                 f"Hipótesis del sistema ({reading.kind}; incertidumbre={reading.uncertainty}; "
                 f"estado={reading.status}): {reading.hypothesis}"
@@ -955,6 +953,10 @@ def _build_final_evidence(db: Session, user_id) -> tuple[list[MemoryEvidence], d
             source_watermarks.append(when)
 
     if checkins:
+        for row in checkins:
+            when = _normalise_dt(row.created_at)
+            if when:
+                source_watermarks.append(when)
         values = []
         checkin_refs = []
         for row in reversed(checkins):
@@ -1001,17 +1003,20 @@ def _build_final_evidence(db: Session, user_id) -> tuple[list[MemoryEvidence], d
         "prior_model_version": previous_model.version_no if previous_model else None,
     }
     context_source_digest = stable_hash({
-        "episode_ids": [str(row.id) for row in selected_episodes],
-        "item_ids": [str(row.id) for row in active_items],
-        "confirmed_ids": [str(row.id) for row in confirmed],
-        "observation_ids": [str(row.id) for row in recent_observations],
-        "checkin_ids": [str(row.id) for row in checkins],
+        "evidence": [{
+            "ref": item.ref,
+            "text": item.text,
+            "perspective": item.perspective,
+            "uncertainty": item.uncertainty,
+            "source_refs": list(item.source_refs),
+            "occurred_at": _dt_text(item.occurred_at),
+        } for item in evidence],
         "profile_updated": _dt_text(_normalise_dt(profile.updated_at)) if profile else None,
+        "profile_portrait": prior_portrait,
         "formulation_id": str(latest_formulation.id) if latest_formulation else None,
     })
     # A previous generated portrait/model is context for revision, not primary
     # evidence; findings still must cite source-linked records above.
-    globals()["__unused"] = None
     return evidence, {
         "coverage": coverage,
         "prior_portrait": prior_portrait,
@@ -1123,7 +1128,7 @@ def rebuild_patient_model(
             )
             .first()
         )
-        if force or prior_run is None:
+        if prior_run is None:
             pending.append(batch)
 
     episodes_created = 0
@@ -1176,6 +1181,9 @@ def rebuild_patient_model(
         return {"status": "consent_revoked", "episodes_created": episodes_created, "model_version": None}
 
     evidence, context_meta, watermark, source_digest = _build_final_evidence(db, user_id)
+    doc_watermarks = [doc["timestamp"] for doc in docs if doc.get("timestamp") is not None]
+    if doc_watermarks:
+        watermark = max([watermark] + doc_watermarks) if watermark else max(doc_watermarks)
     if not evidence:
         return {"status": "no_source_evidence", "episodes_created": episodes_created, "model_version": None}
 
@@ -1451,6 +1459,7 @@ def process_pending_memory_jobs(db: Session, *, limit: int = 1) -> dict[str, Any
     """Process queued whole-person rebuilds. Intended for a dedicated worker process."""
     report: dict[str, Any] = {"processed": 0, "succeeded": 0, "failed": 0, "results": []}
     for _ in range(max(0, int(limit))):
+        current_job_id = None
         try:
             now = datetime.now(timezone.utc)
             job = (
@@ -1467,6 +1476,7 @@ def process_pending_memory_jobs(db: Session, *, limit: int = 1) -> dict[str, Any
             if job is None:
                 db.rollback()
                 break
+            current_job_id = job.id
             job.status = "processing"
             job.attempts = int(job.attempts or 0) + 1
             job.locked_at = now
@@ -1475,6 +1485,16 @@ def process_pending_memory_jobs(db: Session, *, limit: int = 1) -> dict[str, Any
             result = rebuild_patient_model(db, job.user_id)
             report["results"].append({"job_id": str(job.id), **result})
             report["processed"] += 1
+            if result.get("errors"):
+                raise RuntimeError("episode_batch_failed")
+            if result["status"] in {"consent_required", "consent_revoked"}:
+                job.status = "cancelled"
+                job.completed_at = datetime.now(timezone.utc)
+                job.locked_at = None
+                db.add(job)
+                db.commit()
+                report["succeeded"] += 1
+                continue
             if result["status"] in {"succeeded", "unchanged", "no_source_evidence"}:
                 job.status = "succeeded"
                 job.completed_at = datetime.now(timezone.utc)
@@ -1495,8 +1515,7 @@ def process_pending_memory_jobs(db: Session, *, limit: int = 1) -> dict[str, Any
             try:
                 failed_job = (
                     db.query(MemoryJob)
-                    .filter(MemoryJob.status == "processing")
-                    .order_by(MemoryJob.locked_at.desc())
+                    .filter(MemoryJob.id == current_job_id, MemoryJob.status == "processing")
                     .first()
                 )
                 if failed_job is not None:
