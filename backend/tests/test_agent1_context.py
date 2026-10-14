@@ -289,13 +289,19 @@ class KnowledgeBlockTests(unittest.TestCase):
         item = SimpleNamespace(
             topic="Ansiedad",
             objective="Reducir activación",
+            population="adultos",
+            locale="es-ES",
+            contraindications=[],
+            content_version="synthetic-v1",
+            review_due=date(2099, 1, 1),
+            status="active",
             evidence_level="A",
             content="Técnica de respiración 4-7-8."
         )
         db_mock.query.return_value.filter.return_value.all.return_value = [item]
 
         from app.services.agent1_context import _knowledge_block
-        block = _knowledge_block(db_mock)
+        block = _knowledge_block(db_mock, query="ansiedad respiracion")
         self.assertIn("CONTENIDOS CLÍNICOS APROBADOS", block)
         self.assertIn("Ansiedad", block)
         self.assertIn("Reducir activación", block)
@@ -304,15 +310,16 @@ class KnowledgeBlockTests(unittest.TestCase):
 
 class BoundedKnowledgeRetrievalRegressionTests(unittest.TestCase):
     def test_current_query_is_passed_to_knowledge_retrieval(self):
+        db = _Db()
         with patch.object(agent1_context.profile_service, "get", return_value=None), \
              patch.object(agent1_context, "_psychosocial_block", return_value=""), \
              patch.object(agent1_context.clinical_memory, "prompt_block", return_value=""), \
              patch.object(agent1_context, "_knowledge_block", return_value="") as knowledge:
             agent1_context.build(
-                _Db(), uuid.uuid4(), _assessment(), in_crisis=False,
+                db, uuid.uuid4(), _assessment(), in_crisis=False,
                 query="consulta sintetica actual",
             )
-        knowledge.assert_called_once_with(_Db.__new__(_Db), query="consulta sintetica actual")
+        knowledge.assert_called_once_with(db, query="consulta sintetica actual")
 
     def test_empty_query_does_not_append_every_approved_item(self):
         from datetime import date
