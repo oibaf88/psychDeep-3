@@ -2580,6 +2580,11 @@ def patient_model_context_block(db: Session, user_id, query: str, *, in_crisis: 
     if in_crisis:
         return ""
     try:
+        from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+
+        # Reading a derived patient model is still linguistic-analysis processing.
+        if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+            return ""
         snapshot = latest_patient_model(db, user_id)
         if snapshot is None or not isinstance(snapshot.model_json, dict):
             return ""
