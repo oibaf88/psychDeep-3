@@ -923,8 +923,6 @@ def prompt_block(
         _release_failed_read(db)
         logger.warning("Clinical memory prompt skipped safely: %s", type(exc).__name__)
         return ""
-    if formulation is None and not facts:
-        return ""
     if in_crisis:
         if formulation is None:
             return ""
@@ -932,6 +930,17 @@ def prompt_block(
             "MEMORIA CLÍNICA (solo el resumen; no abras temas ni la cites como expediente):\n"
             + formulation.l0
         )
+    if formulation is None and not facts:
+        # A patient may have a whole-person version before a legacy formulation
+        # or discourse-fact row exists. Offer that bounded model if present.
+        try:
+            from app.services.patient_understanding import patient_model_context_block
+
+            return patient_model_context_block(db, user_id, query, in_crisis=False) or ""
+        except Exception as exc:  # noqa: BLE001
+            _release_failed_read(db)
+            logger.warning("Whole-person-only context skipped safely: %s", type(exc).__name__)
+            return ""
 
     vector = _query_vector(db, user_id, query, query_vector)
     fact_vectors = _vectors_for(db, user_id, "discourse")
