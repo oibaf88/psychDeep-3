@@ -300,3 +300,45 @@ class KnowledgeBlockTests(unittest.TestCase):
         self.assertIn("Ansiedad", block)
         self.assertIn("Reducir activación", block)
         self.assertIn("Técnica de respiración 4-7-8.", block)
+
+
+class BoundedKnowledgeRetrievalRegressionTests(unittest.TestCase):
+    def test_current_query_is_passed_to_knowledge_retrieval(self):
+        with patch.object(agent1_context.profile_service, "get", return_value=None), \
+             patch.object(agent1_context, "_psychosocial_block", return_value=""), \
+             patch.object(agent1_context.clinical_memory, "prompt_block", return_value=""), \
+             patch.object(agent1_context, "_knowledge_block", return_value="") as knowledge:
+            agent1_context.build(
+                _Db(), uuid.uuid4(), _assessment(), in_crisis=False,
+                query="consulta sintetica actual",
+            )
+        knowledge.assert_called_once_with(_Db.__new__(_Db), query="consulta sintetica actual")
+
+    def test_empty_query_does_not_append_every_approved_item(self):
+        from datetime import date
+        from app.services.agent1_context import _knowledge_block
+        item = SimpleNamespace(
+            topic="sintetico", objective="apoyo", population="adultos",
+            locale="es-ES", evidence_level="interno", contraindications=[],
+            content="contenido sintetico", content_version="v1",
+            review_due=date(2099, 1, 1), status="active",
+        )
+        db = SimpleNamespace(query=lambda _model: _Q([item]))
+        self.assertEqual(_knowledge_block(db, query=""), "")
+
+    def test_relevant_result_is_limited_and_versioned(self):
+        from datetime import date
+        from app.services.agent1_context import _knowledge_block
+        items = [
+            SimpleNamespace(
+                topic=f"respiracion {index}", objective="diafragma", population="adultos",
+                locale="es-ES", evidence_level="interno", contraindications=[],
+                content=f"contenido sintetico respiracion {index}", content_version=f"v{index}",
+                review_due=date(2099, 1, 1), status="active",
+            )
+            for index in range(5)
+        ]
+        db = SimpleNamespace(query=lambda _model: _Q(items))
+        block = _knowledge_block(db, query="respiracion diafragma")
+        self.assertIn("Versión:", block)
+        self.assertLessEqual(block.count("Tema:"), 3)
