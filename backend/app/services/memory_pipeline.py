@@ -389,7 +389,22 @@ def run_memory_job(db: Session, job: dict[str, Any]) -> None:
         _materialize_committed_summary(db, job, user_id)
         _enqueue_longitudinal_checkpoint(db, user_id, job)
     elif job_type == "longitudinal_analysis":
-        _run_longitudinal_analysis(db, job, user_id)
+        # The whole-person synthesis combines raw chat/diary sources, dated
+        # episodes, structured observations, confirmed records and prior model
+        # versions. It runs only in this background worker, never in the chat
+        # request. Keep the previous version if analysis fails or is partial.
+        from app.services.patient_understanding import rebuild_patient_model
+
+        result = rebuild_patient_model(db, user_id, max_batches=8)
+        if result.get("errors"):
+            raise RuntimeError("whole_person_episode_batch_failed")
+        if result.get("status") in {"analysis_failed", "no_context_fit"}:
+            raise RuntimeError("whole_person_synthesis_incomplete")
+        if result.get("status") not in {
+            "succeeded", "unchanged", "processing", "no_source_evidence",
+            "consent_required", "consent_revoked",
+        }:
+            raise RuntimeError("whole_person_synthesis_unexpected_status")
     elif job_type in {"refresh_summary", "detect_contradictions", "embed_items", "opencontext_sync"}:
         # Reserved job kinds intentionally remain explicit rather than being
         # reported as completed when their handler is not implemented.
