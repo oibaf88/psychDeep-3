@@ -108,7 +108,8 @@ Why G3 is **not complete**: independence from the LLM is materially improved, bu
 This is the largest current product gap. Do not confuse navigation changes with completion.
 
 - [~] **Hoy — redesign around current state and one useful next action.**
-  - Hoy reads canonical longitudinal state for change versus the personal baseline, with explicit missingness, and keeps crisis/help plus “No ahora”. The first view is an open page: a large comparison, a fact row, one default action, then an open check-in. The 30-day chart stays, and the feature-by-feature reading sits under it. The default action is now tied to that change explanation (ChangeSignal comparison via `suggestedActionFromReading`, branch `cursor/hoy-action-from-changesignal`); the feedback loop that should record whether the action helped is still open.
+  - Hoy reads canonical longitudinal state for change versus the personal baseline, with explicit missingness, and keeps crisis/help plus “No ahora”. The first view is an open page: a large comparison, a fact row, one default action, then an open check-in. The 30-day chart stays, and the feature-by-feature reading sits under it. The default action is tied to that change explanation (ChangeSignal comparison via `suggestedActionFromReading`). Accepting the action or choosing “No ahora” now records an `InterventionEvent` through `POST /api/v1/feedback` with a stable `actionId` (`hoy.suggest.regular_wave` / `trends_explain` / `register_observe`) and driver reason; after accepting, returning to Hoy asks whether it helped (usefulness 5/3/1 → `completed`) without deleting the signal or touching `RiskAssessment`. Network failures never block navigation. Tests: `frontend/src/pages/__tests__/hoyActionFeedback.test.ts`, `PatientDashboard.test.tsx`, `hoySuggestedAction.test.ts`, `backend/tests/test_vnext_intervention_feedback.py`.
+  - Still open: crisis/help persistence on Hoy itself is inherited from the app shell; patient validation of the feedback copy; fuller link from usefulness back into longitudinal learning.
   - Required completion: low-burden check-in, current state, change vs personal baseline, data quality/missingness, explanation, at most one default suggested action, persistent crisis/help access and “No ahora”.
 - [~] **Tendencias — longitudinal explanation.**
  - A new page exists and reads timeline, baseline and ChangeSignal data. Calculated bands and an uncalculated comparison now use plain-language copy; the raw `insufficient_data` code stays off the page.
@@ -136,8 +137,8 @@ This is the largest current product gap. Do not confuse navigation changes with 
 - [ ] **Confirmed fact / inference correction as a first-class patient flow.**
 - [~] **Clinical memory stays immutable for the patient.**
   - Chat and diary can commit a discourse fact, a psychological reading and a versioned formulation when linguistic-analysis consent is current. The patient cannot edit or delete that record, and the formulation is not shown in the patient account. User-declared `ConfirmedFact` rows keep their existing correction flow. A failed memory read releases the database transaction, so the chat reply still returns.
-- [ ] **Intervention feedback as a visible product loop.**
-  - Canonical feedback endpoint/data exists; the product experience is not yet integrated.
+- [~] **Intervention feedback as a visible product loop.**
+  - Canonical `POST /api/v1/feedback` → `InterventionEvent` exists. Hoy now records accept / postpone / usefulness for the default suggested action (see Hoy above). Still open: Regular/Wave completion feedback in-tool, professional-visible outcomes, and linking usefulness to the triggering ChangeSignal id.
 
 Why G4 is **not complete**: the patient still experiences much of the old application. New routes and backend contracts exist, but the core vNext value loop has not yet replaced the historical dashboard behaviour.
 
@@ -255,12 +256,12 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 
 - [~] PM-012 Today dashboard redesign.
   - First vNext UI pass remains in the patient dashboard: lower-burden check-in, current-state framing, one proportionate suggested action and “No ahora”.
-  - Hoy now also reads `longitudinal` from `GET /api/v1/state` for change versus the personal baseline. The first view shows one default action; the extra Tendencias card is no longer beside it. That action now derives from the ChangeSignal comparison (`cursor/hoy-action-from-changesignal`); recording feedback remains open.
+  - Hoy now also reads `longitudinal` from `GET /api/v1/state` for change versus the personal baseline. The first view shows one default action; the extra Tendencias card is no longer beside it. That action derives from the ChangeSignal comparison, and accept / “No ahora” / usefulness are recorded on `InterventionEvent` (`cursor/hoy-action-feedback`). Patient validation and crisis/help chrome on Hoy remain open.
 - [ ] PM-013 Weekly review user experience.
 - [~] PM-014 Improved trend/baseline visualisation.
   - Trends now foreground personal trajectory, baseline context and reading guidance. An uncalculated comparison is described as missing data, including that a missing calculation is not evidence that things are fine.
 - [ ] PM-015 Context annotation/correction.
-- [~] PM-016 Intervention feedback (data/API foundation exists; UX loop missing).
+- [~] PM-016 Intervention feedback (data/API foundation exists; Hoy accept/postpone/usefulness wired; Regular/professional loops still missing).
 - [~] PM-017 Wave/urge surfing (legacy feature exists; visual refresh applied; vNext integration incomplete).
 - [~] PM-018 Breathing visual (legacy feature exists; vNext integration incomplete).
 - [~] PM-019 Safety plan UX (legacy feature exists; vNext integration incomplete).
