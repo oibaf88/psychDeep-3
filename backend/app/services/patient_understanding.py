@@ -1253,15 +1253,11 @@ def rebuild_patient_model(
         .order_by(PatientModelVersion.version_no.desc())
         .first()
     )
-    previous_watermark = _normalise_dt(latest_model.source_watermark) if latest_model and not force else None
-    if previous_watermark:
-        docs_to_process = [
-            doc for doc in docs
-            if doc["timestamp"] is not None and doc["timestamp"] > previous_watermark
-        ]
-    else:
-        docs_to_process = docs
-
+    # Re-scan references on each background run and skip batches by their
+    # source digest below. Filtering only by event time would miss late-arriving
+    # imports, corrections, old diary entries or historical annotations whose
+    # event timestamp predates the last synthesis watermark.
+    docs_to_process = docs
     batches = _partition_source_docs(docs_to_process)
     pending: list[list[dict[str, Any]]] = []
     for batch in batches:
