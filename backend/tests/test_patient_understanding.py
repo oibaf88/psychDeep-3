@@ -11,6 +11,9 @@ from app.services.patient_understanding import (
     PatientThemeGap,
     WholePersonModelDraft,
     _balanced_episode_subset,
+    _episode_context_node,
+    _group_episode_nodes,
+    _render_episode_digest_input,
     _partition_source_docs,
     _projection_items,
     _split_long_source_docs,
@@ -312,3 +315,63 @@ def test_fulltext_retrieval_is_user_scoped_and_returns_source_evidence(monkeypat
     assert "chat_message:" in result.text
     assert all(params.get("user_id") == str(user_id) for _sql, params in calls)
     assert seen_consent_identities == [user_id]
+
+
+def test_hierarchical_episode_groups_are_bounded_and_lossless():
+    nodes = [
+        {
+            "ref": f"memory_episode:{i}",
+            "node_type": "episode",
+            "start_at": datetime(2020, 1, 1, tzinfo=timezone.utc),
+            "end_at": datetime(2020, 1, 1, tzinfo=timezone.utc),
+            "source_refs": [f"chat_message:{i}"],
+        }
+        for i in range(1003)
+    ]
+    groups = _group_episode_nodes(nodes, group_size=12)
+    assert all(1 <= len(group) <= 12 for group in groups)
+    assert [node["ref"] for group in groups for node in group] == [node["ref"] for node in nodes]
+    assert len({node["ref"] for group in groups for node in group}) == 1003
+
+
+def test_hierarchical_digest_input_carries_node_and_provenance_references():
+    nodes = [{
+        "ref": "memory_summary:digest-1",
+        "node_type": "summary",
+        "title": "Síntesis de episodios",
+        "start_at": datetime(2023, 1, 1, tzinfo=timezone.utc),
+        "end_at": datetime(2024, 1, 1, tzinfo=timezone.utc),
+        "l0": "Cambio longitudinal descrito.",
+        "l1": "Resumen sintético con matices.",
+        "themes": ["relaciones", "afrontamiento"],
+        "transitions": ["cambio de rutina"],
+        "source_refs": ["memory_episode:e1", "memory_episode:e2"],
+        "uncertainty": "medium",
+        "level": 1,
+    }]
+    rendered = _render_episode_digest_input(nodes, level=2)
+    assert "memory_summary:digest-1" in rendered
+    assert "memory_episode:e1" in rendered
+    assert "Cambio longitudinal descrito." in rendered
+    assert "Nivel de síntesis: 2" in rendered
+
+
+def test_episode_context_node_preserves_hierarchical_child_refs():
+    item = _episode_context_node({
+        "ref": "memory_summary:digest-2",
+        "node_type": "summary",
+        "title": "Síntesis de etapa",
+        "start_at": datetime(2021, 1, 1, tzinfo=timezone.utc),
+        "end_at": datetime(2022, 1, 1, tzinfo=timezone.utc),
+        "l0": "Resumen breve",
+        "l1": "Resumen con evidencia y contradicciones",
+        "themes": ["rutinas"],
+        "transitions": ["reorientación"],
+        "source_refs": ["memory_episode:old-a", "memory_episode:old-b"],
+        "uncertainty": "medium",
+        "level": 2,
+    })
+    assert item.ref == "memory_summary:digest-2"
+    assert item.item_type == "longitudinal_pattern"
+    assert "Resumen con evidencia" in item.text
+    assert item.source_refs == ("memory_episode:old-a", "memory_episode:old-b")
