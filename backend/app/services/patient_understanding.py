@@ -1281,6 +1281,17 @@ def _render_episode_digest_input(nodes: list[dict[str, Any]], level: int) -> str
     return "\n".join(lines)
 
 
+def _group_episode_nodes(
+    nodes: list[dict[str, Any]],
+    *,
+    group_size: int = EPISODE_DIGEST_GROUP_SIZE,
+) -> list[list[dict[str, Any]]]:
+    """Partition an ordered timeline into bounded, contiguous groups without losing nodes."""
+    if group_size < 1:
+        raise ValueError("group_size must be positive")
+    return [nodes[index:index + group_size] for index in range(0, len(nodes), group_size)]
+
+
 def build_hierarchical_episode_context(
     db: Session,
     user_id,
@@ -1312,10 +1323,7 @@ def build_hierarchical_episode_context(
     call_limit = max(0, int(max_summary_calls))
     level = 1
     while len(nodes) > MAX_FINAL_EPISODE_NODES and level <= 8:
-        groups = [
-            nodes[index:index + EPISODE_DIGEST_GROUP_SIZE]
-            for index in range(0, len(nodes), EPISODE_DIGEST_GROUP_SIZE)
-        ]
+        groups = _group_episode_nodes(nodes)
         next_nodes: list[dict[str, Any]] = []
         for group in groups:
             child_refs = [str(node["ref"]) for node in group]
