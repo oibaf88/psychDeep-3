@@ -251,3 +251,112 @@ def record_retrieval_run(
         "latency_ms": latency_ms, "truncation": json.dumps({"truncated": compiled.truncated}),
         "status": status, "model_run_id": model_run_id,
     })
+
+
+def retrieve_longitudinal_context(
+    db: Session,
+    *,
+    user_id: str,
+    query: str,
+    task_type: str = "conversation",
+    budget_tokens: int = 800,
+    in_crisis: bool = False,
+) -> CompiledMemoryContext:
+    """Retrieve bounded, source-attributed longitudinal context from Supabase.
+
+    The function never reads another user's namespace and never performs an
+    LLM call. Crisis mode intentionally returns no exploratory memory block;
+    the deterministic safety context and current turn remain authoritative.
+    """
+    from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+
+    if in_crisis or not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+        return compile_memory_context(
+            task_type=task_type, evidence=[], budget_tokens=budget_tokens,
+        )
+    if not query.strip():
+        return compile_memory_context(
+            task_type=task_type, evidence=[], budget_tokens=budget_tokens,
+        )
+
+    # Query and row counts are bounded. This first implementation uses a
+    # transparent lexical ranker; vector/hybrid ranking can be substituted
+    # once the existing memory_embeddings model-space versioning is enforced.
+    rows = db.execute(text("""
+        select id, item_type, perspective, attribution, content, uncertainty,
+               confidence, created_at, source_refs
+          from psychdeep_v12.memory_items
+         where user_id = :user_id
+           and status = 'active'
+           and (expires_at is null or expires_at > now())
+         order by created_at desc
+         limit 500
+    """), {"user_id": user_id}).mappings().all()
+
+    summary_rows = db.execute(text("""
+        select id, l0, l1, source_refs, source_watermark, created_at
+          from psychdeep_v12.memory_summary_versions
+         where user_id = :user_id
+           and scope_type = 'topic'
+           and scope_key = 'longitudinal-v1'
+           and status = 'active'
+         order by created_at desc
+         limit 1
+    """), {"user_id": user_id}).mappings().first()
+
+    query_terms = {word for word in _query_words(query) if len(word) >= 3}
+    candidates: list[MemoryEvidence] = []
+    for row in rows:
+        content = str(row["content"] or "")
+        terms = _query_words(content)
+        overlap = len(query_terms.intersection(terms))
+        # Generic long-term themes can still be considered, but not when
+        # there is no lexical relevance to the current turn.
+        if overlap <= 0:
+            continue
+        score = overlap / max(1, len(query_terms))
+        source_refs = row["source_refs"] or []
+        if not isinstance(source_refs, list):
+            source_refs = []
+        candidates.append(MemoryEvidence(
+            ref=str(row["id"]),
+            item_type=str(row["item_type"]),
+            perspective=str(row["perspective"]),
+            attribution=str(row["attribution"]),
+            text=content,
+            occurred_at=row["created_at"],
+            confidence=float(row["confidence"]) if row["confidence"] is not None else None,
+            uncertainty=str(row["uncertainty"]),
+            source_refs=tuple(str(ref) for ref in source_refs),
+            score=score,
+        ))
+
+    # A compact summary provides longitudinal continuity even if the current
+    # turn's wording differs from earlier descriptions. The summary stays
+    # explicitly labelled as derived and includes its own source references.
+    if summary_rows is not None:
+        summary_text = str(summary_rows["l1"] or summary_rows["l0"] or "").strip()
+        if summary_text:
+            candidates.append(MemoryEvidence(
+                ref=str(summary_rows["id"]),
+                item_type="longitudinal_pattern",
+                perspective="derived_pattern",
+                attribution="psychDeep longitudinal synthesis",
+                text=summary_text,
+                occurred_at=summary_rows["source_watermark"] or summary_rows["created_at"],
+                uncertainty="medium",
+                source_refs=tuple(str(ref) for ref in (summary_rows["source_refs"] or [])),
+                score=0.35,
+            ))
+
+    return compile_memory_context(
+        task_type=task_type,
+        evidence=candidates,
+        budget_tokens=budget_tokens,
+        max_items=8 if task_type == "conversation" else 16,
+    )
+
+
+def _query_words(value: str) -> set[str]:
+    import re
+    return {word.casefold() for word in re.findall(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]{3,}", value or "")}
