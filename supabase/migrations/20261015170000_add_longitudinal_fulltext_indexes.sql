@@ -19,7 +19,8 @@ create index if not exists ix_memory_episodes_content_fts
             coalesce(title, '') || ' ' ||
             coalesce(l0, '') || ' ' ||
             coalesce(l1, '') || ' ' ||
-            coalesce(array_to_string(themes::text[], ' '), '')
+            coalesce(themes::text, '') || ' ' ||
+            coalesce(transitions::text, '')
         )
     )
     where status = 'active';
