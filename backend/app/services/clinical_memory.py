@@ -910,6 +910,19 @@ def prompt_block(
         sections.append(
             f"Formulación L0: {formulation.l0}\nFormulación L1: {formulation.l1}\nDetalle recortado: {excerpt}"
         )
+    # A whole-person model is a compact longitudinal view over episodes, context,
+    # trajectories and contradictions. It remains optional until a background run builds it.
+    # Crisis turns returned above and never receive this broad narrative context.
+    try:
+        from app.services.patient_understanding import patient_model_context_block
+
+        patient_context = patient_model_context_block(db, user_id, query, in_crisis=False)
+        if patient_context:
+            sections.append(patient_context)
+    except Exception as exc:  # noqa: BLE001
+        _release_failed_read(db)
+        logger.warning("Whole-person memory context skipped safely: %s", type(exc).__name__)
+
     if chosen_facts:
         lines = "\n".join(f"- ({row.channel}) {_clip(row.quote, 280)}" for row in chosen_facts)
         sections.append("Hechos de habla relevantes:\n" + lines)
