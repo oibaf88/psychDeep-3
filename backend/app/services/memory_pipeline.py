@@ -282,11 +282,13 @@ def retrieve_longitudinal_context(
     started_at = perf_counter()
     if in_crisis or task_type == "crisis" or not query.strip():
         return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
-    if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
-        return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
     try:
         user_uuid = user_id if isinstance(user_id, UUIDType) else UUIDType(str(user_id))
     except (ValueError, TypeError, AttributeError):
+        if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+            return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
+        return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
+    if not is_granted(db, user_uuid, LINGUISTIC_ANALYSIS):
         return compile_memory_context(task_type=task_type, evidence=[], budget_tokens=budget_tokens)
 
     def _aware(value):
