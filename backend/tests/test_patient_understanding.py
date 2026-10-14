@@ -277,7 +277,7 @@ def test_fulltext_retrieval_is_user_scoped_and_returns_source_evidence(monkeypat
                     "source_refs": ["memory_episode:source-3"],
                     "source_watermark": now, "created_at": now, "relevance": 0.2,
                 }])
-            if "from psychdeep_v12.discourse_facts f" in sql:
+            if "from psychdeep_v12.discourse_facts f cross join q" in sql:
                 return FakeResult([{
                     "id": uuid.uuid4(), "channel": "chat",
                     "quote": "Literalmente contó el cambio de rutina.",
