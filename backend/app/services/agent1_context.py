@@ -363,7 +363,7 @@ def build(db: Session, user_id, assessment, *, in_crisis: bool, query: str | Non
             if getattr(settings_for_memory, "memory_pipeline_context_enabled", False):
                 longitudinal = retrieve_longitudinal_context(
                     db,
-                    user_id=str(user_id),
+                    user_id=user_id,
                     query=query or "",
                     task_type="crisis" if in_crisis else "conversation",
                     budget_tokens=getattr(settings_for_memory, "memory_pipeline_context_budget_tokens", 800),
