@@ -21,7 +21,12 @@ from sqlalchemy.orm import Session
 
 from app.models import ChatMessage, CheckIn, ConfirmedFact, DiaryEntry, PatientProfile, PsychosocialObservation
 from app.models_vnext import (
+    BaselineVersion,
+    ChangeSignal,
     DiscourseFact,
+    FeatureValue,
+    Inference,
+    InterventionEvent,
     FormulationVersion,
     MemoryAnalysisRun,
     MemoryAnnotation,
@@ -33,6 +38,7 @@ from app.models_vnext import (
     PatientModelQuestion,
     PatientModelVersion,
     PsychReading,
+    Observation,
 )
 from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 from app.services.context_budget import estimate_tokens, fit_context_block
@@ -512,6 +518,42 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
         .order_by(MemoryAnnotation.created_at.asc())
         .all()
     )
+    structured_observations = (
+        db.query(Observation)
+        .filter(Observation.user_id == user_id)
+        .order_by(Observation.occurred_at.asc())
+        .all()
+    )
+    feature_values = (
+        db.query(FeatureValue)
+        .filter(FeatureValue.user_id == user_id)
+        .order_by(FeatureValue.window_end.asc().nullsfirst(), FeatureValue.created_at.asc())
+        .all()
+    )
+    baseline_versions = (
+        db.query(BaselineVersion)
+        .filter(BaselineVersion.user_id == user_id)
+        .order_by(BaselineVersion.window_end.asc(), BaselineVersion.created_at.asc())
+        .all()
+    )
+    change_signals = (
+        db.query(ChangeSignal)
+        .filter(ChangeSignal.user_id == user_id)
+        .order_by(ChangeSignal.window_end.asc().nullsfirst(), ChangeSignal.created_at.asc())
+        .all()
+    )
+    inferences = (
+        db.query(Inference)
+        .filter(Inference.user_id == user_id)
+        .order_by(Inference.created_at.asc())
+        .all()
+    )
+    interventions = (
+        db.query(InterventionEvent)
+        .filter(InterventionEvent.user_id == user_id)
+        .order_by(InterventionEvent.proposed_at.asc())
+        .all()
+    )
 
     facts_by_commit: dict[str, list[Any]] = defaultdict(list)
     facts_by_source: dict[str, list[Any]] = defaultdict(list)
@@ -548,6 +590,124 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
                 readings_by_source_fact[source_id].append(reading)
 
     docs: list[dict[str, Any]] = []
+
+    def append_record_groups(
+        rows: list[Any],
+        *,
+        source_type: str,
+        label: str,
+        time_getter,
+        group_getter,
+        render_row,
+        batch_size: int = 10,
+    ) -> None:
+        """Batch structured time-series records without discarding their IDs."""
+        groups: dict[tuple[str, str], list[Any]] = defaultdict(list)
+        for row in rows:
+            stamp = _normalise_dt(time_getter(row))
+            period = stamp.strftime("%Y-%m") if stamp else "unknown-period"
+            groups[(period, str(group_getter(row)))].append(row)
+        for (period, group_key), group_rows in sorted(groups.items(), key=lambda item: item[0]):
+            group_rows.sort(key=lambda row: _normalise_dt(time_getter(row)) or datetime.min.replace(tzinfo=timezone.utc))
+            for offset in range(0, len(group_rows), max(1, batch_size)):
+                subset = group_rows[offset:offset + max(1, batch_size)]
+                refs = [_ref(source_type, row.id) for row in subset]
+                lines = [render_row(row) for row in subset]
+                final_time = _normalise_dt(time_getter(subset[-1]))
+                docs.append({
+                    "timestamp": final_time,
+                    "source_refs": refs,
+                    "content": (
+                        f"{label}; periodo={period}; grupo={group_key}. "
+                        "Datos estructurados del sistema/registro, no inferencias causales:\n"
+                        + "\n".join(lines)
+                    ),
+                    "channel": "structured",
+                    "kind": f"structured_{source_type}_series",
+                })
+
+    append_record_groups(
+        structured_observations,
+        source_type="observation",
+        label="Observaciones estructuradas",
+        time_getter=lambda row: row.occurred_at,
+        group_getter=lambda row: f"{row.type}/{row.source}",
+        render_row=lambda row: (
+            f"id={row.id}; fecha={_dt_text(row.occurred_at)}; tipo={row.type}; "
+            f"valor={json.dumps(row.value, ensure_ascii=False, default=str)}; unidad={row.unit}; "
+            f"calidad={json.dumps(row.quality or {}, ensure_ascii=False, default=str)}"
+        ),
+    )
+    append_record_groups(
+        feature_values,
+        source_type="feature_value",
+        label="Valores temporales derivados de mediciones",
+        time_getter=lambda row: row.window_end or row.created_at,
+        group_getter=lambda row: row.feature_key,
+        render_row=lambda row: (
+            f"id={row.id}; ventana={_dt_text(row.window_start)}–{_dt_text(row.window_end)}; "
+            f"valor={json.dumps(row.value or {}, ensure_ascii=False, default=str)}; "
+            f"refs_observación={json.dumps(row.observation_refs or [], ensure_ascii=False)}; "
+            f"versión_algoritmo={row.algorithm_version}; calidad={json.dumps(row.quality_flags or [], ensure_ascii=False)}"
+        ),
+    )
+    append_record_groups(
+        baseline_versions,
+        source_type="baseline_version",
+        label="Línea base temporal calculada",
+        time_getter=lambda row: row.window_end,
+        group_getter=lambda row: row.feature_key or "baseline-general",
+        render_row=lambda row: (
+            f"id={row.id}; ventana={_dt_text(row.window_start)}–{_dt_text(row.window_end)}; "
+            f"estadísticas={json.dumps(row.stats or {}, ensure_ascii=False, default=str)}; "
+            f"estabilidad={row.stability}; cobertura={row.data_coverage}; estado={row.status}; "
+            f"exclusiones={json.dumps(row.exclusions or [], ensure_ascii=False)}; "
+            f"algoritmo={row.algorithm_version}"
+        ),
+    )
+    append_record_groups(
+        change_signals,
+        source_type="change_signal",
+        label="Señales de cambio calculadas a lo largo del tiempo",
+        time_getter=lambda row: row.window_end or row.created_at,
+        group_getter=lambda row: row.feature,
+        render_row=lambda row: (
+            f"id={row.id}; ventana={_dt_text(row.window_start)}–{_dt_text(row.window_end)}; "
+            f"cambio={row.change_value}; banda={row.band}; "
+            f"incertidumbre={json.dumps(row.uncertainty or {}, ensure_ascii=False, default=str)}; "
+            f"contradicciones={json.dumps(row.contradictions or [], ensure_ascii=False)}; "
+            f"refs={json.dumps(row.evidence_refs or [], ensure_ascii=False)}; "
+            f"algoritmo={row.algorithm_version}"
+        ),
+    )
+    append_record_groups(
+        inferences,
+        source_type="inference",
+        label="Inferencias previas del sistema (hipótesis, no fuente primaria)",
+        time_getter=lambda row: row.created_at,
+        group_getter=lambda row: f"{row.kind}/{row.status}",
+        render_row=lambda row: (
+            f"id={row.id}; tipo={row.kind}; estado={row.status}; expira={_dt_text(row.expires_at)}; "
+            f"payload={json.dumps(row.payload or {}, ensure_ascii=False, default=str)}; "
+            f"incertidumbre={json.dumps(row.uncertainty or {}, ensure_ascii=False, default=str)}; "
+            f"contradicciones={json.dumps(row.contradictions or [], ensure_ascii=False)}; "
+            f"evidencias={json.dumps(row.evidence_refs or [], ensure_ascii=False)}"
+        ),
+    )
+    append_record_groups(
+        interventions,
+        source_type="intervention_event",
+        label="Historial de intervenciones y utilidad reportada",
+        time_getter=lambda row: row.acted_at or row.proposed_at,
+        group_getter=lambda row: row.action_id,
+        render_row=lambda row: (
+            f"id={row.id}; propuesta={_dt_text(row.proposed_at)}; actuación={_dt_text(row.acted_at)}; "
+            f"acción={row.action_id}; estado={row.state}; autoridad={row.authority}; "
+            f"motivo={row.reason or 'no registrado'}; carga={row.burden}; "
+            f"utilidad_reportada={row.usefulness}; origen={row.source}"
+        ),
+    )
+
     used_fact_ids: set[str] = set()
     used_reading_ids: set[str] = set()
     used_observation_ids: set[str] = set()
