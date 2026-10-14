@@ -245,7 +245,7 @@ def _knowledge_block(db: Session, *, query: str = "") -> str:
         query_terms = {term.casefold() for term in query.split() if len(term) >= 4}
         scored = []
         for row in rows:
-            searchable = " ".join((row.topic, row.objective, row.population, row.locale, row.content)).casefold()
+            searchable = " ".join(str(value or "") for value in (row.topic, row.objective, row.population, row.locale, row.content)).casefold()
             contraindications = {str(value).casefold() for value in (row.contraindications or [])}
             if query_terms & contraindications:
                 continue
