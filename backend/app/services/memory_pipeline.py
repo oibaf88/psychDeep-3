@@ -495,9 +495,7 @@ def _materialize_committed_summary(db: Session, job: dict[str, Any], user_id) ->
 
 def _run_longitudinal_analysis(db: Session, job: dict[str, Any], user_id) -> None:
     """Create a versioned longitudinal synthesis from a bounded evidence window."""
-    import uuid
     from sqlalchemy import text as sql_text
-    from app.services.memory_pipeline import stable_hash, validate_derived_item
     from app.services.model_gateway import ModelUnavailable, get_model_gateway
 
     facts = db.execute(sql_text("""
