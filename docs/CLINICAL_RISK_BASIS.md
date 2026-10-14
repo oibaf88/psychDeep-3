@@ -13,6 +13,7 @@ No deben decidir por sí solos alta, acceso a tratamiento o intervención de eme
 - [ASSIST, OMS](https://www.afro.who.int/sites/default/files/2017-06/9789241599382_eng.pdf): cribado de problemas por sustancias mediante su cuestionario completo y puntuación por sustancia. No predice recaída diaria y sus cortes no se aplican a datos de chat o autochecking.
 - [SAMHSA TIP 42](https://library.samhsa.gov/sites/default/files/SAMHSA_Digital_Download/PEP20-02-01_004.pdf): evaluación integrada de seguridad, consumo, síntomas mentales, trauma y funcionamiento en trastornos concurrentes; no aporta una suma universal validada de riesgo dual.
 - [NICE NG225, 1.6](https://www.nice.org.uk/guidance/ng225/chapter/recommendations#risk-assessment-tools-and-scales): no usar escalas/categorías globales para predecir suicidio ni decidir tratamiento o alta tras autolesión.
+- [TRIPOD-LLM](https://www.tripod-statement.org/tripod-llm/): guía de reporte para estudios con LLM en biomedicina/salud. Se debe usar para transparencia y reproducibilidad al evaluar los modelos de IA empleados en el análisis clínico, no como certificado de validez.
 
 ## Reglas de seguridad del producto
 
