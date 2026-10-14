@@ -1217,9 +1217,16 @@ def _build_final_evidence(db: Session, user_id) -> tuple[list[MemoryEvidence], d
     selected_episodes = _balanced_episode_subset(all_episodes)
     active_items = (
         db.query(MemoryItem)
-        .filter(MemoryItem.user_id == user_id, MemoryItem.status == "active")
+        .filter(
+            MemoryItem.user_id == user_id,
+            MemoryItem.status == "active",
+            # Do not feed the current model's own derived statements back as
+            # independent evidence. Prior full models are supplied separately
+            # as revisable hypotheses, and source-linked episodes remain evidence.
+            MemoryItem.attribution != "PsychDeep whole-person model",
+        )
         .order_by(MemoryItem.created_at.desc())
-        .limit(250)
+        .limit(500)
         .all()
     )
     confirmed = (
