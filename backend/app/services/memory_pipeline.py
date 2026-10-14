@@ -11,6 +11,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from uuid import UUID
 from typing import Any, Sequence
 
 from sqlalchemy import text
