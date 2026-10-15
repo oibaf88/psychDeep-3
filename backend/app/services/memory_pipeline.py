@@ -37,6 +37,19 @@ _PERSPECTIVES = {
 }
 _UNCERTAINTY = {"low", "medium", "high", "unknown"}
 
+_SAFE_MEMORY_FAILURE_CATEGORIES = {
+    "TypeError", "ValueError", "ValidationError", "ModelUnavailable",
+    "RuntimeError", "source_coverage_invalid", "episode_digest_source_coverage_invalid",
+    "consent_revoked", "analysis_failed", "no_context_fit",
+}
+
+
+class MemoryJobFailure(RuntimeError):
+    """A retryable job failure carrying a bounded, non-content error category."""
+
+    def __init__(self, category: str):
+        self.category = category if category in _SAFE_MEMORY_FAILURE_CATEGORIES else "analysis_failed"
+        super().__init__(self.category)
 
 def safe_exception_frames(exc: BaseException, limit: int = 8) -> str:
     """Return code locations only; never log exception messages or clinical payloads."""
@@ -620,9 +633,18 @@ def run_memory_job(db: Session, job: dict[str, Any]) -> None:
 
         result = rebuild_patient_model(db, user_id, max_batches=8)
         if result.get("errors"):
-            raise RuntimeError("whole_person_episode_batch_failed")
+            errors = result.get("errors")
+            first_safe_category = next(
+                (
+                    item for item in errors
+                    if isinstance(item, str) and item in _SAFE_MEMORY_FAILURE_CATEGORIES
+                ),
+                "analysis_failed",
+            ) if isinstance(errors, list) else "analysis_failed"
+            raise MemoryJobFailure(first_safe_category)
         if result.get("status") in {"analysis_failed", "no_context_fit"}:
-            raise RuntimeError("whole_person_synthesis_incomplete")
+            status = result.get("status")
+            raise MemoryJobFailure(status if status in _SAFE_MEMORY_FAILURE_CATEGORIES else "analysis_failed")
         if result.get("status") in {"consent_required", "consent_revoked"}:
             # Consent may be revoked while the worker is doing expensive analysis.
             # Cancel this task explicitly; do not mark it successful or retry it.
@@ -996,14 +1018,14 @@ def run_memory_worker_once(db: Session) -> bool:
         """), {
             "status": "dead_letter" if dead else "retry",
             "delay_seconds": delay_seconds,
-            "error_category": type(exc).__name__[:64],
+            "error_category": str(getattr(exc, "category", type(exc).__name__))[:64],
             "dead": dead,
             "job_id": str(job["id"]),
         })
         db.commit()
         logger.error(
-            "Memory job failed safely category=%s job_type=%s job_id=%s dead_letter=%s frames=%s",
-            type(exc).__name__, job.get("job_type"), str(job.get("id", ""))[:64],
-            dead, safe_exception_frames(exc),
+            "Memory job failed safely category=%s exception_type=%s job_type=%s job_id=%s dead_letter=%s frames=%s",
+            str(getattr(exc, "category", type(exc).__name__))[:64], type(exc).__name__,
+            job.get("job_type"), str(job.get("id", ""))[:64], dead, safe_exception_frames(exc),
         )
     return True
