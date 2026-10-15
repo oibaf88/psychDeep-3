@@ -2713,6 +2713,15 @@ def rebuild_patient_model(
         run.status = "succeeded"
         run.completed_at = datetime.now(timezone.utc)
         db.add(run)
+    for clinical_document in db.query(PatientClinicalDocument).filter(
+        PatientClinicalDocument.user_id == user_id,
+        PatientClinicalDocument.extraction_status == "text_extracted",
+        PatientClinicalDocument.analysis_status.in_(["queued", "analysing"]),
+    ).all():
+        clinical_document.analysis_status = "analysed"
+        clinical_document.analyzed_at = datetime.now(timezone.utc)
+        clinical_document.error_category = None
+        db.add(clinical_document)
     db.commit()
     db.refresh(snapshot)
     return {
