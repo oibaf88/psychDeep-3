@@ -15,6 +15,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Literal
+from types import SimpleNamespace
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
@@ -37,6 +38,7 @@ from app.models_vnext import (
     ModelRun,
     PatientModelQuestion,
     PatientModelVersion,
+    PatientClinicalDocument,
     PsychReading,
     Observation,
 )
@@ -511,6 +513,35 @@ def _ref(kind: str, row_id: Any) -> str:
     return f"{kind}:{row_id}"
 
 
+
+def _selected_model_structured_analysis(
+    *, system_prompt, user_text, tool_schema, purpose, user_id,
+    correlation_id, prompt_version, schema_version, db,
+):
+    """Route memory synthesis through the account's active app model/provider."""
+    from app.services import llm_config, local_llm_access
+    from app.services.llm import build_provider
+    info = getattr(db, "info", None)
+    had_identity = isinstance(info, dict) and "authenticated_user_id" in info
+    previous_identity = info.get("authenticated_user_id") if isinstance(info, dict) else None
+    if isinstance(info, dict):
+        info["authenticated_user_id"] = uuid.UUID(str(user_id))
+    try:
+        user = local_llm_access.request_user(db)
+        config = llm_config.resolve(db)
+        if config.provider == llm_config.PROVIDER_LOCAL:
+            local_llm_access.assert_can_use_local_llm(user)
+        provider = build_provider(config)
+        selected_model = getattr(provider, "chat_model", None) or config.chat_model
+        result = provider.analyze_structured(system_prompt, user_text, tool_schema, model=selected_model)
+        return SimpleNamespace(result=result, model_run_id=None)
+    finally:
+        if isinstance(info, dict):
+            if had_identity:
+                info["authenticated_user_id"] = previous_identity
+            else:
+                info.pop("authenticated_user_id", None)
+
 def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
     """Build a source-linked chronology from canonical records and derived clinical memory.
 
@@ -534,6 +565,16 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
         db.query(DiaryEntry)
         .filter(DiaryEntry.user_id == user_id)
         .order_by(DiaryEntry.created_at.asc())
+        .all()
+    )
+    clinical_documents = (
+        db.query(PatientClinicalDocument)
+        .filter(
+            PatientClinicalDocument.user_id == user_id,
+            PatientClinicalDocument.extraction_status == "text_extracted",
+            PatientClinicalDocument.extracted_text.isnot(None),
+        )
+        .order_by(PatientClinicalDocument.document_date.asc().nullsfirst(), PatientClinicalDocument.created_at.asc())
         .all()
     )
     facts = (
@@ -644,6 +685,22 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
                 readings_by_source_fact[source_id].append(reading)
 
     docs: list[dict[str, Any]] = []
+    for clinical_document in clinical_documents:
+        document_time = clinical_document.document_date or clinical_document.created_at
+        docs.append({
+            "timestamp": _normalise_dt(document_time),
+            "source_refs": [_ref("clinical_document", clinical_document.id)],
+            "content": (
+                "INFORME CLÍNICO ADJUNTADO POR UN PROFESIONAL; "
+                f"archivo={clinical_document.original_filename}; tipo={clinical_document.document_type}; "
+                f"fecha_documento={_dt_text(clinical_document.document_date)}; "
+                f"fecha_carga={_dt_text(clinical_document.created_at)}. "
+                "Es fuente documental profesional, no declaración literal del paciente. Texto de origen atribuido:\n"
+                + str(clinical_document.extracted_text or "")
+            ),
+            "channel": "clinical_document",
+            "kind": "clinical_document",
+        })
 
     def append_record_groups(
         rows: list[Any],
@@ -1146,9 +1203,8 @@ def _consolidate_batch(db: Session, user_id, docs: list[dict[str, Any]], correla
         return 0, ["consent_revoked"]
 
     try:
-        from app.services.model_gateway import get_model_gateway
 
-        outcome = get_model_gateway().analyze_structured(
+        outcome = _selected_model_structured_analysis(
             system_prompt=EPISODE_SYSTEM_PROMPT,
             user_text=_render_source_batch(docs),
             tool_schema=EPISODE_BATCH_TOOL_SCHEMA,
@@ -1493,9 +1549,8 @@ def build_hierarchical_episode_context(
                     if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
                         _fail_run(db, analysis_run, "consent_revoked")
                         return {"status": "consent_revoked", "nodes": [], "pending_digest": None, "created": created}
-                    from app.services.model_gateway import get_model_gateway
-
-                    outcome = get_model_gateway().analyze_structured(
+            
+                    outcome = _selected_model_structured_analysis(
                         system_prompt=EPISODE_DIGEST_SYSTEM_PROMPT,
                         user_text=rendered_input,
                         tool_schema=EPISODE_DIGEST_TOOL_SCHEMA,
@@ -2545,9 +2600,8 @@ def rebuild_patient_model(
         return {"status": "consent_revoked", "episodes_created": episodes_created, "model_version": None}
 
     try:
-        from app.services.model_gateway import get_model_gateway
 
-        outcome = get_model_gateway().analyze_structured(
+        outcome = _selected_model_structured_analysis(
             system_prompt=WHOLE_PERSON_SYSTEM_PROMPT,
             user_text=user_text,
             tool_schema=WHOLE_PERSON_TOOL_SCHEMA,
@@ -2636,6 +2690,15 @@ def rebuild_patient_model(
         run.status = "succeeded"
         run.completed_at = datetime.now(timezone.utc)
         db.add(run)
+    for clinical_document in db.query(PatientClinicalDocument).filter(
+        PatientClinicalDocument.user_id == user_id,
+        PatientClinicalDocument.extraction_status == "text_extracted",
+        PatientClinicalDocument.analysis_status.in_(["queued", "analysing"]),
+    ).all():
+        clinical_document.analysis_status = "analysed"
+        clinical_document.analyzed_at = datetime.now(timezone.utc)
+        clinical_document.error_category = None
+        db.add(clinical_document)
     db.commit()
     db.refresh(snapshot)
     return {
