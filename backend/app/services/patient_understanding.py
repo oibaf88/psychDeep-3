@@ -47,6 +47,7 @@ from app.services.memory_pipeline import (
     compile_memory_context,
     enqueue_memory_job,
     stable_hash,
+    safe_exception_frames,
 )
 
 logger = logging.getLogger("psychapp.patient_understanding")
@@ -1260,7 +1261,10 @@ def _consolidate_batch(db: Session, user_id, docs: list[dict[str, Any]], correla
                 _fail_run(db, fresh, type(exc).__name__)
         except Exception:
             db.rollback()
-        logger.warning("Longitudinal episode batch failed safely: %s", type(exc).__name__)
+        logger.error(
+            "Longitudinal episode batch failed safely category=%s correlation_id=%s frames=%s",
+            type(exc).__name__, str(correlation_id), safe_exception_frames(exc),
+        )
         return 0, [type(exc).__name__]
 
 
@@ -1594,7 +1598,10 @@ def build_hierarchical_episode_context(
                 created += 1
             except Exception as exc:  # noqa: BLE001
                 db.rollback()
-                logger.warning("Episode digest failed safely: %s", type(exc).__name__)
+                logger.error(
+                    "Episode digest failed safely category=%s correlation_id=%s frames=%s",
+                    type(exc).__name__, str(correlation_id), safe_exception_frames(exc),
+                )
                 return {
                     "status": "failed",
                     "nodes": [],
@@ -2568,7 +2575,10 @@ def rebuild_patient_model(
                 _fail_run(db, fresh, type(exc).__name__)
         except Exception:
             db.rollback()
-        logger.warning("Whole-person synthesis failed safely: %s", type(exc).__name__)
+        logger.error(
+            "Whole-person synthesis failed safely category=%s correlation_id=%s frames=%s",
+            type(exc).__name__, str(correlation_id), safe_exception_frames(exc),
+        )
         return {"status": "analysis_failed", "episodes_created": episodes_created, "error": type(exc).__name__}
 
     current_version = (
