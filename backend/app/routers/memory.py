@@ -15,7 +15,7 @@ from app.database import get_db
 from app.models import PatientProfessionalAssignment, User
 from app.models_vnext import MemoryJob, PatientClinicalDocument
 from app.security import get_current_user, require_professional
-from app.services import clinical_memory
+from app.services import audit, clinical_memory
 from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 from app.services.memory_pipeline import enqueue_memory_job
 from app.utils import utc_iso
@@ -138,12 +138,17 @@ def _view(rows) -> dict:
         },
         "clinical_documents": [
             {
-                "id": str(row.id), "original_filename": row.original_filename,
-                "media_type": row.media_type, "sha256": row.sha256,
-                "file_size_bytes": row.file_size_bytes, "document_type": row.document_type,
+                "id": str(row.id),
+                "original_filename": row.original_filename,
+                "media_type": row.media_type,
+                "sha256": row.sha256,
+                "file_size_bytes": row.file_size_bytes,
+                "document_type": row.document_type,
                 "document_date": _iso(row.document_date),
-                "extraction_status": row.extraction_status, "analysis_status": row.analysis_status,
-                "error_category": row.error_category, "created_at": _iso(row.created_at),
+                "extraction_status": row.extraction_status,
+                "analysis_status": row.analysis_status,
+                "error_category": row.error_category,
+                "created_at": _iso(row.created_at),
                 "analyzed_at": _iso(row.analyzed_at),
             }
             for row in rows.get("clinical_documents", [])
@@ -175,29 +180,38 @@ def read_patient_memory(
 
 MAX_CLINICAL_DOCUMENT_BYTES = 15 * 1024 * 1024
 MAX_EXTRACTED_DOCUMENT_CHARS = 500_000
-ALLOWED_DOCUMENT_TYPES = {
+MAX_DOCX_XML_BYTES = 8 * 1024 * 1024
+MAX_DOCX_UNCOMPRESSED_BYTES = 32 * 1024 * 1024
+MAX_DOCX_ENTRIES = 1000
+_ALLOWED_DOCUMENT_TYPES = {
     "clinical_report", "discharge_summary", "psychological_report",
     "psychiatric_report", "medication_report", "other",
 }
-ALLOWED_SUFFIXES = {".pdf", ".docx", ".txt", ".md"}
+_ALLOWED_SUFFIXES = {".pdf", ".docx", ".txt", ".md"}
 
 
-def _document_payload(row: PatientClinicalDocument, duplicate: bool = False) -> dict:
+def _document_payload(row: PatientClinicalDocument, *, duplicate: bool = False) -> dict:
     return {
-        "id": str(row.id), "original_filename": row.original_filename,
-        "media_type": row.media_type, "sha256": row.sha256,
-        "file_size_bytes": row.file_size_bytes, "document_type": row.document_type,
-        "document_date": _iso(row.document_date), "extraction_status": row.extraction_status,
-        "analysis_status": row.analysis_status, "error_category": row.error_category,
-        "created_at": _iso(row.created_at), "analyzed_at": _iso(row.analyzed_at),
+        "id": str(row.id),
+        "original_filename": row.original_filename,
+        "media_type": row.media_type,
+        "sha256": row.sha256,
+        "file_size_bytes": row.file_size_bytes,
+        "document_type": row.document_type,
+        "document_date": _iso(row.document_date),
+        "extraction_status": row.extraction_status,
+        "analysis_status": row.analysis_status,
+        "error_category": row.error_category,
+        "created_at": _iso(row.created_at),
+        "analyzed_at": _iso(row.analyzed_at),
         "duplicate": duplicate,
     }
 
 
 def _extract_clinical_document(filename: str, payload: bytes) -> tuple[str, str, str]:
-    """Extract text from PDF/DOCX/TXT/Markdown without executing document content."""
+    """Extract searchable text without executing embedded document content."""
     suffix = os.path.splitext(filename.lower())[1]
-    if suffix not in ALLOWED_SUFFIXES:
+    if suffix not in _ALLOWED_SUFFIXES:
         raise HTTPException(status_code=415, detail="Formato no admitido. Usa PDF, DOCX, TXT o Markdown.")
     if not payload:
         raise HTTPException(status_code=422, detail="El archivo está vacío.")
@@ -206,6 +220,7 @@ def _extract_clinical_document(filename: str, payload: bytes) -> tuple[str, str,
             raise HTTPException(status_code=422, detail="El archivo no parece ser un PDF válido.")
         try:
             from pypdf import PdfReader
+
             reader = PdfReader(io.BytesIO(payload), strict=False)
             if len(reader.pages) > 300:
                 raise HTTPException(status_code=413, detail="El PDF supera el límite de 300 páginas.")
@@ -222,16 +237,24 @@ def _extract_clinical_document(filename: str, payload: bytes) -> tuple[str, str,
             raise HTTPException(status_code=422, detail="El archivo no parece ser un DOCX válido.")
         try:
             with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-                item = archive.getinfo("word/document.xml")
-                if item.file_size > MAX_EXTRACTED_DOCUMENT_CHARS * 8:
-                    raise HTTPException(status_code=413, detail="El contenido XML del DOCX supera el límite de lectura.")
-                root = ET.fromstring(archive.read("word/document.xml"))
+                members = archive.infolist()
+                if len(members) > MAX_DOCX_ENTRIES:
+                    raise HTTPException(status_code=413, detail="El DOCX contiene demasiados elementos internos.")
+                if sum(member.file_size for member in members) > MAX_DOCX_UNCOMPRESSED_BYTES:
+                    raise HTTPException(status_code=413, detail="El DOCX supera el límite de tamaño descomprimido.")
+                document_xml = archive.getinfo("word/document.xml")
+                if document_xml.file_size > MAX_DOCX_XML_BYTES:
+                    raise HTTPException(status_code=413, detail="El cuerpo XML del DOCX supera el límite permitido.")
+                if document_xml.file_size / max(document_xml.compress_size, 1) > 1000:
+                    raise HTTPException(status_code=413, detail="El DOCX presenta una compresión anómala y se ha rechazado.")
+                raw_xml = archive.read(document_xml)
+            root = ET.fromstring(raw_xml)
             ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
             paragraphs = []
             for paragraph in root.findall(".//w:p", ns):
-                text_value = "".join(node.text or "" for node in paragraph.findall(".//w:t", ns))
-                if text_value.strip():
-                    paragraphs.append(text_value)
+                text = "".join(node.text or "" for node in paragraph.findall(".//w:t", ns))
+                if text.strip():
+                    paragraphs.append(text)
             extracted = "\n".join(paragraphs).strip()
         except HTTPException:
             raise
@@ -248,8 +271,12 @@ def _extract_clinical_document(filename: str, payload: bytes) -> tuple[str, str,
         if not extracted:
             raise HTTPException(status_code=422, detail="El archivo no contiene texto legible.")
         media_type = "text/markdown" if suffix == ".md" else "text/plain"
+
     if len(extracted) > MAX_EXTRACTED_DOCUMENT_CHARS:
-        raise HTTPException(status_code=413, detail="El texto extraído supera el límite de 500.000 caracteres.")
+        raise HTTPException(
+            status_code=413,
+            detail=f"El texto extraído supera {MAX_EXTRACTED_DOCUMENT_CHARS:,} caracteres. Divide el informe en archivos más pequeños.",
+        )
     return extracted, "text_extracted", media_type
 
 
@@ -259,25 +286,38 @@ def rebuild_patient_memory(
     db: Session = Depends(get_db),
     professional: User = Depends(require_professional),
 ):
-    """Queue, rather than block a web request with, a full longitudinal synthesis."""
+    """Queue a versioned whole-person synthesis, outside the web request."""
     _require_active_writer(db, professional, patient_id)
     if not is_granted(db, patient_id, LINGUISTIC_ANALYSIS):
-        raise HTTPException(status_code=403, detail="El consentimiento para análisis lingüístico no consta activo.")
-    pending = db.query(MemoryJob).filter(
-        MemoryJob.user_id == patient_id,
-        MemoryJob.job_type == "longitudinal_analysis",
-        MemoryJob.source_table == "patient_model",
-        MemoryJob.source_id == patient_id,
-        MemoryJob.status.in_(["pending", "processing", "retry"]),
-    ).first()
+        raise HTTPException(status_code=403, detail="El consentimiento de análisis lingüístico no figura como activo para este paciente.")
+    pending = (
+        db.query(MemoryJob)
+        .filter(
+            MemoryJob.user_id == patient_id,
+            MemoryJob.job_type == "longitudinal_analysis",
+            MemoryJob.source_table == "patient_model",
+            MemoryJob.source_id == patient_id,
+            MemoryJob.status.in_(("pending", "running")),
+        )
+        .first()
+    )
     if pending is not None:
         return {"status": "queued", "job_id": str(pending.id), "already_queued": True}
     queued = enqueue_memory_job(
-        db, user_id=patient_id, job_type="longitudinal_analysis",
-        source_table="patient_model", source_id=patient_id,
-        idempotency_key="patient-model:manual:" + str(uuid.uuid4()),
+        db,
+        user_id=patient_id,
+        job_type="longitudinal_analysis",
+        source_table="patient_model",
+        source_id=patient_id,
+        idempotency_key=f"patient-model:manual:{uuid.uuid4()}",
     )
     db.commit()
+    audit.log(
+        db, actor_id=professional.id, actor_role=professional.role,
+        action="longitudinal_patient_model_rebuild_queued",
+        entity_type="patient_model", entity_id=patient_id,
+        extra={"already_queued": not queued},
+    )
     return {"status": "queued" if queued else "already_queued", "already_queued": not queued}
 
 
@@ -290,50 +330,77 @@ async def upload_patient_clinical_document(
     db: Session = Depends(get_db),
     professional: User = Depends(require_professional),
 ):
-    """Store the report as an attributed source and schedule a patient-model refresh."""
+    """Save an attributed report and queue it for longitudinal analysis."""
     _require_active_writer(db, professional, patient_id)
     if not is_granted(db, patient_id, LINGUISTIC_ANALYSIS):
-        raise HTTPException(status_code=403, detail="El consentimiento para análisis lingüístico no consta activo.")
-    if document_type not in ALLOWED_DOCUMENT_TYPES:
+        raise HTTPException(status_code=403, detail="El consentimiento de análisis lingüístico no figura como activo para este paciente.")
+    if document_type not in _ALLOWED_DOCUMENT_TYPES:
         raise HTTPException(status_code=422, detail="Tipo de informe no admitido.")
-    filename = os.path.basename((file.filename or "informe").replace("\\", "/")).strip()[:255] or "informe"
+    supplied_name = (file.filename or "informe").replace("\\", "/")
+    filename = os.path.basename(supplied_name).strip()[:255] or "informe"
     payload = await file.read(MAX_CLINICAL_DOCUMENT_BYTES + 1)
     if len(payload) > MAX_CLINICAL_DOCUMENT_BYTES:
         raise HTTPException(status_code=413, detail="El archivo supera el límite de 15 MiB.")
     extracted_text, extraction_status, media_type = _extract_clinical_document(filename, payload)
     digest = hashlib.sha256(payload).hexdigest()
-    existing = db.query(PatientClinicalDocument).filter(
-        PatientClinicalDocument.user_id == patient_id,
-        PatientClinicalDocument.sha256 == digest,
-    ).first()
+    existing = (
+        db.query(PatientClinicalDocument)
+        .filter(PatientClinicalDocument.user_id == patient_id, PatientClinicalDocument.sha256 == digest)
+        .first()
+    )
     if existing is not None:
         return {**_document_payload(existing, duplicate=True), "status": existing.analysis_status}
+
     parsed_date = None
     if document_date:
         try:
-            parsed_date = datetime.fromisoformat(document_date.strip())
-            if parsed_date.tzinfo is None:
-                parsed_date = parsed_date.replace(tzinfo=timezone.utc)
-            parsed_date = parsed_date.astimezone(timezone.utc)
+            parsed = datetime.fromisoformat(document_date.strip())
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed_date = parsed.astimezone(timezone.utc)
         except ValueError:
             raise HTTPException(status_code=422, detail="La fecha del informe debe tener formato ISO (AAAA-MM-DD).") from None
+
     row = PatientClinicalDocument(
-        user_id=patient_id, uploaded_by=professional.id, original_filename=filename,
-        media_type=media_type, sha256=digest, file_size_bytes=len(payload),
-        document_type=document_type, document_date=parsed_date, raw_content=payload,
-        extracted_text=extracted_text or None, extraction_status=extraction_status,
+        user_id=patient_id,
+        uploaded_by=professional.id,
+        original_filename=filename,
+        media_type=media_type,
+        sha256=digest,
+        file_size_bytes=len(payload),
+        document_type=document_type,
+        document_date=parsed_date,
+        raw_content=payload,
+        extracted_text=extracted_text or None,
+        extraction_status=extraction_status,
         analysis_status="queued" if extraction_status == "text_extracted" else "blocked",
         error_category="ocr_required" if extraction_status == "needs_ocr" else None,
     )
     db.add(row)
     db.commit()
     db.refresh(row)
+    audit.log(
+        db, actor_id=professional.id, actor_role=professional.role,
+        action="patient_clinical_document_uploaded",
+        entity_type="patient_clinical_document", entity_id=row.id,
+        extra={
+            "patient_id": str(patient_id),
+            "sha256": digest,
+            "file_size_bytes": len(payload),
+            "document_type": document_type,
+            "extraction_status": extraction_status,
+        },
+    )
+
     if extraction_status == "text_extracted":
         try:
             enqueue_memory_job(
-                db, user_id=patient_id, job_type="longitudinal_analysis",
-                source_table="patient_clinical_documents", source_id=row.id,
-                idempotency_key="clinical-document:" + str(row.id) + ":whole-person-v1",
+                db,
+                user_id=patient_id,
+                job_type="longitudinal_analysis",
+                source_table="patient_clinical_documents",
+                source_id=row.id,
+                idempotency_key=f"clinical-document:{row.id}:whole-person-v1",
             )
             db.commit()
         except Exception as exc:  # noqa: BLE001
@@ -344,8 +411,9 @@ async def upload_patient_clinical_document(
                 row.error_category = type(exc).__name__[:64]
                 db.add(row)
                 db.commit()
-            raise HTTPException(status_code=503, detail="El informe se guardó, pero no se pudo programar su análisis.") from None
-    return _document_payload(row)
+            raise HTTPException(status_code=503, detail="El informe se ha guardado, pero no se pudo programar su análisis.") from None
+
+    return {**_document_payload(row), "status": row.analysis_status}
 
 
 @router.post("/professional/patients/{patient_id}/memory/annotations", status_code=201)

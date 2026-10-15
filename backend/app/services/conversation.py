@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.services.context_budget import fit_recent_messages
+from app.services.context_budget import fit_context_block, fit_recent_messages
 
 from app.content.prompts import (
     AGENT1_CRISIS_INSTRUCTION,
@@ -147,13 +147,28 @@ def analyze_text_and_store(
     patient_profile = profile_service.get(db, user_id)
     system_prompt = ANALYZER_SYSTEM_PROMPT + profile_service.analyzer_context_block(patient_profile)
     system_prompt += clinical_memory.formulation_for_analyzer(db, user_id)
+    # Agent 2 reads a new intervention against this person's longitudinal
+    # context, not only the legacy one-turn formulation. This adds no extra
+    # model call and is budgeted. Context is not a risk result: the current
+    # text and explicit safety declarations always take precedence; only the
+    # deterministic engine sets alert levels.
     try:
         from app.services.patient_understanding import patient_model_context_block
-        longitudinal_context = patient_model_context_block(db, user_id, text, in_crisis=False)
-        if longitudinal_context:
-            system_prompt += "\n\nCONTEXTO LONGITUDINAL PROVISIONAL (no sustituye al texto actual ni al motor determinista):\n" + longitudinal_context
+
+        longitudinal = patient_model_context_block(db, user_id, text, in_crisis=False)
+        if longitudinal:
+            bounded, _, _ = fit_context_block(
+                [
+                    "CONTEXTO LONGITUDINAL PROVISIONAL PARA INTERPRETAR LA INTERVENCIÓN ACTUAL. "
+                    "No relativices una declaración de riesgo actual; úsalo como contexto para "
+                    "comparar con el patrón personal y describir incertidumbre.\n" + longitudinal
+                ],
+                500,
+            )
+            if bounded:
+                system_prompt += "\n\n" + bounded
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Longitudinal context omitted from turn analysis safely: %s", type(exc).__name__)
+        logger.warning("Longitudinal context omitted from Agent 2 safely: %s", type(exc).__name__)
 
     try:
         provider_result = get_llm_provider(db, provider_override=provider_override).analyze_structured(

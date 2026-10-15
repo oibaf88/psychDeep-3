@@ -28,8 +28,8 @@ from app.models_vnext import (
     MemoryAnnotation,
     MemoryCommit,
     MemoryEmbedding,
-    PatientModelVersion,
     PatientClinicalDocument,
+    PatientModelVersion,
     PsychReading,
 )
 from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
@@ -1127,10 +1127,13 @@ def bundle(db: Session, user_id) -> dict[str, Any]:
         "patient_model": None if snapshot is None else {
             "version_no": snapshot.version_no,
             "patient_summary": str(model_json.get("patient_summary") or ""),
+            "facets": model_json.get("facets") if isinstance(model_json.get("facets"), list) else [],
             "patterns": model_json.get("patterns") if isinstance(model_json.get("patterns"), list) else [],
             "trajectories": model_json.get("trajectories") if isinstance(model_json.get("trajectories"), list) else [],
             "protective_factors": model_json.get("protective_factors") if isinstance(model_json.get("protective_factors"), list) else [],
             "contradictions": model_json.get("contradictions") if isinstance(model_json.get("contradictions"), list) else [],
+            "open_questions": model_json.get("open_questions") if isinstance(model_json.get("open_questions"), list) else [],
+            "theme_gaps": model_json.get("theme_gaps") if isinstance(model_json.get("theme_gaps"), list) else [],
             "limitations": model_json.get("limitations") if isinstance(model_json.get("limitations"), list) else [],
             "coverage": snapshot.coverage or {},
             "source_watermark": snapshot.source_watermark,

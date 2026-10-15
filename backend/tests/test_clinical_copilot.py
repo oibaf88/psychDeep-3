@@ -396,12 +396,12 @@ class CopilotModelTests(unittest.TestCase):
             )
 
         provider = SimpleNamespace(
-            chat=_chat, chat_model="selected-chat-model", copilot_model="copilot-big",
-            chat_effort="medium", copilot_effort="xhigh"
+            chat=_chat, chat_model="selected-chat-model",
+            copilot_model="copilot-big", chat_effort="medium", copilot_effort="xhigh"
         )
         return provider, seen
 
-    def test_the_call_uses_the_selected_chat_model_and_effort(self):
+    def test_the_call_uses_the_selected_chat_model_not_a_copilot_override(self):
         db = _populated_db()
         provider, seen = self._capture()
         with patch.object(clinical_copilot, "build_provider", return_value=provider):
@@ -428,5 +428,5 @@ class CopilotModelTests(unittest.TestCase):
             answer = clinical_copilot.ask(
                 db, professional=_professional(), patient=_patient(), question="¿Cómo está?"
             )
-        self.assertEqual(answer.requested_model, "copilot-big")
+        self.assertEqual(answer.requested_model, "selected-chat-model")
         self.assertEqual(answer.context_counts["response_model"], "actually-llama-8b")

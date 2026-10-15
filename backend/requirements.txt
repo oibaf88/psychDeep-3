@@ -12,6 +12,6 @@ httpx>=0.27,<1.0
 # ZoneInfo needs an IANA timezone database on Windows as well as Render/Linux.
 tzdata>=2025.2,<2027
 
-# Private clinical-report ingestion and PDF text extraction.
+# Private clinical-report ingestion (scanned PDF OCR remains a separate step).
 python-multipart>=0.0.18,<1
 pypdf>=5.0,<7

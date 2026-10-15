@@ -743,10 +743,12 @@ class PatientProfileOut(BaseModel):
     longitudinal_created_at: Optional[str] = None
     longitudinal_source_watermark: Optional[str] = None
     longitudinal_coverage: dict[str, Any] = Field(default_factory=dict)
+    longitudinal_facets: list[dict[str, Any]] = Field(default_factory=list)
     longitudinal_patterns: list[dict[str, Any]] = Field(default_factory=list)
     longitudinal_trajectories: list[dict[str, Any]] = Field(default_factory=list)
     longitudinal_protective_factors: list[dict[str, Any]] = Field(default_factory=list)
     longitudinal_contradictions: list[dict[str, Any]] = Field(default_factory=list)
+    longitudinal_open_questions: list[dict[str, Any]] = Field(default_factory=list)
     longitudinal_limitations: list[str] = Field(default_factory=list)
     longitudinal_consent_active: bool = False
 

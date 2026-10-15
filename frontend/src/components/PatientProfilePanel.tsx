@@ -33,17 +33,19 @@ export interface PatientProfile {
   linguistic_baseline_n: number;
   baseline_is_usable: boolean;
   minimum_signals_for_baseline: number;
-  longitudinal_summary?: string | null;
-  longitudinal_model_version?: number | null;
-  longitudinal_created_at?: string | null;
-  longitudinal_source_watermark?: string | null;
-  longitudinal_coverage?: Record<string, unknown>;
-  longitudinal_patterns?: Array<Record<string, unknown>>;
-  longitudinal_trajectories?: Array<Record<string, unknown>>;
-  longitudinal_protective_factors?: Array<Record<string, unknown>>;
-  longitudinal_contradictions?: Array<Record<string, unknown>>;
-  longitudinal_limitations?: string[];
-  longitudinal_consent_active?: boolean;
+  longitudinal_summary: string | null;
+  longitudinal_model_version: number | null;
+  longitudinal_created_at: string | null;
+  longitudinal_source_watermark: string | null;
+  longitudinal_coverage: Record<string, unknown>;
+  longitudinal_facets: { domain?: string; statement: string; uncertainty?: string; status?: string }[];
+  longitudinal_patterns: { domain?: string; pattern: string; uncertainty?: string }[];
+  longitudinal_trajectories: { domain?: string; direction?: string; description: string }[];
+  longitudinal_protective_factors: { factor: string; availability?: string }[];
+  longitudinal_contradictions: { topic?: string; description: string; uncertainty?: string }[];
+  longitudinal_open_questions: { question: string; rationale?: string }[];
+  longitudinal_limitations: string[];
+  longitudinal_consent_active: boolean;
 }
 
 const AXIS_LABELS: Record<string, string> = {
@@ -125,39 +127,66 @@ export default function PatientProfilePanel({
 
   return (
     <div className="profile-panel">
-      <h3>Quién es esta persona · síntesis longitudinal</h3>
-      <p className="meta">
-        Esta síntesis se construye a partir del historial disponible. Es provisional, no un diagnóstico; diferencia patrones, evolución y dudas, y puede no reflejar información que todavía no se haya registrado.
-      </p>
+      <h3>Quién es esta persona</h3>
       {profile.longitudinal_summary ? (
-        <>
+        <section className="card">
+          <h4>Síntesis longitudinal del modelo · versión {profile.longitudinal_model_version ?? "—"}</h4>
+          <p>{profile.longitudinal_summary}</p>
           <p className="meta">
-            {profile.longitudinal_model_version ? `Versión ${profile.longitudinal_model_version}` : "Versión sin número"}
-            {profile.longitudinal_created_at ? ` · generada ${new Date(profile.longitudinal_created_at).toLocaleString()}` : ""}
+            {profile.longitudinal_created_at ? `Actualizada ${new Date(profile.longitudinal_created_at).toLocaleString()}` : ""}
             {profile.longitudinal_source_watermark ? ` · fuentes hasta ${new Date(profile.longitudinal_source_watermark).toLocaleString()}` : ""}
           </p>
-          <p className="patient-longitudinal-summary">{profile.longitudinal_summary}</p>
-          {profile.longitudinal_patterns && profile.longitudinal_patterns.length > 0 && <><h4>Patrones provisionales</h4><ul>{profile.longitudinal_patterns.slice(0, 5).map((item, i) => <li key={i}>{String(item.pattern || "Patrón sin descripción")} <span className="meta">{String(item.uncertainty || "incertidumbre no registrada")}</span></li>)}</ul></>}
-          {profile.longitudinal_trajectories && profile.longitudinal_trajectories.length > 0 && <><h4>Cambios y evolución</h4><ul>{profile.longitudinal_trajectories.slice(0, 5).map((item, i) => <li key={i}>{String(item.description || "Trayectoria sin descripción")} <span className="meta">{String(item.direction || "dirección no determinada")}</span></li>)}</ul></>}
-          {profile.longitudinal_protective_factors && profile.longitudinal_protective_factors.length > 0 && <><h4>Recursos y factores protectores</h4><ul>{profile.longitudinal_protective_factors.slice(0, 5).map((item, i) => <li key={i}>{String(item.factor || "Factor sin descripción")} <span className="meta">{String(item.availability || "disponibilidad no confirmada")}</span></li>)}</ul></>}
-          {profile.longitudinal_contradictions && profile.longitudinal_contradictions.length > 0 && <><h4>Contradicciones por revisar</h4><ul>{profile.longitudinal_contradictions.slice(0, 5).map((item, i) => <li key={i}>{String(item.topic || "Tema")}: {String(item.description || item.interpretation || "Revisión pendiente")}</li>)}</ul></>}
-          {profile.longitudinal_limitations && profile.longitudinal_limitations.length > 0 && <p className="meta">Limitaciones: {profile.longitudinal_limitations.join(" · ")}</p>}
-        </>
+          {profile.longitudinal_facets.length > 0 && (
+            <>
+              <h4>Facetas</h4>
+              <ul>{profile.longitudinal_facets.slice(0, 8).map((item, i) => <li key={i}><strong>{item.domain || "Contexto"}:</strong> {item.statement}<span className="meta"> · {item.uncertainty || "incertidumbre no indicada"}</span></li>)}</ul>
+            </>
+          )}
+          {profile.longitudinal_patterns.length > 0 && (
+            <>
+              <h4>Patrones provisionales</h4>
+              <ul>{profile.longitudinal_patterns.slice(0, 5).map((item, i) => <li key={i}>{item.pattern}<span className="meta"> · {item.uncertainty || "incertidumbre no indicada"}</span></li>)}</ul>
+            </>
+          )}
+          {profile.longitudinal_trajectories.length > 0 && (
+            <>
+              <h4>Trayectorias</h4>
+              <ul>{profile.longitudinal_trajectories.slice(0, 5).map((item, i) => <li key={i}><strong>{item.direction || "Evolución no clasificada"}:</strong> {item.description}</li>)}</ul>
+            </>
+          )}
+          {profile.longitudinal_protective_factors.length > 0 && (
+            <>
+              <h4>Apoyos y fortalezas documentados</h4>
+              <ul>{profile.longitudinal_protective_factors.slice(0, 5).map((item, i) => <li key={i}>{item.factor}<span className="meta"> · {item.availability || "disponibilidad no confirmada"}</span></li>)}</ul>
+            </>
+          )}
+          {profile.longitudinal_contradictions.length > 0 && (
+            <>
+              <h4>Contradicciones pendientes</h4>
+              <ul>{profile.longitudinal_contradictions.slice(0, 5).map((item, i) => <li key={i}><strong>{item.topic || "Tema"}:</strong> {item.description}<span className="meta"> · {item.uncertainty || "incertidumbre no indicada"}</span></li>)}</ul>
+            </>
+          )}
+          {profile.longitudinal_open_questions.length > 0 && (
+            <>
+              <h4>Preguntas abiertas</h4>
+              <ul>{profile.longitudinal_open_questions.slice(0, 5).map((item, i) => <li key={i}>{item.question}</li>)}</ul>
+            </>
+          )}
+          {profile.longitudinal_limitations.length > 0 && <p className="meta">Limitaciones: {profile.longitudinal_limitations.join(" · ")}</p>}
+          <p className="meta">Las lagunas documentales no son prueba de ausencia ni de mejoría. Las hipótesis deben comprobarse con las fuentes.</p>
+        </section>
       ) : (
-        <p className="meta">Todavía no hay una síntesis longitudinal disponible. Estado del consentimiento de análisis: {profile.longitudinal_consent_active ? "activo" : "no consta activo"}. El retrato antiguo que aparece debajo no sustituye a la síntesis global.</p>
-      )}
-
-      <h3>Retrato de trabajo editable por el profesional</h3>
-      {profile.portrait_edited_by_clinician ? (
         <p className="meta">
-          Corregido por un profesional. El analizador puede añadir, pero se le indica que no
-          contradiga lo que has escrito.
-        </p>
-      ) : (
-        <p className="meta">
-          Este campo es una corrección editable de la ficha heredada; no sustituye a la síntesis longitudinal versionada de arriba.
+          {profile.longitudinal_consent_active
+            ? "No hay síntesis longitudinal activa. La nota editable de abajo es un campo de compatibilidad y no sustituye la formulación completa."
+            : "El consentimiento para análisis longitudinal no figura como activo; el modelo no ofrece una síntesis nueva."}
         </p>
       )}
+      <p className="meta">
+        {profile.portrait_edited_by_clinician
+          ? "El siguiente campo contiene una corrección profesional manual."
+          : "El siguiente campo conserva el perfil editable previo por compatibilidad; la síntesis longitudinal de arriba es la lectura general del modelo."}
+      </p>
 
       {canEdit ? (
         <>

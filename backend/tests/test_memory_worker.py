@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
+import pytest
 
 from app.services import memory_pipeline
 
@@ -77,3 +78,18 @@ def test_longitudinal_retrieval_does_not_query_when_consent_is_absent():
         )
     db.execute.assert_not_called()
     assert result.evidence_refs == ()
+
+
+def test_document_docx_rejects_uncompressed_payload_over_limit():
+    import io
+    import zipfile
+
+    from fastapi import HTTPException
+    from app.routers.memory import MAX_DOCX_XML_BYTES, _extract_clinical_document
+
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", b"x" * (MAX_DOCX_XML_BYTES + 1))
+    with pytest.raises(HTTPException) as raised:
+        _extract_clinical_document("report.docx", payload.getvalue())
+    assert raised.value.status_code == 413
