@@ -39,7 +39,7 @@ logger = logging.getLogger("psychapp")
 settings = get_settings()
 
 app = FastAPI(
-    title="PsychDeep vNext API",
+    title="psychDeep-vOG API",
     description=(
         "Cloud-first longitudinal self-regulation platform. Clinical state and "
         "deterministic safety remain independent of the replaceable LLM deployment."
