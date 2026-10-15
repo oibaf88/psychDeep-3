@@ -724,6 +724,15 @@ select:focus-visible {
   border-color: rgba(154, 168, 188, 0.4);
 }
 
+.hoy-next__card--feedback {
+  background: linear-gradient(100deg, rgba(154, 168, 188, 0.14), rgba(26, 35, 50, 0.16) 48%);
+  border-color: rgba(154, 168, 188, 0.45);
+}
+
+.hoy-feedback-status {
+  margin: -24px 0 28px;
+}
+
 .hoy-next__title {
   margin: 0 0 6px;
   font-size: 1.35rem;

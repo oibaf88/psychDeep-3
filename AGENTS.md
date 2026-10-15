@@ -76,7 +76,7 @@ What this gate **does not** prove: it does not by itself make the patient experi
 - [x] ~~Backfill legacy check-ins/diary/baseline/signal/model-trace data additively without destroying history.~~
 - [x] ~~Dual-write new check-ins/diary content into canonical observations while legacy compatibility remains.~~
 - [~] Make the complete operational analytics path run through `Observation -> FeatureValue -> BaselineVersion -> ChangeSignal` rather than legacy calculations.
-  - A check-in now refreshes that canonical trajectory in the same request. Authorised professional summary and dossier reads now show that persisted ChangeSignal beside risk. Hoy's default suggested action now reads the canonical longitudinal ChangeSignal comparison from `GET /api/v1/state` (`suggestedActionFromReading` / branch `cursor/hoy-action-from-changesignal`): adverse calculated directions/bands can suggest Regular; calculated/partial without adverse change suggests Tendencias; insufficient/not-computed stays a soft "Registrar y observar" and never claims "sin riesgo". Form acute overrides (craving ≥ 7 / self_efficacy ≤ 3) remain secondary. `ChangeSignal` is still not the source of the professional structural score or `RiskAssessment`; those keep using the legacy baseline and risk engine.
+  - A check-in now refreshes that canonical trajectory in the same request. Authorised professional summary and dossier reads now show that persisted ChangeSignal beside risk. Hoy's default suggested action now reads the canonical longitudinal ChangeSignal comparison from `GET /api/v1/state` (`suggestedActionFromReading` / branch `cursor/hoy-action-from-changesignal`): adverse calculated directions/bands can suggest Regular; calculated/partial without adverse change suggests Tendencias; insufficient/not-computed stays a soft "Registrar y observar" and never claims "sin riesgo". Form acute overrides (craving ≥ 7 / self_efficacy ≤ 3) are checked first and take precedence over the longitudinal reading. `ChangeSignal` is still not the source of the professional structural score or `RiskAssessment`; those keep using the legacy baseline and risk engine.
   - The longitudinal read (`GET /api/v1/state`, professional summary/dossier, weekly review) now reads back the `FeatureValue` each per-feature ChangeSignal cites and the matching axis of its `BaselineVersion` as `evidence`: recent mean, n, window, quality flags, versions and the personal reference. `reproduced_from_rows` says whether the stored change still equals the comparison of those two rows. A missing or foreign FeatureValue, or a reference below the eligibility minimum, stays `insufficient_data` and is never a zero. Tests: `tests/test_vnext_feature_evidence.py`. Each evidence block also carries `display` (recent/reference means, difference, direction and z on the declared scale), and Hoy, Tendencias and the professional panel now render it (see Tendencias below). The composite signal has no single FeatureValue.
   - Completion criterion: canonical feature computation, baseline eligibility/versioning and change detection are the actual source for vNext state and explanations, with tests proving reproducibility.
 - [~] Make personal baseline behaviour fully conform to vNext semantics.
@@ -97,6 +97,8 @@ Why G2 is **not complete**: the operational analytics path and `GET /api/v1/stat
 - [x] ~~Keep `ConfirmedFact` semantically separate from provisional LLM inference.~~
 - [~] Version all safety protocols/resources and prove every P0 scenario against the final vNext safety suite.
 - [~] Add/complete output validation that blocks or replaces unsafe LLM output with deterministic structured support and logs the event.
+  - Agent 1 chat replies are now checked deterministically before the patient sees them (`backend/app/services/output_validation.py`, `agent1-output-validation-v1`). Rules come only from the LLM boundary and server-owned content, not new clinical thresholds: a stated alert/risk level or "sin riesgo" claim, a phone number that is not a server-owned crisis resource (024/112 pass), a substance quantity (mg, ml, gramos, gotas) and the excluded `FORBIDDEN_TECHNIQUES`. At levels 0-2 a failing reply is replaced by the server-owned `AGENT1_OUTPUT_BLOCKED_MESSAGE` (024/112, Regular, plan) and stored without model provenance; at levels 3/4 the failing accompanying prose is dropped and the fixed crisis copy and resources are returned unchanged. Each event writes an `llm_output_blocked` audit row with rule codes, alert level, correlation id and provider/model, never the patient's or the model's text. Alert levels, risk rules and crisis declarations are untouched. Tests: `backend/tests/test_agent1_output_validation.py`.
+  - Still open: Agent 2 / copilot / weekly-review outputs are not yet run through this validator; the pattern lists need clinical review for false positives/negatives and a gold regression set; no `ModelRun` status is recorded for a withheld reply yet.
 - [ ] Complete formal clinical sign-off for vNext safety thresholds/protocol behaviour.
   - Not done. The structural band parameters changed on 2026-10-10 under product-owner authorisation (ADR 0003) as a provisional population prior. They still need formal clinical sign-off. N4 declaration rules, crisis resources and the other rule thresholds were not changed.
 - [ ] Complete the full model regression/gold safety suite including GHB/GBL withdrawal, ambiguous language, clear crisis, hallucination traps, prompt injection and boundary requests.
@@ -108,7 +110,8 @@ Why G3 is **not complete**: independence from the LLM is materially improved, bu
 This is the largest current product gap. Do not confuse navigation changes with completion.
 
 - [~] **Hoy — redesign around current state and one useful next action.**
-  - Hoy reads canonical longitudinal state for change versus the personal baseline, with explicit missingness, and keeps crisis/help plus “No ahora”. The first view is an open page: a large comparison, a fact row, one default action, then an open check-in. The 30-day chart stays, and the feature-by-feature reading sits under it. The default action is now tied to that change explanation (ChangeSignal comparison via `suggestedActionFromReading`, branch `cursor/hoy-action-from-changesignal`); the feedback loop that should record whether the action helped is still open.
+  - Hoy reads canonical longitudinal state for change versus the personal baseline, with explicit missingness, and keeps crisis/help plus “No ahora”. The first view is an open page: a large comparison, a fact row, one default action, then an open check-in. The 30-day chart stays, and the feature-by-feature reading sits under it. The default action is tied to that change explanation (ChangeSignal comparison via `suggestedActionFromReading`). Accepting the action or choosing “No ahora” now records an `InterventionEvent` through `POST /api/v1/feedback` with a stable `actionId` (`hoy.suggest.regular_wave` / `trends_explain` / `register_observe`) and driver reason; after accepting, returning to Hoy asks whether it helped (usefulness 5/3/1 → `completed`) without deleting the signal or touching `RiskAssessment`. Network failures never block navigation. Tests: `frontend/src/pages/__tests__/hoyActionFeedback.test.ts`, `PatientDashboard.test.tsx`, `hoySuggestedAction.test.ts`, `backend/tests/test_vnext_intervention_feedback.py`.
+  - Still open: crisis/help persistence on Hoy itself is inherited from the app shell; patient validation of the feedback copy; fuller link from usefulness back into longitudinal learning.
   - Required completion: low-burden check-in, current state, change vs personal baseline, data quality/missingness, explanation, at most one default suggested action, persistent crisis/help access and “No ahora”.
 - [~] **Tendencias — longitudinal explanation.**
  - A new page exists and reads timeline, baseline and ChangeSignal data. Calculated bands and an uncalculated comparison now use plain-language copy; the raw `insufficient_data` code stays off the page.
@@ -136,8 +139,8 @@ This is the largest current product gap. Do not confuse navigation changes with 
 - [ ] **Confirmed fact / inference correction as a first-class patient flow.**
 - [~] **Clinical memory stays immutable for the patient.**
   - Chat and diary can commit a discourse fact, a psychological reading and a versioned formulation when linguistic-analysis consent is current. The patient cannot edit or delete that record, and the formulation is not shown in the patient account. User-declared `ConfirmedFact` rows keep their existing correction flow. A failed memory read releases the database transaction, so the chat reply still returns.
-- [ ] **Intervention feedback as a visible product loop.**
-  - Canonical feedback endpoint/data exists; the product experience is not yet integrated.
+- [~] **Intervention feedback as a visible product loop.**
+  - Canonical `POST /api/v1/feedback` → `InterventionEvent` exists. Hoy now records accept / postpone / usefulness for the default suggested action (see Hoy above). Still open: Regular/Wave completion feedback in-tool, professional-visible outcomes, and linking usefulness to the triggering ChangeSignal id.
 
 Why G4 is **not complete**: the patient still experiences much of the old application. New routes and backend contracts exist, but the core vNext value loop has not yet replaced the historical dashboard behaviour.
 
@@ -243,6 +246,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 - [x] ~~PM-004 Separate change signal from RiskAssessment in API **and UI**.~~
   - Evidence: patient state and Hoy, authorised professional summary and dossier, weekly review, roster, copilot, alerts, and the structural-score surfaces keep change bands apart from alert levels. A missing ChangeSignal is not zero and is not “sin riesgo”. See the G2 separation item for the test list.
 - [~] PM-005 Version safety protocols/resources and remove direct LLM dependency.
+  - Agent 1 replies now pass deterministic output validation before display; unsafe text is withheld, replaced by server-owned support and audited (see G3).
 - [~] PM-006 Resource-level authorization matrix and comprehensive negative tests.
 - [x] ~~PM-007 Split consent purposes and enforce linguistic-analysis revocation.~~
 - [~] PM-008 ModelRun audit with prompt/model/policy/content versions.
@@ -255,12 +259,12 @@ These completed items are **foundations**. They are not sufficient reasons to ca
 
 - [~] PM-012 Today dashboard redesign.
   - First vNext UI pass remains in the patient dashboard: lower-burden check-in, current-state framing, one proportionate suggested action and “No ahora”.
-  - Hoy now also reads `longitudinal` from `GET /api/v1/state` for change versus the personal baseline. The first view shows one default action; the extra Tendencias card is no longer beside it. That action now derives from the ChangeSignal comparison (`cursor/hoy-action-from-changesignal`); recording feedback remains open.
+  - Hoy now also reads `longitudinal` from `GET /api/v1/state` for change versus the personal baseline. The first view shows one default action; the extra Tendencias card is no longer beside it. That action derives from the ChangeSignal comparison, and accept / “No ahora” / usefulness are recorded on `InterventionEvent` (`cursor/hoy-action-feedback`). Patient validation and crisis/help chrome on Hoy remain open.
 - [ ] PM-013 Weekly review user experience.
 - [~] PM-014 Improved trend/baseline visualisation.
   - Trends now foreground personal trajectory, baseline context and reading guidance. An uncalculated comparison is described as missing data, including that a missing calculation is not evidence that things are fine.
 - [ ] PM-015 Context annotation/correction.
-- [~] PM-016 Intervention feedback (data/API foundation exists; UX loop missing).
+- [~] PM-016 Intervention feedback (data/API foundation exists; Hoy accept/postpone/usefulness wired; Regular/professional loops still missing).
 - [~] PM-017 Wave/urge surfing (legacy feature exists; visual refresh applied; vNext integration incomplete).
 - [~] PM-018 Breathing visual (legacy feature exists; vNext integration incomplete).
 - [~] PM-019 Safety plan UX (legacy feature exists; vNext integration incomplete).

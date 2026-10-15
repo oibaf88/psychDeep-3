@@ -42,6 +42,7 @@ from app.content.prompts import (
     ANALYZER_TOOL_SCHEMA,
 )
 from app.content.safety_resources import (
+    AGENT1_OUTPUT_BLOCKED_MESSAGE,
     CRISIS_RESOURCES,
     LEVEL3_PATIENT_MESSAGE,
     LEVEL3_PATIENT_MESSAGE_WITH_PROFESSIONAL,
@@ -49,7 +50,7 @@ from app.content.safety_resources import (
 )
 from app.models import AlfaSignal, ChatMessage, PatientProfessionalAssignment, User
 from app.services import agent1_context, clinical_memory, llm_config, profile as profile_service, psychosocial, risk_engine
-from app.services import agent2_trace
+from app.services import agent2_trace, audit, output_validation
 from app.services.llm import ChatResult, ProviderMetadata, StructuredAnalysisError, get_llm_provider
 
 logger = logging.getLogger("psychapp.conversation")
@@ -394,6 +395,41 @@ def _agent1_crisis_accompaniment(db: Session, user_id, system_prompt: str) -> Ch
         return None
 
 
+def _log_blocked_output(
+    db: Session,
+    user_id,
+    check: "output_validation.OutputValidation",
+    *,
+    level: int,
+    correlation_id: uuid.UUID,
+    source_message_id,
+    metadata: ProviderMetadata | None,
+) -> None:
+    """Record that a model reply was withheld: rule codes, never the text."""
+    logger.warning(
+        "Agent1 output withheld by %s: %s", check.validator_version, ",".join(check.violations)
+    )
+    try:
+        audit.log(
+            db,
+            actor_id=user_id,
+            actor_role="system",
+            action=output_validation.AUDIT_ACTION,
+            entity_type="chat_message",
+            entity_id=source_message_id,
+            extra=check.audit_extra(
+                alert_level=level,
+                correlation_id=str(correlation_id),
+                provider=getattr(metadata, "provider", None),
+                model=(getattr(metadata, "response_model", None) or getattr(metadata, "requested_model", None)),
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        # The reply is still withheld; only the audit row is lost.
+        logger.error("Could not audit withheld Agent1 output: %s", type(exc).__name__)
+        db.rollback()
+
+
 def get_reply(
     db: Session,
     user: User,
@@ -461,8 +497,22 @@ def get_reply(
     # records what answered rather than what the resolver would say now.
     reply_metadata: ProviderMetadata | None = None
 
+    def _checked_accompaniment(db_, user_id_, system_prompt_) -> ChatResult | None:
+        """Crisis prose that breaks an output rule is dropped; the fixed copy stays."""
+        result_ = _agent1_crisis_accompaniment(db_, user_id_, system_prompt_)
+        if result_ is None:
+            return None
+        check_ = output_validation.validate_agent1_output(result_.text)
+        if check_.blocked:
+            _log_blocked_output(
+                db_, user_id_, check_, level=level, correlation_id=correlation_id,
+                source_message_id=source_message.id, metadata=result_.metadata,
+            )
+            return None
+        return result_
+
     if level == 4:
-        accompaniment = _agent1_crisis_accompaniment(db, user.id, agent1_system_prompt)
+        accompaniment = _checked_accompaniment(db, user.id, agent1_system_prompt)
         prose = accompaniment.text.strip() if accompaniment else ""
         reply_text = (prose + "\n\n" if prose else "") + LEVEL4_PATIENT_MESSAGE
         ui_mode = "crisis"
@@ -472,7 +522,7 @@ def get_reply(
     elif level == 3:
         has_prof = _has_active_professional(db, user.id)
         fixed = LEVEL3_PATIENT_MESSAGE_WITH_PROFESSIONAL if has_prof else LEVEL3_PATIENT_MESSAGE
-        accompaniment = _agent1_crisis_accompaniment(db, user.id, agent1_system_prompt)
+        accompaniment = _checked_accompaniment(db, user.id, agent1_system_prompt)
         prose = accompaniment.text.strip() if accompaniment else ""
         reply_text = (prose + "\n\n" if prose else "") + fixed
         ui_mode = "support"
@@ -491,6 +541,17 @@ def get_reply(
             result = provider.chat(agent1_system_prompt, messages)
             reply_metadata = result.metadata
             reply_text = result.text
+            check = output_validation.validate_agent1_output(reply_text)
+            if check.blocked:
+                _log_blocked_output(
+                    db, user.id, check, level=level, correlation_id=correlation_id,
+                    source_message_id=source_message.id, metadata=reply_metadata,
+                )
+                # Deterministic, server-owned support replaces the model text,
+                # which is not stored or shown. Not "from the model" any more.
+                reply_text = AGENT1_OUTPUT_BLOCKED_MESSAGE
+                reply_metadata = None
+                failed = True
         except Exception as exc:  # noqa: BLE001
             failed = True
             logger.warning("Agent1 chat failed safely: %s", type(exc).__name__)
