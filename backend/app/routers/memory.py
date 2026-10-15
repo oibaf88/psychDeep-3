@@ -15,7 +15,7 @@ from app.database import get_db
 from app.models import PatientProfessionalAssignment, User
 from app.models_vnext import MemoryJob, PatientClinicalDocument
 from app.security import get_current_user, require_professional
-from app.services import clinical_memory
+from app.services import audit, clinical_memory
 from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 from app.services.memory_pipeline import enqueue_memory_job
 from app.utils import utc_iso
@@ -180,6 +180,9 @@ def read_patient_memory(
 
 MAX_CLINICAL_DOCUMENT_BYTES = 15 * 1024 * 1024
 MAX_EXTRACTED_DOCUMENT_CHARS = 500_000
+MAX_DOCX_XML_BYTES = 8 * 1024 * 1024
+MAX_DOCX_UNCOMPRESSED_BYTES = 32 * 1024 * 1024
+MAX_DOCX_ENTRIES = 1000
 _ALLOWED_DOCUMENT_TYPES = {
     "clinical_report", "discharge_summary", "psychological_report",
     "psychiatric_report", "medication_report", "other",
@@ -234,7 +237,17 @@ def _extract_clinical_document(filename: str, payload: bytes) -> tuple[str, str,
             raise HTTPException(status_code=422, detail="El archivo no parece ser un DOCX válido.")
         try:
             with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-                raw_xml = archive.read("word/document.xml")
+                members = archive.infolist()
+                if len(members) > MAX_DOCX_ENTRIES:
+                    raise HTTPException(status_code=413, detail="El DOCX contiene demasiados elementos internos.")
+                if sum(member.file_size for member in members) > MAX_DOCX_UNCOMPRESSED_BYTES:
+                    raise HTTPException(status_code=413, detail="El DOCX supera el límite de tamaño descomprimido.")
+                document_xml = archive.getinfo("word/document.xml")
+                if document_xml.file_size > MAX_DOCX_XML_BYTES:
+                    raise HTTPException(status_code=413, detail="El cuerpo XML del DOCX supera el límite permitido.")
+                if document_xml.file_size / max(document_xml.compress_size, 1) > 1000:
+                    raise HTTPException(status_code=413, detail="El DOCX presenta una compresión anómala y se ha rechazado.")
+                raw_xml = archive.read(document_xml)
             root = ET.fromstring(raw_xml)
             ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
             paragraphs = []
@@ -297,6 +310,12 @@ def rebuild_patient_memory(
         idempotency_key=f"patient-model:manual:{uuid.uuid4()}",
     )
     db.commit()
+    audit.log(
+        db, actor_id=professional.id, actor_role=professional.role,
+        action="longitudinal_patient_model_rebuild_queued",
+        entity_type="patient_model", entity_id=patient_id,
+        extra={"already_queued": not queued},
+    )
     return {"status": "queued" if queued else "already_queued", "already_queued": not queued}
 
 
@@ -358,6 +377,18 @@ async def upload_patient_clinical_document(
     db.add(row)
     db.commit()
     db.refresh(row)
+    audit.log(
+        db, actor_id=professional.id, actor_role=professional.role,
+        action="patient_clinical_document_uploaded",
+        entity_type="patient_clinical_document", entity_id=row.id,
+        extra={
+            "patient_id": str(patient_id),
+            "sha256": digest,
+            "file_size_bytes": len(payload),
+            "document_type": document_type,
+            "extraction_status": extraction_status,
+        },
+    )
 
     if extraction_status == "text_extracted":
         try:
