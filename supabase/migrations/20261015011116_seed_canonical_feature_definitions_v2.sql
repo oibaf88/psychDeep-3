@@ -2,8 +2,6 @@
 -- Idempotent: safe when runtime seeding or a manual production repair already
 -- created the v2 rows. Preserves older v1 definitions for historical provenance.
 begin;
-grant psychdeep_backend to postgres with set true;
-set local role psychdeep_backend;
 
 grant psychdeep_backend to postgres with set true;
 set local role psychdeep_backend;

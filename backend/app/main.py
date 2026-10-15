@@ -1,6 +1,5 @@
 import logging
 import os
-import threading
 import time
 
 from fastapi import FastAPI
@@ -38,50 +37,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("psychapp")
 
 settings = get_settings()
-_memory_worker_stop = threading.Event()
-_memory_worker_thread: threading.Thread | None = None
-
-
-def _embedded_memory_worker_loop() -> None:
-    """Process a single durable queue item at a time, outside request handlers."""
-    from app.services.memory_pipeline import run_memory_worker_once
-
-    while not _memory_worker_stop.is_set():
-        worked = False
-        db = SessionLocal()
-        try:
-            worked = run_memory_worker_once(db)
-        except Exception as exc:  # noqa: BLE001
-            # Clinical API availability must not depend on a background job.
-            logger.warning("Embedded memory worker iteration failed safely: %s", type(exc).__name__)
-        finally:
-            db.close()
-        _memory_worker_stop.wait(0.5 if worked else 5.0)
-
-
-def _start_embedded_memory_worker() -> None:
-    global _memory_worker_thread
-    if not settings.memory_worker_embedded_enabled:
-        logger.info("Embedded memory worker is disabled by configuration.")
-        return
-    if _memory_worker_thread is not None and _memory_worker_thread.is_alive():
-        return
-    _memory_worker_stop.clear()
-    _memory_worker_thread = threading.Thread(
-        target=_embedded_memory_worker_loop,
-        name="psychdeep-memory-worker",
-        daemon=True,
-    )
-    _memory_worker_thread.start()
-    logger.info("Embedded longitudinal-memory worker started.")
-
-
-def _stop_embedded_memory_worker() -> None:
-    _memory_worker_stop.set()
-    thread = _memory_worker_thread
-    if thread is not None and thread.is_alive():
-        thread.join(timeout=2.0)
-
 
 app = FastAPI(
     title="PsychDeep vNext API",
@@ -147,20 +102,6 @@ def _verify_production_schema() -> None:
         ("intervention_events", "id"),
         ("model_deployments", "alias"),
         ("mobile_inference_events", "id"),
-        # The whole-person model is required for the formulation panel. Fail
-        # fast instead of surfacing a false consent/configuration message.
-        ("memory_event_ledger", "id"),
-        ("memory_items", "id"),
-        ("memory_item_sources", "id"),
-        ("memory_summary_versions", "id"),
-        ("memory_jobs", "id"),
-        ("memory_retrieval_runs", "id"),
-        ("memory_episodes", "id"),
-        ("memory_relations", "id"),
-        ("patient_model_versions", "id"),
-        ("patient_model_questions", "id"),
-        ("memory_analysis_runs", "id"),
-        ("patient_clinical_documents", "id"),
     }
     canonical_tables = {
         "observations",
@@ -175,18 +116,6 @@ def _verify_production_schema() -> None:
         "fine_tune_runs",
         "model_deployments",
         "mobile_inference_events",
-        "memory_event_ledger",
-        "memory_items",
-        "memory_item_sources",
-        "memory_summary_versions",
-        "memory_jobs",
-        "memory_retrieval_runs",
-        "memory_episodes",
-        "memory_relations",
-        "patient_model_versions",
-        "patient_model_questions",
-        "memory_analysis_runs",
-        "patient_clinical_documents",
     }
     with engine.connect() as conn:
         rows = conn.execute(
@@ -293,17 +222,6 @@ def on_startup():
             )
     except ModelUnavailable as exc:
         logger.warning("Model deployment configuration rejected safely: %s", exc)
-
-    # No separate Render worker exists in this workspace. Reuse the API's
-    # already configured DB/model environment; tasks run outside request
-    # handlers and use the queue's database row locks.
-    if settings.is_production:
-        _start_embedded_memory_worker()
-
-
-@app.on_event("shutdown")
-def shutdown_embedded_memory_worker():
-    _stop_embedded_memory_worker()
 
 
 @app.get("/api/v1/health")
