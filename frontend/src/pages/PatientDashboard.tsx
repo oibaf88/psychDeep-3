@@ -6,6 +6,14 @@ import { PatientTrendSummary } from "../components/PatientTrendSummary";
 import ComparisonDetails, { ComparisonFacts } from "../components/ComparisonDetails";
 import { readComparison } from "./longitudinalModel";
 import { suggestedActionFromReading } from "./hoySuggestedAction";
+import {
+  clearPendingUsefulness,
+  readPendingUsefulness,
+  recordHoyActionFeedback,
+  stashPendingUsefulness,
+  usefulnessFromChoice,
+  type PendingUsefulness,
+} from "./hoyActionFeedback";
 
 interface PatientStateResponse {
   longitudinal?: LongitudinalStateOut | null;
@@ -25,6 +33,9 @@ export default function PatientDashboard() {
   const [message, setMessage] = useState<string | null>(null);
   const [pendingLinks, setPendingLinks] = useState<AssignmentOut[]>([]);
   const [showSuggestedAction, setShowSuggestedAction] = useState(true);
+  const [pendingUsefulness, setPendingUsefulness] = useState<PendingUsefulness | null>(null);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   async function loadTimeline() {
     const data = await api.get<PatientTimelineOut>("/api/v1/timeline?window_days=30");
@@ -50,7 +61,68 @@ export default function PatientDashboard() {
       .get<AssignmentOut[]>("/api/v1/assignments/mine")
       .then((rows) => setPendingLinks(rows.filter((r) => r.status === "pending")))
       .catch(() => undefined);
+    setPendingUsefulness(readPendingUsefulness());
   }, []);
+
+  async function onAcceptSuggestedAction() {
+    if (feedbackBusy) return;
+    setFeedbackBusy(true);
+    setFeedbackMessage(null);
+    try {
+      await recordHoyActionFeedback({
+        actionId: suggestedAction.actionId,
+        state: "accepted",
+        driver: suggestedAction.driver,
+      });
+      stashPendingUsefulness({
+        actionId: suggestedAction.actionId,
+        driver: suggestedAction.driver,
+        title: suggestedAction.title,
+      });
+      navigate(suggestedAction.route);
+    } finally {
+      setFeedbackBusy(false);
+    }
+  }
+
+  async function onPostponeSuggestedAction() {
+    if (feedbackBusy) return;
+    setFeedbackBusy(true);
+    setFeedbackMessage(null);
+    try {
+      await recordHoyActionFeedback({
+        actionId: suggestedAction.actionId,
+        state: "postponed",
+        driver: suggestedAction.driver,
+      });
+      setShowSuggestedAction(false);
+    } finally {
+      setFeedbackBusy(false);
+    }
+  }
+
+  async function onUsefulnessChoice(choice: "helped" | "somewhat" | "not_really") {
+    if (!pendingUsefulness || feedbackBusy) return;
+    setFeedbackBusy(true);
+    try {
+      await recordHoyActionFeedback({
+        actionId: pendingUsefulness.actionId,
+        state: "completed",
+        driver: pendingUsefulness.driver,
+        usefulness: usefulnessFromChoice(choice),
+      });
+      clearPendingUsefulness();
+      setPendingUsefulness(null);
+      setFeedbackMessage("Gracias. Queda registrado si te resultó útil, sin borrar la sugerencia.");
+    } finally {
+      setFeedbackBusy(false);
+    }
+  }
+
+  function onSkipUsefulness() {
+    clearPendingUsefulness();
+    setPendingUsefulness(null);
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -115,6 +187,57 @@ export default function PatientDashboard() {
         </section>
       )}
 
+      {pendingUsefulness && (
+        <section className="hoy-next" aria-label="Utilidad de la opción anterior">
+          <article className="hoy-next__card hoy-next__card--feedback">
+            <div>
+              <p className="hoy-kicker">Después de la opción</p>
+              <h2 className="hoy-next__title">¿Te resultó útil «{pendingUsefulness.title}»?</h2>
+              <p className="hoy-next__body">
+                Tu respuesta se guarda como feedback de la intervención. No cambia tu comparación ni un nivel de
+                alerta, y no borra la sugerencia que viste.
+              </p>
+            </div>
+            <div className="hoy-next__controls">
+              <button type="button" disabled={feedbackBusy} onClick={() => onUsefulnessChoice("helped")}>
+                Sí, ayudó
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={feedbackBusy}
+                onClick={() => onUsefulnessChoice("somewhat")}
+              >
+                Un poco
+              </button>
+              <button
+                type="button"
+                className="btn-quiet"
+                disabled={feedbackBusy}
+                onClick={() => onUsefulnessChoice("not_really")}
+              >
+                No especialmente
+              </button>
+              <button
+                type="button"
+                className="btn-quiet"
+                disabled={feedbackBusy}
+                onClick={onSkipUsefulness}
+                aria-label="Omitir valoración de utilidad"
+              >
+                Omitir
+              </button>
+            </div>
+          </article>
+        </section>
+      )}
+
+      {feedbackMessage && (
+        <p className="info hoy-feedback-status" aria-live="polite" role="status">
+          {feedbackMessage}
+        </p>
+      )}
+
       <section className="hoy-next" aria-label="Siguiente paso">
         {showSuggestedAction ? (
           <article className="hoy-next__card">
@@ -124,13 +247,14 @@ export default function PatientDashboard() {
               <p className="hoy-next__body">{suggestedAction.body}</p>
             </div>
             <div className="hoy-next__controls">
-              <button type="button" onClick={() => navigate(suggestedAction.route)}>
+              <button type="button" disabled={feedbackBusy} onClick={onAcceptSuggestedAction}>
                 {suggestedAction.button}
               </button>
               <button
                 type="button"
                 className="btn-quiet"
-                onClick={() => setShowSuggestedAction(false)}
+                disabled={feedbackBusy}
+                onClick={onPostponeSuggestedAction}
                 aria-label="Ocultar sugerencia por ahora"
               >
                 No ahora

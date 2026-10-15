@@ -123,3 +123,15 @@ SAFE_GROUNDING_ALTERNATIVES = [
     "Un sabor intenso pero seguro (cítrico, menta fuerte)",
     "Respiración de suspiro fisiológico (inhalación doble por nariz + exhalación larga por boca)",
 ]
+
+# Shown instead of a conversational reply that failed deterministic output
+# validation (app/services/output_validation.py). Server-owned, so it names
+# only the national lines above and never states a risk level.
+AGENT1_OUTPUT_BLOCKED_MESSAGE = (
+    "Prefiero no darte la respuesta que había preparado, porque no cumplía las normas "
+    "de seguridad de esta aplicación.\n\n"
+    "Sigo aquí si quieres contarme algo más. También puedes usar Regular o revisar tu plan "
+    "de seguridad.\n\n"
+    "Si en algún momento sientes que no estás a salvo, llama a la Línea 024 "
+    "(atención a la conducta suicida) o al 112 (emergencias)."
+)
