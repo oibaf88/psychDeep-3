@@ -432,7 +432,7 @@ def ask(
             local_llm_access.assert_can_use_local_llm(professional)
         provider_instance = build_provider(active)
         # Use the selected chat model shared with Agent 1 instead of a separate override.
-        requested_model = active.chat_model or provider_instance.copilot_model
+        requested_model = getattr(provider_instance, "chat_model", None) or active.chat_model or provider_instance.copilot_model
         result = provider_instance.chat(
             system_prompt,
             _recent_turns(db, professional.id, patient.id),

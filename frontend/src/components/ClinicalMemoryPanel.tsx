@@ -41,7 +41,33 @@ type Annotation = {
   created_at: string | null;
 };
 
+type PatientModel = {
+  version_no: number;
+  patient_summary: string;
+  patterns: Array<Record<string, unknown>>;
+  trajectories: Array<Record<string, unknown>>;
+  protective_factors: Array<Record<string, unknown>>;
+  contradictions: Array<Record<string, unknown>>;
+  limitations: string[];
+  coverage: Record<string, unknown>;
+  source_watermark: string | null;
+  created_at: string | null;
+};
+
+type ClinicalDocument = {
+  id: string;
+  original_filename: string;
+  document_type: string;
+  extraction_status: string;
+  analysis_status: string;
+  error_category: string | null;
+  created_at: string | null;
+};
+
 type MemoryView = {
+  linguistic_analysis_consent: boolean;
+  patient_model: PatientModel | null;
+  clinical_documents: ClinicalDocument[];
   formulation: Formulation | null;
   discourse: Discourse[];
   readings: Reading[];
@@ -70,6 +96,9 @@ export default function ClinicalMemoryPanel({
   const [targetId, setTargetId] = useState("");
   const [busy, setBusy] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
+  const [fileToUpload, setFileToUpload] = useState<File | null>(null);
+  const [documentType, setDocumentType] = useState("clinical_report");
+  const [documentDate, setDocumentDate] = useState("");
 
   async function load() {
     setError(null);
@@ -99,6 +128,46 @@ export default function ClinicalMemoryPanel({
       cancelled = true;
     };
   }, [patientId]);
+
+  async function rebuildLongitudinalMemory() {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const result = await api.post<{ status: string; already_queued?: boolean }>(`/api/v1/professional/patients/${patientId}/memory/rebuild`);
+      setInfo(result.already_queued ? "Ya hay una actualización de la memoria en cola." : "Actualización longitudinal puesta en cola; la síntesis aparecerá cuando termine el trabajador de memoria.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo programar la actualización longitudinal.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadClinicalDocument(event: FormEvent) {
+    event.preventDefault();
+    if (!fileToUpload) return;
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const form = new FormData();
+      form.append("file", fileToUpload);
+      form.append("document_type", documentType);
+      if (documentDate) form.append("document_date", documentDate);
+      const result = await api.upload<{ extraction_status: string; analysis_status: string; duplicate?: boolean; original_filename: string }>(
+        `/api/v1/professional/patients/${patientId}/memory/documents`, form,
+      );
+      setFileToUpload(null);
+      setDocumentDate("");
+      setInfo(result.duplicate ? "Ese informe ya estaba registrado." : result.extraction_status === "needs_ocr" ? "Informe guardado, pero necesita OCR porque no se ha extraído texto." : "Informe guardado y análisis longitudinal programado.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo subir el informe clínico.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function acknowledge(noticeId: string) {
     setBusy(true);
@@ -143,8 +212,27 @@ export default function ClinicalMemoryPanel({
       {error && <p className="error">{error}</p>}
       {info && <p className="info">{info}</p>}
       <section className="card">
-        <h2>Formulación</h2>
-        {view.formulation ? (
+        <h2>Formulación longitudinal de la persona</h2>
+        <p className="subtitle">Síntesis general versionada del historial disponible. Es una interpretación provisional, no un diagnóstico ni una evaluación automática de riesgo.</p>
+        {view.patient_model ? (
+          <>
+            <p className="meta">Versión {view.patient_model.version_no}{view.patient_model.created_at ? ` · generada ${formatDateTime(view.patient_model.created_at)}` : ""}{view.patient_model.source_watermark ? ` · fuentes hasta ${formatDateTime(view.patient_model.source_watermark)}` : ""}</p>
+            <p className="patient-longitudinal-summary">{view.patient_model.patient_summary || "La versión actual no contiene una síntesis general."}</p>
+            {view.patient_model.patterns.length > 0 && <><h3>Patrones provisionales</h3><ul>{view.patient_model.patterns.slice(0, 6).map((item, i) => <li key={i}>{String(item.pattern || "Patrón sin descripción")} <span className="meta">{String(item.uncertainty || "incertidumbre no registrada")}</span></li>)}</ul></>}
+            {view.patient_model.trajectories.length > 0 && <><h3>Evolución</h3><ul>{view.patient_model.trajectories.slice(0, 6).map((item, i) => <li key={i}>{String(item.description || "Trayectoria sin descripción")} <span className="meta">{String(item.direction || "dirección no determinada")}</span></li>)}</ul></>}
+            {view.patient_model.protective_factors.length > 0 && <><h3>Recursos protectores</h3><ul>{view.patient_model.protective_factors.slice(0, 5).map((item, i) => <li key={i}>{String(item.factor || "Factor sin descripción")} <span className="meta">{String(item.availability || "disponibilidad no confirmada")}</span></li>)}</ul></>}
+            {view.patient_model.contradictions.length > 0 && <><h3>Contradicciones pendientes</h3><ul>{view.patient_model.contradictions.slice(0, 5).map((item, i) => <li key={i}>{String(item.topic || "Tema")}: {String(item.description || item.interpretation || "Revisión pendiente")}</li>)}</ul></>}
+            {view.patient_model.limitations.length > 0 && <p className="meta">Limitaciones: {view.patient_model.limitations.join(" · ")}</p>}
+          </>
+        ) : (
+          <p className="meta">Todavía no existe una síntesis longitudinal. Consentimiento para análisis: {view.linguistic_analysis_consent ? "activo" : "no consta activo"}. Este permiso es distinto de la autorización profesional de acceso a la ficha.</p>
+        )}
+        <button type="button" className="btn-secondary" disabled={busy || !canAnnotate || !view.linguistic_analysis_consent} onClick={() => void rebuildLongitudinalMemory()}>
+          {busy ? "Procesando…" : "Actualizar comprensión longitudinal"}
+        </button>
+        <details>
+          <summary>Formulación del último tramo (no describe a la persona en su conjunto)</summary>
+          {view.formulation ? (
           <>
             <p>{view.formulation.l0}</p>
             <p>{view.formulation.l1}</p>
@@ -154,8 +242,26 @@ export default function ClinicalMemoryPanel({
             )}
           </>
         ) : (
-          <p className="meta">Todavía no hay una formulación. Hace falta consentimiento de análisis lingüístico y un modelo disponible.</p>
+          <p className="meta">No hay una formulación del último tramo disponible.</p>
         )}
+        </details>
+      </section>
+
+      <section className="card">
+        <h2>Informes clínicos</h2>
+        <p className="subtitle">Los informes se guardan como fuentes atribuidas. La carga no equivale a lectura ni a análisis completado.</p>
+        {view.clinical_documents.length === 0 ? <p className="meta">No hay informes adjuntos.</p> : <ul>{view.clinical_documents.map((doc) => <li key={doc.id}><strong>{doc.original_filename}</strong><span className="meta"> · extracción: {doc.extraction_status} · análisis: {doc.analysis_status}{doc.error_category ? ` · ${doc.error_category}` : ""}{doc.created_at ? ` · ${formatDateTime(doc.created_at)}` : ""}</span></li>)}</ul>}
+        {canAnnotate && <form onSubmit={uploadClinicalDocument}>
+          <label htmlFor="clinical-document-file">Subir informe (PDF, DOCX, TXT o Markdown; hasta 15 MiB)</label>
+          <input id="clinical-document-file" type="file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" onChange={(event) => setFileToUpload(event.target.files?.[0] ?? null)} />
+          <label htmlFor="clinical-document-type">Tipo de informe</label>
+          <select id="clinical-document-type" value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+            <option value="clinical_report">Informe clínico</option><option value="discharge_summary">Informe de alta</option><option value="psychological_report">Informe psicológico</option><option value="psychiatric_report">Informe psiquiátrico</option><option value="medication_report">Informe de medicación</option><option value="other">Otro</option>
+          </select>
+          <label htmlFor="clinical-document-date">Fecha del informe (opcional)</label>
+          <input id="clinical-document-date" type="date" value={documentDate} onChange={(event) => setDocumentDate(event.target.value)} />
+          <button type="submit" disabled={busy || !fileToUpload || !view.linguistic_analysis_consent}>{busy ? "Procesando…" : "Subir y analizar informe"}</button>
+        </form>}
       </section>
 
       <section className="card">

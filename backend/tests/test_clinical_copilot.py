@@ -396,19 +396,20 @@ class CopilotModelTests(unittest.TestCase):
             )
 
         provider = SimpleNamespace(
-            chat=_chat, copilot_model="copilot-big", copilot_effort="xhigh"
+            chat=_chat, chat_model="selected-chat-model", copilot_model="copilot-big",
+            chat_effort="medium", copilot_effort="xhigh"
         )
         return provider, seen
 
-    def test_the_call_requests_the_copilot_model_and_effort(self):
+    def test_the_call_uses_the_selected_chat_model_and_effort(self):
         db = _populated_db()
         provider, seen = self._capture()
         with patch.object(clinical_copilot, "build_provider", return_value=provider):
             clinical_copilot.ask(
                 db, professional=_professional(), patient=_patient(), question="¿Cómo está?"
             )
-        self.assertEqual(seen["model"], "copilot-big")
-        self.assertEqual(seen["effort"], "xhigh")
+        self.assertEqual(seen["model"], "selected-chat-model")
+        self.assertEqual(seen["effort"], "medium")
 
     def test_the_stored_turn_records_the_copilot_model(self):
         db = _populated_db()
@@ -417,7 +418,7 @@ class CopilotModelTests(unittest.TestCase):
             answer = clinical_copilot.ask(
                 db, professional=_professional(), patient=_patient(), question="¿Cómo está?"
             )
-        self.assertEqual(answer.requested_model, "copilot-big")
+        self.assertEqual(answer.requested_model, "selected-chat-model")
 
     def test_a_differing_response_model_is_recorded_separately(self):
         """On a local runtime the loaded weights need not be the configured ones."""
