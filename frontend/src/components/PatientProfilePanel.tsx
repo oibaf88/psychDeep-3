@@ -33,13 +33,19 @@ export interface PatientProfile {
   linguistic_baseline_n: number;
   baseline_is_usable: boolean;
   minimum_signals_for_baseline: number;
-  longitudinal_summary?: string | null;
-  longitudinal_model_version?: number | null;
-  longitudinal_created_at?: string | null;
-  longitudinal_coverage?: Record<string, unknown>;
-  longitudinal_patterns?: Array<{ description?: string; pattern?: string; [key: string]: unknown }>;
-  longitudinal_protective_factors?: Array<{ description?: string; factor?: string; [key: string]: unknown }>;
-  longitudinal_consent_active?: boolean;
+  longitudinal_summary: string | null;
+  longitudinal_model_version: number | null;
+  longitudinal_created_at: string | null;
+  longitudinal_source_watermark: string | null;
+  longitudinal_coverage: Record<string, unknown>;
+  longitudinal_facets: Array<Record<string, unknown>>;
+  longitudinal_patterns: Array<Record<string, unknown>>;
+  longitudinal_trajectories: Array<Record<string, unknown>>;
+  longitudinal_protective_factors: Array<Record<string, unknown>>;
+  longitudinal_contradictions: Array<Record<string, unknown>>;
+  longitudinal_open_questions: Array<Record<string, unknown>>;
+  longitudinal_limitations: string[];
+  longitudinal_consent_active: boolean;
 }
 
 const AXIS_LABELS: Record<string, string> = {
@@ -195,6 +201,52 @@ export default function PatientProfilePanel({
           {profile.previous_portrait}
         </blockquote>
       )}
+
+      <section className="card" aria-labelledby="longitudinal-patient-model">
+        <h3 id="longitudinal-patient-model">Comprensión longitudinal de la persona</h3>
+        {!profile.longitudinal_consent_active ? (
+          <p className="meta">El modelo longitudinal no se muestra porque el consentimiento de análisis no figura activo.</p>
+        ) : profile.longitudinal_summary ? (
+          <>
+            <p>{profile.longitudinal_summary}</p>
+            <p className="meta">
+              Versión {profile.longitudinal_model_version ?? "—"}
+              {profile.longitudinal_created_at ? ` · sintetizada ${new Date(profile.longitudinal_created_at).toLocaleString()}` : ""}
+              {profile.longitudinal_source_watermark ? ` · fuentes hasta ${new Date(profile.longitudinal_source_watermark).toLocaleDateString()}` : ""}
+            </p>
+            {Object.keys(profile.longitudinal_coverage || {}).length > 0 && (
+              <details><summary>Cobertura del registro</summary><pre>{JSON.stringify(profile.longitudinal_coverage, null, 2)}</pre></details>
+            )}
+            {profile.longitudinal_facets.length > 0 && <>
+              <h4>Facetas y circunstancias</h4>
+              <ul>{profile.longitudinal_facets.slice(0, 12).map((item, index) => <li key={String(item.id ?? item.statement ?? index)}>{String(item.statement ?? item.summary ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {profile.longitudinal_patterns.length > 0 && <>
+              <h4>Patrones recurrentes</h4>
+              <ul>{profile.longitudinal_patterns.slice(0, 8).map((item, index) => <li key={String(item.id ?? item.statement ?? index)}>{String(item.statement ?? item.description ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {profile.longitudinal_trajectories.length > 0 && <>
+              <h4>Evolución temporal</h4>
+              <ul>{profile.longitudinal_trajectories.slice(0, 8).map((item, index) => <li key={String(item.id ?? item.topic ?? index)}>{String(item.statement ?? item.description ?? item.topic ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {profile.longitudinal_protective_factors.length > 0 && <>
+              <h4>Fortalezas y factores protectores</h4>
+              <ul>{profile.longitudinal_protective_factors.slice(0, 8).map((item, index) => <li key={String(item.id ?? item.statement ?? index)}>{String(item.statement ?? item.description ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {profile.longitudinal_contradictions.length > 0 && <>
+              <h4>Contradicciones que requieren revisión</h4>
+              <ul>{profile.longitudinal_contradictions.slice(0, 8).map((item, index) => <li key={String(item.id ?? item.statement ?? index)}>{String(item.statement ?? item.description ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {profile.longitudinal_open_questions.length > 0 && <>
+              <h4>Preguntas abiertas</h4>
+              <ul>{profile.longitudinal_open_questions.slice(0, 8).map((item, index) => <li key={String(item.id ?? item.question ?? index)}>{String(item.question ?? item.statement ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {profile.longitudinal_limitations.length > 0 && <p className="meta">Limitaciones: {profile.longitudinal_limitations.join(" · ")}</p>}
+          </>
+        ) : (
+          <p className="meta">Aún no existe una síntesis longitudinal disponible. El retrato editable de arriba no se sustituye por comentarios recientes.</p>
+        )}
+      </section>
 
       <h3>Temas abiertos</h3>
       <p className="meta">

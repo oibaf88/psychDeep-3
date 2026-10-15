@@ -407,29 +407,26 @@ def ask(
     db.commit()
 
     dossier, counts = build_dossier_text(db, patient, window_days)
-    # Share the consent-gated whole-person context used by patient conversation.
     longitudinal_context = ""
     try:
         from app.services.patient_understanding import patient_model_context_block
-        longitudinal_context = patient_model_context_block(
-            db, patient.id, question, in_crisis=False
-        ) or ""
+        longitudinal_context = patient_model_context_block(db, patient.id, question, in_crisis=False)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Longitudinal context omitted from copilot safely: %s", type(exc).__name__)
+        logger.warning("Longitudinal context omitted from copilot: %s", type(exc).__name__)
     counts["whole_person_memory_included"] = int(bool(longitudinal_context))
     system_prompt = (
         AGENT3_SYSTEM_PROMPT
         + "\n\n### EXPEDIENTE DEL PACIENTE SELECCIONADO\n"
         + dossier
         + (
-            "\n\n### MEMORIA LONGITUDINAL DEL PACIENTE (resumen provisional y trazable)\n"
+            "\n\n### MEMORIA LONGITUDINAL (síntesis provisional, limitada y trazable)\n"
             + longitudinal_context
-            if longitudinal_context
-            else "\n\n### MEMORIA LONGITUDINAL\nNo hay un modelo longitudinal disponible o su uso no está autorizado."
+            if longitudinal_context else
+            "\n\n### MEMORIA LONGITUDINAL\nNo hay síntesis disponible o no está autorizada para este uso."
         )
         + "\n\n### FIN DEL EXPEDIENTE\n"
-        + "Integra las fuentes y la memoria longitudinal sin convertir hipótesis en hechos. "
-        + "Responde solo con lo que sostengan las fuentes. Si algo no está aquí, dilo."
+        + "Integra el expediente y la memoria sin convertir hipótesis en hechos. Distingue declaraciones, "
+          "documentos clínicos, observaciones e inferencias. Si las fuentes no sostienen una conclusión, indícalo."
     )
 
     # Resolved once, so the row records the model that actually answered
@@ -442,13 +439,14 @@ def ask(
         if active.provider == llm_config.PROVIDER_LOCAL:
             local_llm_access.assert_can_use_local_llm(professional)
         provider_instance = build_provider(active)
-        # All agents use the model selected in "Mis modelos".
-        requested_model = active.chat_model
+        # Use the same active chat model as the other conversational agents.
+        requested_model = getattr(provider_instance, "chat_model", None) or provider_instance.copilot_model
         result = provider_instance.chat(
             system_prompt,
             _recent_turns(db, professional.id, patient.id),
             max_tokens=MAX_ANSWER_TOKENS,
             model=requested_model,
+            effort=getattr(provider_instance, "chat_effort", None) or getattr(provider_instance, "copilot_effort", None) or None,
         )
         content = result.text.strip()
         # What the server said answered, falling back to what we asked for.
