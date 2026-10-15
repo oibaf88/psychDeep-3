@@ -87,6 +87,22 @@ function normalizeProfile(data: PatientProfile): PatientProfile {
   };
 }
 
+export function formatLongitudinalItem(
+  item: Record<string, unknown>,
+  preferredFields: string[],
+): string {
+  for (const field of preferredFields) {
+    const value = item[field];
+    if (typeof value === "string" && value.trim()) return value;
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+  }
+  try {
+    return JSON.stringify(item) ?? "Detalle no disponible";
+  } catch {
+    return "Detalle no disponible";
+  }
+}
+
 const AXIS_LABELS: Record<string, string> = {
   rumination_score: "Rumiación",
   negative_valence: "Valencia negativa",
@@ -181,13 +197,13 @@ export default function PatientProfilePanel({
           {(profile.longitudinal_patterns?.length ?? 0) > 0 && <>
             <h4>Patrones longitudinales provisionales</h4>
             <ul>{profile.longitudinal_patterns?.map((item, index) => (
-              <li key={index}>{item.description ?? item.pattern ?? JSON.stringify(item)}</li>
+              <li key={index}>{formatLongitudinalItem(item, ["description", "pattern"])}</li>
             ))}</ul>
           </>}
           {(profile.longitudinal_protective_factors?.length ?? 0) > 0 && <>
             <h4>Factores protectores documentados</h4>
             <ul>{profile.longitudinal_protective_factors?.map((item, index) => (
-              <li key={index}>{item.description ?? item.factor ?? JSON.stringify(item)}</li>
+              <li key={index}>{formatLongitudinalItem(item, ["description", "factor"])}</li>
             ))}</ul>
           </>}
           <p className="meta">Síntesis inferida a partir de fuentes longitudinales; no es un diagnóstico ni una verdad confirmada. Contrástala con las citas y con la evaluación profesional.</p>
