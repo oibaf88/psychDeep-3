@@ -38,7 +38,7 @@ def test_longitudinal_checkpoint_is_idempotently_coalesced_per_day():
     with patch.object(memory_pipeline, "enqueue_memory_job", return_value=False) as enqueue:
         memory_pipeline._enqueue_longitudinal_checkpoint(
             db,
-            "user-synthetic",
+            "00000000-0000-0000-0000-000000000001",
             {"source_id": "source-synthetic", "source_table": "memory_event_ledger"},
         )
     enqueue.assert_called_once()
@@ -52,12 +52,12 @@ def test_longitudinal_checkpoint_uses_stable_source_reference_and_daily_key():
     with patch.object(memory_pipeline, "enqueue_memory_job", return_value=True) as enqueue:
         memory_pipeline._enqueue_longitudinal_checkpoint(
             db,
-            "user-synthetic",
+            "00000000-0000-0000-0000-000000000001",
             {"source_id": "source-synthetic", "source_table": "memory_event_ledger"},
         )
     enqueue.assert_called_once_with(
         db,
-        user_id="user-synthetic",
+        user_id="00000000-0000-0000-0000-000000000001",
         job_type="longitudinal_analysis",
         source_table="memory_event_ledger",
         source_id="source-synthetic",
@@ -71,7 +71,7 @@ def test_longitudinal_retrieval_does_not_query_when_consent_is_absent():
     with patch("app.services.consent.is_granted", return_value=False):
         result = memory_pipeline.retrieve_longitudinal_context(
             db,
-            user_id="user-synthetic",
+            user_id="00000000-0000-0000-0000-000000000001",
             query="tema sintético",
             budget_tokens=100,
         )
@@ -82,7 +82,7 @@ def test_longitudinal_retrieval_does_not_query_when_consent_is_absent():
 def test_worker_preserves_episode_error_category_in_dead_letter():
     db = MagicMock()
     job = {
-        "id": "job-synthetic", "user_id": "user-synthetic",
+        "id": "job-synthetic", "user_id": "00000000-0000-0000-0000-000000000001",
         "job_type": "longitudinal_analysis", "source_table": "memory_event_ledger",
         "source_id": "source-synthetic", "attempts": 5, "max_attempts": 5,
     }
