@@ -37,6 +37,15 @@ _PERSPECTIVES = {
 _UNCERTAINTY = {"low", "medium", "high", "unknown"}
 
 
+def safe_exception_frames(exc: BaseException, limit: int = 8) -> str:
+    """Return code locations only; never log exception messages or clinical payloads."""
+    frames = traceback.extract_tb(exc.__traceback__)[-max(1, limit):]
+    return " > ".join(
+        f"{frame.filename.replace(chr(92), '/').rsplit('/', 1)[-1]}:{frame.lineno}:{frame.name}"
+        for frame in frames
+    )
+
+
 def stable_hash(value: str | bytes | dict[str, Any]) -> str:
     """Stable SHA-256 for cache/provenance keys; not encryption."""
     if isinstance(value, dict):
@@ -991,8 +1000,9 @@ def run_memory_worker_once(db: Session) -> bool:
             "job_id": str(job["id"]),
         })
         db.commit()
-        logger.warning(
-            "Memory job failed safely type=%s job_type=%s dead_letter=%s",
-            type(exc).__name__, job.get("job_type"), dead,
+        logger.error(
+            "Memory job failed safely category=%s job_type=%s job_id=%s dead_letter=%s frames=%s",
+            type(exc).__name__, job.get("job_type"), str(job.get("id", ""))[:64],
+            dead, safe_exception_frames(exc),
         )
     return True
