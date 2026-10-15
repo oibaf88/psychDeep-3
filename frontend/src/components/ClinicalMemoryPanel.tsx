@@ -55,13 +55,55 @@ type PatientModel = {
 type MemoryView = {
   linguistic_analysis_consent?: boolean;
   patient_model?: PatientModel | null;
-  formulation: Formulation | null;
+  formulation?: Formulation | null;
   formulation_history?: Array<{ id: string; l0: string; acute_episode: boolean; created_at: string | null }>;
   discourse?: Discourse[];
   readings?: Reading[];
   notices?: Notice[];
   annotations?: Annotation[];
 };
+
+function normalizePatientModel(value: unknown): PatientModel | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const listOfRecords = (key: string) =>
+    Array.isArray(raw[key]) ? (raw[key] as unknown[]).filter(
+      (item): item is Record<string, unknown> =>
+        item !== null && typeof item === "object" && !Array.isArray(item),
+    ) : [];
+  return {
+    version_no: typeof raw.version_no === "number" ? raw.version_no : 0,
+    patient_summary: typeof raw.patient_summary === "string" ? raw.patient_summary : "",
+    facets: listOfRecords("facets"),
+    patterns: listOfRecords("patterns"),
+    trajectories: listOfRecords("trajectories"),
+    protective_factors: listOfRecords("protective_factors"),
+    contradictions: listOfRecords("contradictions"),
+    open_questions: listOfRecords("open_questions"),
+    limitations: Array.isArray(raw.limitations)
+      ? raw.limitations.filter((item): item is string => typeof item === "string")
+      : [],
+    coverage: raw.coverage && typeof raw.coverage === "object" && !Array.isArray(raw.coverage)
+      ? raw.coverage as Record<string, unknown>
+      : {},
+    source_watermark: typeof raw.source_watermark === "string" ? raw.source_watermark : null,
+    created_at: typeof raw.created_at === "string" ? raw.created_at : null,
+  };
+}
+
+function normalizeMemoryView(data: MemoryView): MemoryView {
+  return {
+    ...data,
+    patient_model: normalizePatientModel(data?.patient_model),
+    formulation: data?.formulation && typeof data.formulation === "object" ? data.formulation : null,
+    discourse: Array.isArray(data?.discourse) ? data.discourse.filter(Boolean) : [],
+    readings: Array.isArray(data?.readings) ? data.readings.filter(Boolean) : [],
+    notices: Array.isArray(data?.notices) ? data.notices.filter(Boolean) : [],
+    annotations: Array.isArray(data?.annotations) ? data.annotations.filter(Boolean) : [],
+    formulation_history: Array.isArray(data?.formulation_history) ? data.formulation_history.filter(Boolean) : [],
+    linguistic_analysis_consent: data?.linguistic_analysis_consent === true,
+  };
+}
 
 const REASONS: Record<string, string> = {
   medication_talk_without_act: "Habla de la medicación. Eso no confirma la toma.",
@@ -89,15 +131,9 @@ export default function ClinicalMemoryPanel({
     setError(null);
     try {
       const data = await api.get<MemoryView>(`/api/v1/professional/patients/${patientId}/memory`);
-      setView({
-        ...data,
-        discourse: Array.isArray(data.discourse) ? data.discourse : [],
-        readings: Array.isArray(data.readings) ? data.readings : [],
-        notices: Array.isArray(data.notices) ? data.notices : [],
-        annotations: Array.isArray(data.annotations) ? data.annotations : [],
-        formulation_history: Array.isArray(data.formulation_history) ? data.formulation_history : [],
-      });
-      setTargetId((current) => current || data.discourse?.[0]?.id || "");
+      const normalized = normalizeMemoryView(data);
+      setView(normalized);
+      setTargetId((current) => current || normalized.discourse?.[0]?.id || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo leer la memoria clínica.");
     }
@@ -111,15 +147,9 @@ export default function ClinicalMemoryPanel({
       .get<MemoryView>(`/api/v1/professional/patients/${patientId}/memory`)
       .then((data) => {
         if (cancelled) return;
-        setView({
-          ...data,
-          discourse: Array.isArray(data.discourse) ? data.discourse : [],
-          readings: Array.isArray(data.readings) ? data.readings : [],
-          notices: Array.isArray(data.notices) ? data.notices : [],
-          annotations: Array.isArray(data.annotations) ? data.annotations : [],
-          formulation_history: Array.isArray(data.formulation_history) ? data.formulation_history : [],
-        });
-        setTargetId(data.discourse?.[0]?.id || "");
+        const normalized = normalizeMemoryView(data);
+        setView(normalized);
+        setTargetId(normalized.discourse?.[0]?.id || "");
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "No se pudo leer la memoria clínica.");
