@@ -707,7 +707,40 @@ def patient_profile(
     patient, and one nobody can correct is one nobody should trust.
     """
     _require_clinical_read(db, professional, patient_id)
-    return PatientProfileOut(**profile_service.as_dict(profile_service.get(db, patient_id)))
+    data = profile_service.as_dict(profile_service.get(db, patient_id))
+    data.update({
+        "longitudinal_summary": None, "longitudinal_model_version": None,
+        "longitudinal_created_at": None, "longitudinal_source_watermark": None,
+        "longitudinal_coverage": {}, "longitudinal_facets": [], "longitudinal_patterns": [],
+        "longitudinal_trajectories": [], "longitudinal_protective_factors": [],
+        "longitudinal_contradictions": [], "longitudinal_open_questions": [],
+        "longitudinal_limitations": [], "longitudinal_consent_active": False,
+    })
+    try:
+        from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+        from app.services.patient_understanding import latest_patient_model
+        data["longitudinal_consent_active"] = is_granted(db, patient_id, LINGUISTIC_ANALYSIS)
+        if data["longitudinal_consent_active"]:
+            snapshot = latest_patient_model(db, patient_id)
+            if snapshot is not None and isinstance(snapshot.model_json, dict):
+                model = snapshot.model_json
+                data.update({
+                    "longitudinal_summary": model.get("patient_summary"),
+                    "longitudinal_model_version": snapshot.version_no,
+                    "longitudinal_created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
+                    "longitudinal_source_watermark": snapshot.source_watermark.isoformat() if snapshot.source_watermark else None,
+                    "longitudinal_coverage": snapshot.coverage or {},
+                    "longitudinal_facets": model.get("facets") if isinstance(model.get("facets"), list) else [],
+                    "longitudinal_patterns": model.get("patterns") if isinstance(model.get("patterns"), list) else [],
+                    "longitudinal_trajectories": model.get("trajectories") if isinstance(model.get("trajectories"), list) else [],
+                    "longitudinal_protective_factors": model.get("protective_factors") if isinstance(model.get("protective_factors"), list) else [],
+                    "longitudinal_contradictions": model.get("contradictions") if isinstance(model.get("contradictions"), list) else [],
+                    "longitudinal_open_questions": model.get("open_questions") if isinstance(model.get("open_questions"), list) else [],
+                    "longitudinal_limitations": model.get("limitations") if isinstance(model.get("limitations"), list) else [],
+                })
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Longitudinal profile projection unavailable: %s", type(exc).__name__)
+    return PatientProfileOut(**data)
 
 
 @router.put("/patients/{patient_id}/profile", response_model=PatientProfileOut)
