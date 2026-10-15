@@ -1100,6 +1100,30 @@ def bundle(db: Session, user_id) -> dict[str, Any]:
         .limit(8)
         .all()
     )
+    patient_model = None
+    if is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+        try:
+            from app.services.patient_understanding import latest_patient_model
+
+            snapshot = latest_patient_model(db, user_id)
+            if snapshot is not None and isinstance(snapshot.model_json, dict):
+                model = snapshot.model_json
+                patient_model = {
+                    "version_no": snapshot.version_no,
+                    "patient_summary": str(model.get("patient_summary") or ""),
+                    "facets": model.get("facets") if isinstance(model.get("facets"), list) else [],
+                    "patterns": model.get("patterns") if isinstance(model.get("patterns"), list) else [],
+                    "trajectories": model.get("trajectories") if isinstance(model.get("trajectories"), list) else [],
+                    "protective_factors": model.get("protective_factors") if isinstance(model.get("protective_factors"), list) else [],
+                    "contradictions": model.get("contradictions") if isinstance(model.get("contradictions"), list) else [],
+                    "open_questions": model.get("open_questions") if isinstance(model.get("open_questions"), list) else [],
+                    "limitations": model.get("limitations") if isinstance(model.get("limitations"), list) else [],
+                    "coverage": snapshot.coverage or {},
+                    "source_watermark": snapshot.source_watermark,
+                    "created_at": snapshot.created_at,
+                }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Longitudinal memory tab projection unavailable: %s", type(exc).__name__)
     return {
         "formulation": formulation,
         "formulation_history": versions,
@@ -1107,6 +1131,8 @@ def bundle(db: Session, user_id) -> dict[str, Any]:
         "readings": readings,
         "notices": notices,
         "annotations": notes,
+        "patient_model": patient_model,
+        "linguistic_analysis_consent": is_granted(db, user_id, LINGUISTIC_ANALYSIS),
     }
 
 

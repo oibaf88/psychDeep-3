@@ -37,7 +37,24 @@ type Annotation = {
   target_id: string;
   created_at: string | null;
 };
+type PatientModel = {
+  version_no: number;
+  patient_summary: string;
+  facets: Array<Record<string, unknown>>;
+  patterns: Array<Record<string, unknown>>;
+  trajectories: Array<Record<string, unknown>>;
+  protective_factors: Array<Record<string, unknown>>;
+  contradictions: Array<Record<string, unknown>>;
+  open_questions: Array<Record<string, unknown>>;
+  limitations: string[];
+  coverage: Record<string, unknown>;
+  source_watermark: string | null;
+  created_at: string | null;
+};
+
 type MemoryView = {
+  linguistic_analysis_consent?: boolean;
+  patient_model?: PatientModel | null;
   formulation: Formulation | null;
   formulation_history?: Array<{ id: string; l0: string; acute_episode: boolean; created_at: string | null }>;
   discourse?: Discourse[];
@@ -160,6 +177,49 @@ export default function ClinicalMemoryPanel({
     <div>
       {error && <p className="error">{error}</p>}
       {info && <p className="info">{info}</p>}
+      <section className="card">
+        <h2>Comprensión longitudinal de la persona</h2>
+        {!view.linguistic_analysis_consent ? (
+          <p className="meta">No se muestra una síntesis longitudinal porque el consentimiento de análisis no figura activo.</p>
+        ) : view.patient_model?.patient_summary ? (
+          <>
+            <p>{view.patient_model.patient_summary}</p>
+            <p className="meta">
+              Versión {view.patient_model.version_no}
+              {view.patient_model.created_at ? ` · sintetizada ${formatDateTime(view.patient_model.created_at)}` : ""}
+              {view.patient_model.source_watermark ? ` · fuentes hasta ${formatDateTime(view.patient_model.source_watermark)}` : ""}
+            </p>
+            {view.patient_model.facets.length > 0 && <>
+              <h3>Facetas y circunstancias</h3>
+              <ul>{view.patient_model.facets.slice(0, 12).map((item, index) => <li key={String(item.id ?? item.statement ?? index)}>{String(item.statement ?? item.summary ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {view.patient_model.patterns.length > 0 && <>
+              <h3>Patrones recurrentes</h3>
+              <ul>{view.patient_model.patterns.slice(0, 8).map((item, index) => <li key={String(item.id ?? item.statement ?? index)}>{String(item.statement ?? item.description ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {view.patient_model.trajectories.length > 0 && <>
+              <h3>Evolución temporal</h3>
+              <ul>{view.patient_model.trajectories.slice(0, 8).map((item, index) => <li key={String(item.id ?? item.topic ?? index)}>{String(item.statement ?? item.description ?? item.topic ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {view.patient_model.protective_factors.length > 0 && <>
+              <h3>Fortalezas y factores protectores</h3>
+              <ul>{view.patient_model.protective_factors.slice(0, 8).map((item, index) => <li key={String(item.id ?? item.statement ?? index)}>{String(item.statement ?? item.description ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {view.patient_model.contradictions.length > 0 && <>
+              <h3>Contradicciones que requieren revisión</h3>
+              <ul>{view.patient_model.contradictions.slice(0, 8).map((item, index) => <li key={String(item.id ?? item.statement ?? index)}>{String(item.statement ?? item.description ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {view.patient_model.open_questions.length > 0 && <>
+              <h3>Preguntas abiertas</h3>
+              <ul>{view.patient_model.open_questions.slice(0, 8).map((item, index) => <li key={String(item.id ?? item.question ?? index)}>{String(item.question ?? item.statement ?? JSON.stringify(item))}</li>)}</ul>
+            </>}
+            {view.patient_model.limitations.length > 0 && <p className="meta">Limitaciones: {view.patient_model.limitations.join(" · ")}</p>}
+          </>
+        ) : (
+          <p className="meta">Aún no hay una síntesis longitudinal disponible. La formulación del último tramo se muestra por separado y no representa por sí sola a toda la persona.</p>
+        )}
+      </section>
+
       <section className="card">
         <h2>Formulación del último tramo</h2>
         {view.formulation ? (
