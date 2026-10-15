@@ -4,7 +4,15 @@ import unittest
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
-from app.content.safety_resources import CRISIS_RESOURCES, crisis_resources, local_resources_label
+from fastapi.testclient import TestClient
+
+from app.content.safety_resources import (
+    CRISIS_RESOURCES,
+    SAFETY_PROTOCOL_VERSION,
+    crisis_resources,
+    local_resources_label,
+)
+from app.main import app
 
 
 class SafetyResourcesScopeTests(unittest.TestCase):
@@ -25,6 +33,20 @@ class SafetyResourcesScopeTests(unittest.TestCase):
 
     def test_crisis_reply_constant_keeps_national_lines(self):
         self.assertEqual([item["contact"] for item in CRISIS_RESOURCES[:2]], ["024", "112"])
+
+    def test_safety_protocol_pack_is_explicitly_versioned(self):
+        # Bump SAFETY_PROTOCOL_VERSION only when the reviewed pack changes.
+        self.assertEqual(SAFETY_PROTOCOL_VERSION, "safety-protocol-v1")
+        self.assertTrue(SAFETY_PROTOCOL_VERSION.startswith("safety-protocol-"))
+
+    def test_resources_endpoint_exposes_protocol_version(self):
+        client = TestClient(app)
+        response = client.get("/api/v1/safety-plan/resources")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["protocol_version"], SAFETY_PROTOCOL_VERSION)
+        self.assertEqual([item["contact"] for item in body["resources"][:2]], ["024", "112"])
+        self.assertIn("safe_grounding_alternatives", body)
 
 
 if __name__ == "__main__":

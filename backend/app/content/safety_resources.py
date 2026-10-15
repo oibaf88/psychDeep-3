@@ -10,6 +10,14 @@ any real-world use. They were current as documented in the source specs
 but this app does not re-verify them at runtime.
 """
 
+# Bump this id only when the crisis resource lists, fixed LEVEL3/LEVEL4
+# patient/professional message templates, forbidden/safe grounding lists or
+# the fixed Agent 1 blocked-output fallback below change as a reviewed pack.
+# Clients and audits read it from GET /api/v1/safety-plan/resources as
+# ``protocol_version``. Do not edit phones, thresholds or wording without
+# clinical review.
+SAFETY_PROTOCOL_VERSION = "safety-protocol-v1"
+
 # National resources (Spain). ALWAYS present, whatever the local setting.
 NATIONAL_CRISIS_RESOURCES = [
     {"name": "Línea 024", "description": "Atención a la conducta suicida (24h, España)", "contact": "024",
