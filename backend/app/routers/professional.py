@@ -707,7 +707,41 @@ def patient_profile(
     patient, and one nobody can correct is one nobody should trust.
     """
     _require_clinical_read(db, professional, patient_id)
-    return PatientProfileOut(**profile_service.as_dict(profile_service.get(db, patient_id)))
+    data = profile_service.as_dict(profile_service.get(db, patient_id))
+    data.update({
+        "longitudinal_summary": None,
+        "longitudinal_model_version": None,
+        "longitudinal_created_at": None,
+        "longitudinal_coverage": {},
+        "longitudinal_patterns": [],
+        "longitudinal_protective_factors": [],
+        "longitudinal_consent_active": False,
+    })
+    try:
+        from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+        from app.services.patient_understanding import latest_patient_model
+
+        data["longitudinal_consent_active"] = is_granted(db, patient_id, LINGUISTIC_ANALYSIS)
+        if data["longitudinal_consent_active"]:
+            snapshot = latest_patient_model(db, patient_id)
+            if snapshot is not None and isinstance(snapshot.model_json, dict):
+                model = snapshot.model_json
+                data.update({
+                    "longitudinal_summary": model.get("patient_summary"),
+                    "longitudinal_model_version": snapshot.version_no,
+                    "longitudinal_created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
+                    "longitudinal_coverage": snapshot.coverage or {},
+                    "longitudinal_patterns": model.get("patterns") if isinstance(model.get("patterns"), list) else [],
+                    "longitudinal_protective_factors": model.get("protective_factors") if isinstance(model.get("protective_factors"), list) else [],
+                })
+    except Exception as exc:
+        # The legacy profile remains readable during rollout or rollback.
+        import logging
+        logging.getLogger("psychapp.professional").warning(
+            "Longitudinal profile projection unavailable: %s", type(exc).__name__
+        )
+        db.rollback()
+    return PatientProfileOut(**data)
 
 
 @router.put("/patients/{patient_id}/profile", response_model=PatientProfileOut)
@@ -748,7 +782,41 @@ def update_patient_profile(
         )
     # No re-evaluation: the profile shapes conversation and comparison, and
     # nothing here is an input the deterministic engine reads as evidence.
-    return PatientProfileOut(**profile_service.as_dict(profile_service.get(db, patient_id)))
+    # Reuse the same projection as GET so the longitudinal synthesis does not
+    # disappear after a clinician edits the manual portrait or open threads.
+    data = profile_service.as_dict(profile_service.get(db, patient_id))
+    data.update({
+        "longitudinal_summary": None,
+        "longitudinal_model_version": None,
+        "longitudinal_created_at": None,
+        "longitudinal_coverage": {},
+        "longitudinal_patterns": [],
+        "longitudinal_protective_factors": [],
+        "longitudinal_consent_active": False,
+    })
+    try:
+        from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+        from app.services.patient_understanding import latest_patient_model
+        data["longitudinal_consent_active"] = is_granted(db, patient_id, LINGUISTIC_ANALYSIS)
+        if data["longitudinal_consent_active"]:
+            snapshot = latest_patient_model(db, patient_id)
+            if snapshot is not None and isinstance(snapshot.model_json, dict):
+                model = snapshot.model_json
+                data.update({
+                    "longitudinal_summary": model.get("patient_summary"),
+                    "longitudinal_model_version": snapshot.version_no,
+                    "longitudinal_created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
+                    "longitudinal_coverage": snapshot.coverage or {},
+                    "longitudinal_patterns": model.get("patterns") if isinstance(model.get("patterns"), list) else [],
+                    "longitudinal_protective_factors": model.get("protective_factors") if isinstance(model.get("protective_factors"), list) else [],
+                })
+    except Exception as exc:
+        import logging
+        logging.getLogger("psychapp.professional").warning(
+            "Longitudinal profile projection unavailable: %s", type(exc).__name__
+        )
+        db.rollback()
+    return PatientProfileOut(**data)
 
 
 @router.post(
