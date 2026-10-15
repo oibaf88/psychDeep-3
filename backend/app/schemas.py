@@ -738,6 +738,19 @@ class PatientProfileOut(BaseModel):
     linguistic_baseline_n: int = 0
     baseline_is_usable: bool = False
     minimum_signals_for_baseline: int = 0
+    longitudinal_summary: Optional[str] = None
+    longitudinal_model_version: Optional[int] = None
+    longitudinal_created_at: Optional[str] = None
+    longitudinal_source_watermark: Optional[str] = None
+    longitudinal_coverage: dict[str, Any] = {}
+    longitudinal_facets: list[dict[str, Any]] = []
+    longitudinal_patterns: list[dict[str, Any]] = []
+    longitudinal_trajectories: list[dict[str, Any]] = []
+    longitudinal_protective_factors: list[dict[str, Any]] = []
+    longitudinal_contradictions: list[dict[str, Any]] = []
+    longitudinal_open_questions: list[dict[str, Any]] = []
+    longitudinal_limitations: list[str] = []
+    longitudinal_consent_active: bool = False
 
 
 class SignalRefutationIn(BaseModel):
