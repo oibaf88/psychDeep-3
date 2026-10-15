@@ -543,12 +543,9 @@ def _selected_model_structured_analysis(
             else:
                 info.pop("authenticated_user_id", None)
 
-    selected_model = getattr(provider, "chat_model", None)
-    if not isinstance(selected_model, str) or not selected_model.strip():
-        selected_model = None
-    result = provider.analyze_structured(
-        system_prompt, user_text, tool_schema, model=selected_model
-    )
+    # Calling without a per-call model override uses the provider's configured
+    # analysis_model, exactly like the other structured agents.
+    result = provider.analyze_structured(system_prompt, user_text, tool_schema)
     # The existing provider usage recorder tracks tokens; a vNext ModelRun FK
     # is optional, so do not manufacture a trace for a different deployment.
     return SimpleNamespace(result=result, model_run_id=None)
