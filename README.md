@@ -72,7 +72,7 @@ The migration backfills canonical compatibility rows with references to legacy s
 
 1. Stores the check-in and commits it.
 2. Dual-writes `mood`, `craving`, `sleep_hours` and `self_efficacy` into `observations`. Notes become a `checkin_context` observation. That write commits separately.
-3. Recomputes the canonical trajectory (`refresh_trajectory` → `run_canonical_analytics`, algorithm `canonical-structural-v2`).
+3. Recomputes the canonical trajectory (`refresh_trajectory` → `run_canonical_analytics`, algorithm `canonical-structural-v3`).
 4. Runs the deterministic risk engine. This step still runs when step 3 fails.
 
 `POST /api/v1/observations` stores an observation and does not recompute the trajectory. `POST /api/v1/analytics/run` recomputes it and does not calculate risk. `GET /api/v1/state` only reads stored rows: `safety` is the latest `RiskAssessment`; `longitudinal` is the current `BaselineVersion` plus the newest `ChangeSignal` for each feature on that baseline. Neither read calls a model.
