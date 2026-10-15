@@ -48,6 +48,45 @@ export interface PatientProfile {
   longitudinal_consent_active: boolean;
 }
 
+function normalizeProfile(data: PatientProfile): PatientProfile {
+  const raw = data as PatientProfile & Record<string, unknown>;
+  const listOfRecords = (value: unknown): Array<Record<string, unknown>> =>
+    Array.isArray(value) ? value.filter(
+      (item): item is Record<string, unknown> =>
+        item !== null && typeof item === "object" && !Array.isArray(item),
+    ) : [];
+  return {
+    ...raw,
+    portrait: typeof raw.portrait === "string" ? raw.portrait : null,
+    previous_portrait: typeof raw.previous_portrait === "string" ? raw.previous_portrait : null,
+    portrait_version: typeof raw.portrait_version === "number" ? raw.portrait_version : 0,
+    portrait_edited_by_clinician: raw.portrait_edited_by_clinician === true,
+    open_threads: Array.isArray(raw.open_threads) ? raw.open_threads.filter(
+      (item): item is OpenThread => Boolean(item && typeof item.topic === "string"),
+    ) : [],
+    linguistic_baseline: raw.linguistic_baseline && typeof raw.linguistic_baseline === "object" && !Array.isArray(raw.linguistic_baseline)
+      ? raw.linguistic_baseline : null,
+    linguistic_baseline_n: typeof raw.linguistic_baseline_n === "number" ? raw.linguistic_baseline_n : 0,
+    baseline_is_usable: raw.baseline_is_usable === true,
+    minimum_signals_for_baseline: typeof raw.minimum_signals_for_baseline === "number" ? raw.minimum_signals_for_baseline : 0,
+    longitudinal_summary: typeof raw.longitudinal_summary === "string" ? raw.longitudinal_summary : null,
+    longitudinal_model_version: typeof raw.longitudinal_model_version === "number" ? raw.longitudinal_model_version : null,
+    longitudinal_created_at: typeof raw.longitudinal_created_at === "string" ? raw.longitudinal_created_at : null,
+    longitudinal_source_watermark: typeof raw.longitudinal_source_watermark === "string" ? raw.longitudinal_source_watermark : null,
+    longitudinal_coverage: raw.longitudinal_coverage && typeof raw.longitudinal_coverage === "object" && !Array.isArray(raw.longitudinal_coverage)
+      ? raw.longitudinal_coverage as Record<string, unknown> : {},
+    longitudinal_facets: listOfRecords(raw.longitudinal_facets),
+    longitudinal_patterns: listOfRecords(raw.longitudinal_patterns),
+    longitudinal_trajectories: listOfRecords(raw.longitudinal_trajectories),
+    longitudinal_protective_factors: listOfRecords(raw.longitudinal_protective_factors),
+    longitudinal_contradictions: listOfRecords(raw.longitudinal_contradictions),
+    longitudinal_open_questions: listOfRecords(raw.longitudinal_open_questions),
+    longitudinal_limitations: Array.isArray(raw.longitudinal_limitations)
+      ? raw.longitudinal_limitations.filter((item): item is string => typeof item === "string") : [],
+    longitudinal_consent_active: raw.longitudinal_consent_active === true,
+  };
+}
+
 const AXIS_LABELS: Record<string, string> = {
   rumination_score: "Rumiación",
   negative_valence: "Valencia negativa",
@@ -74,8 +113,9 @@ export default function PatientProfilePanel({
     api
       .get<PatientProfile>(`/api/v1/professional/patients/${patientId}/profile`)
       .then((data) => {
-        setProfile(data);
-        setPortraitDraft(data.portrait || "");
+        const normalized = normalizeProfile(data);
+        setProfile(normalized);
+        setPortraitDraft(normalized.portrait || "");
         setError(null);
       })
       .catch((e) => setError((e as Error).message));
@@ -91,8 +131,9 @@ export default function PatientProfilePanel({
         `/api/v1/professional/patients/${patientId}/profile`,
         body,
       );
-      setProfile(next);
-      setPortraitDraft(next.portrait || "");
+      const normalized = normalizeProfile(next);
+      setProfile(normalized);
+      setPortraitDraft(normalized.portrait || "");
       setSaved(message);
     } catch (e) {
       setError((e as Error).message);
