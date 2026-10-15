@@ -44,13 +44,16 @@ The feature can be enabled only after migrations and privacy/security checks pas
 
 ## Worker and deployment
 
-The background worker is a separate process, not part of the patient-facing chat request. Run it from the backend directory with the same approved database and model-gateway secrets:
+The memory queue never runs deep synthesis inside a patient-facing request. Each task claims an idempotent row, processes a bounded batch, and queues continuation work if needed.
 
-    python scripts/run_memory_worker.py --limit 1
+The current Render workspace has the API and web services but no separate memory-worker service. Therefore the production API starts a bounded daemon worker thread by default (MEMORY_WORKER_EMBEDDED_ENABLED=true), reusing the existing database/model environment without duplicating secrets or requiring a second service. It polls every five seconds while idle and uses the database queue locks so other instances cannot claim an already-locked job. To move to a dedicated Render Background Worker later, set MEMORY_WORKER_EMBEDDED_ENABLED=false on the API and deploy the worker with the same approved database/model configuration.
 
-A Render Background Worker or scheduled job can invoke it repeatedly. Each invocation claims an idempotent queued job, processes a bounded number of episodes/digest groups, records model/run provenance and enqueues a continuation if more work remains. The patient-facing response must never wait for deep synthesis.
+For manual or dedicated-worker use from the backend directory:
 
-The OpenContext adapter remains disabled unless explicitly configured. Before any real content is exported, an authenticated HTTPS deployment with scoped tenant-bound credentials, persistent storage, retention/erasure, backups, access logs, incident response and privacy review must be in place. The initial design does not backfill or duplicate production patient records into OpenContext.
+    python scripts/run_memory_worker.py --once
+    python scripts/run_memory_worker.py --poll-interval 5
+
+The API fails fast in production if any required memory table or backend-only RLS hardening is missing. Apply the additive Supabase migrations in order before deploying code that depends on the whole-person model. Existing chat, diary, profile and clinical-memory rows remain the source of truth; this feature adds new tables and versions rather than rewriting those rows.
 
 ## Validation gates
 

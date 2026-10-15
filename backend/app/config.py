@@ -152,6 +152,12 @@ class Settings(BaseSettings):
     memory_pipeline_context_enabled: bool = False
     memory_pipeline_context_budget_tokens: int = 800
 
+    # The current Render deployment does not have a separate worker service.
+    # Run the bounded queue worker in a daemon thread inside the API process;
+    # a future dedicated worker can disable this setting to avoid duplicate
+    # pollers. Database row locking makes the job queue safe across instances.
+    memory_worker_embedded_enabled: bool = True
+
     # --- App --------------------------------------------------------------
     app_env: str = "local"
     allow_mock_google_login: bool = False
