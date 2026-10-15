@@ -2,6 +2,7 @@
 
 ## P0 — Stabilise and diagnose
 - [x] Add safe code-location telemetry to episode analysis and worker failure boundaries (file/line/function only; no exception text or clinical payload).
+- [x] Preserve the safe underlying analysis category (for example, `TypeError`) on the queue job instead of replacing it with the wrapper `RuntimeError`.
 - [ ] Reproduce the original TypeError against a synthetic fixture and identify the exact failing expression.
 - [ ] Add an isolated regression test for the confirmed root cause.
 - [ ] Verify the current PR #212 memory-panel changes and reconcile them into one reviewable implementation line.
