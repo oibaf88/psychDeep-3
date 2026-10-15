@@ -96,6 +96,8 @@ Why G2 is **not complete**: the operational analytics path and `GET /api/v1/stat
 - [x] ~~Ensure model outage does not remove core storage or deterministic safety processing.~~
 - [x] ~~Keep `ConfirmedFact` semantically separate from provisional LLM inference.~~
 - [~] Version all safety protocols/resources and prove every P0 scenario against the final vNext safety suite.
+  - Server-owned safety pack is now explicitly versioned as `safety-protocol-v1` (`SAFETY_PROTOCOL_VERSION` in `backend/app/content/safety_resources.py`). The pack covers national/local crisis resources, fixed LEVEL3/LEVEL4 patient and professional message templates, and forbidden/safe grounding lists. `GET /api/v1/safety-plan/resources` returns `protocol_version` alongside resources so clients can see which pack was served. Phone numbers, thresholds and message wording were not changed. Tests: `backend/tests/test_safety_resources_scope.py`.
+  - Still open: prove every P0 scenario against the final vNext safety suite; clinical review that listed resources remain current; formal clinical sign-off.
 - [~] Add/complete output validation that blocks or replaces unsafe LLM output with deterministic structured support and logs the event.
   - Agent 1 chat replies are now checked deterministically before the patient sees them (`backend/app/services/output_validation.py`, `agent1-output-validation-v1`). Rules come only from the LLM boundary and server-owned content, not new clinical thresholds: a stated alert/risk level or "sin riesgo" claim, a phone number that is not a server-owned crisis resource (024/112 pass), a substance quantity (mg, ml, gramos, gotas) and the excluded `FORBIDDEN_TECHNIQUES`. At levels 0-2 a failing reply is replaced by the server-owned `AGENT1_OUTPUT_BLOCKED_MESSAGE` (024/112, Regular, plan) and stored without model provenance; at levels 3/4 the failing accompanying prose is dropped and the fixed crisis copy and resources are returned unchanged. Each event writes an `llm_output_blocked` audit row with rule codes, alert level, correlation id and provider/model, never the patient's or the model's text. Alert levels, risk rules and crisis declarations are untouched. Tests: `backend/tests/test_agent1_output_validation.py`.
   - Still open: Agent 2 / copilot / weekly-review outputs are not yet run through this validator; the pattern lists need clinical review for false positives/negatives and a gold regression set; no `ModelRun` status is recorded for a withheld reply yet.
@@ -103,7 +105,7 @@ Why G2 is **not complete**: the operational analytics path and `GET /api/v1/stat
   - Not done. The structural band parameters changed on 2026-10-10 under product-owner authorisation (ADR 0003) as a provisional population prior. They still need formal clinical sign-off. N4 declaration rules, crisis resources and the other rule thresholds were not changed.
 - [ ] Complete the full model regression/gold safety suite including GHB/GBL withdrawal, ambiguous language, clear crisis, hallucination traps, prompt injection and boundary requests.
 
-Why G3 is **not complete**: independence from the LLM is materially improved, but the full specified safety validation package and clinical sign-off are not yet evidenced.
+Why G3 is **not complete**: independence from the LLM is materially improved and the server-owned safety resource pack is versioned (`safety-protocol-v1`), but the full specified safety validation package (P0 scenarios), output validation completion and clinical sign-off are not yet evidenced.
 
 ### G4 — Patient value loop
 
@@ -247,6 +249,7 @@ These completed items are **foundations**. They are not sufficient reasons to ca
   - Evidence: patient state and Hoy, authorised professional summary and dossier, weekly review, roster, copilot, alerts, and the structural-score surfaces keep change bands apart from alert levels. A missing ChangeSignal is not zero and is not “sin riesgo”. See the G2 separation item for the test list.
 - [~] PM-005 Version safety protocols/resources and remove direct LLM dependency.
   - Agent 1 replies now pass deterministic output validation before display; unsafe text is withheld, replaced by server-owned support and audited (see G3).
+  - Progress: crisis resources and fixed safety message templates are versioned as `safety-protocol-v1` and exposed on `GET /api/v1/safety-plan/resources` (`protocol_version`). P0 scenario proof and clinical sign-off remain open.
 - [~] PM-006 Resource-level authorization matrix and comprehensive negative tests.
 - [x] ~~PM-007 Split consent purposes and enforce linguistic-analysis revocation.~~
 - [~] PM-008 ModelRun audit with prompt/model/policy/content versions.
