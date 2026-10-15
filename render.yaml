@@ -1,4 +1,4 @@
-# Render Blueprint for PsychDeep vNext.
+# Render Blueprint for psychDeep-vOG (existing service IDs and database are retained).
 # Clinical data remains in the existing Supabase project. Inference uses the
 # approved local tunnel or explicitly selected commercial provider. Runpod
 # configuration may be staged, but remains hard-disabled.
