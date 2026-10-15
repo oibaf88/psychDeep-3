@@ -12,6 +12,7 @@ interface Resource {
 }
 
 interface ResourcesResponse {
+  protocol_version?: string;
   resources: Resource[];
   local_region?: string | null;
 }
