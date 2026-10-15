@@ -521,9 +521,17 @@ def refresh_trajectory(db: Session, user_id) -> bool:
         run_canonical_analytics(db, user_id)
         return True
     except Exception as exc:  # noqa: BLE001
+        # Keep the self-report and deterministic safety independent, but expose
+        # the PostgreSQL constraint name so persistence failures are diagnosable
+        # without logging SQL parameters or patient data.
+        original = getattr(exc, "orig", None)
+        diagnostic = getattr(original, "diag", None)
+        constraint_name = getattr(diagnostic, "constraint_name", None)
         logger.warning(
-            "Canonical trajectory refresh failed (%s); the self-report and deterministic safety continue.",
+            "Canonical trajectory refresh failed (%s; constraint=%s); "
+            "the self-report and deterministic safety continue.",
             type(exc).__name__,
+            constraint_name or "unknown",
         )
         db.rollback()
         return False
