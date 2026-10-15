@@ -1,4 +1,4 @@
-# PsychDeep vNext operational runbooks
+# psychDeep-vOG operational runbooks
 
 These runbooks are deliberately provider-neutral. Clinical safety must not require the generative model.
 
