@@ -8,3 +8,6 @@
 ## 2026-10-07 - Botones de adjudicación con contexto
 **Learning:** En listas o tarjetas múltiples (como DomainCard) que repiten botones de acción ('Confirmar', 'Refutar'), los usuarios de lectores de pantalla pierden el contexto si no hay `aria-label` específicos que conecten la acción con el ítem concreto.
 **Action:** Usar `aria-label` dinámicos que incluyan el título de la tarjeta o el elemento afectado, incluso en aplicaciones clínicas complejas.
+## 2026-10-07 - Botones de adjudicación con contexto
+**Learning:** En listas o tarjetas múltiples (como DomainCard o listas de alertas) que repiten botones de acción ('Confirmar', 'Refutar', 'Resolver', 'Descartar') y campos de texto (como notas de resolución), los usuarios de lectores de pantalla pierden el contexto si no hay `aria-label` específicos que conecten la acción con el ítem concreto.
+**Action:** Usar `aria-label` dinámicos que incluyan el título de la tarjeta o el elemento afectado (ej. `aria-label={"Resolver alerta " + a.title}`) en todos los botones de acción y campos de texto interactivos dentro de listas iteradas, asegurando el contexto en aplicaciones clínicas complejas.

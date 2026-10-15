@@ -70,6 +70,7 @@ function renderHoy() {
 describe("PatientDashboard longitudinal change", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
   });
 
   it("renders change versus the personal baseline without using the safety alert level", async () => {
@@ -129,7 +130,8 @@ describe("PatientDashboard longitudinal change", () => {
       if (path.startsWith("/api/v1/assignments")) return [];
       throw new Error(`unexpected ${path}`);
     });
-    vi.mocked(api.post).mockImplementation(async () => {
+    vi.mocked(api.post).mockImplementation(async (path: string) => {
+      if (path.startsWith("/api/v1/feedback")) return { id: "evt", state: "postponed" };
       phase = "after";
       return {};
     });
@@ -184,5 +186,58 @@ describe("PatientDashboard longitudinal change", () => {
     await user.click(screen.getByRole("button", { name: "Ocultar sugerencia por ahora" }));
     expect(screen.getByRole("heading", { name: "Puedes dejarlo aquí" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ir a Regular" })).not.toBeInTheDocument();
+  });
+  it("records postponed feedback when No ahora is pressed", async () => {
+    mockGets(insufficientState);
+    vi.mocked(api.post).mockResolvedValue({ id: "evt-postponed", state: "postponed" });
+    const user = userEvent.setup();
+    renderHoy();
+
+    expect(await screen.findByRole("button", { name: "Ocultar sugerencia por ahora" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ocultar sugerencia por ahora" }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith("/api/v1/feedback", {
+        action_id: "hoy.suggest.register_observe",
+        state: "postponed",
+        usefulness: null,
+        reason: "insufficient_observe",
+      });
+    });
+    expect(screen.getByRole("heading", { name: "Puedes dejarlo aquí" })).toBeInTheDocument();
+  });
+
+  it("records accepted feedback and shows usefulness when returning with a pending stash", async () => {
+    sessionStorage.setItem(
+      "psychdeep.hoy.pendingUsefulness",
+      JSON.stringify({
+        actionId: "hoy.suggest.regular_wave",
+        driver: "longitudinal_adverse",
+        title: "Regular una ola",
+        recordedAt: "2026-10-14T08:00:00.000Z",
+      }),
+    );
+    mockGets(calculatedState);
+    vi.mocked(api.post).mockResolvedValue({ id: "evt-done", state: "completed", usefulness: 5 });
+    const user = userEvent.setup();
+    renderHoy();
+
+    const useful = await screen.findByRole("region", { name: "Utilidad de la opción anterior" });
+    expect(useful).toHaveTextContent("¿Te resultó útil «Regular una ola»?");
+    expect(useful).toHaveTextContent(/No cambia tu comparación ni un nivel de alerta/i);
+    expect(useful).not.toHaveTextContent(/sin riesgo|Nivel 4/i);
+
+    await user.click(screen.getByRole("button", { name: "Sí, ayudó" }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith("/api/v1/feedback", {
+        action_id: "hoy.suggest.regular_wave",
+        state: "completed",
+        usefulness: 5,
+        reason: "longitudinal_adverse",
+      });
+    });
+    expect(sessionStorage.getItem("psychdeep.hoy.pendingUsefulness")).toBeNull();
+    expect(await screen.findByText(/Queda registrado si te resultó útil/i)).toBeInTheDocument();
   });
 });

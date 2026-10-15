@@ -147,6 +147,11 @@ class Settings(BaseSettings):
     conversation_context_block_budget_tokens: int = 6500
     conversation_max_history_messages: int = 12
 
+    # Optional source-linked memory context. Disabled until shadow evaluation
+    # has shown retrieval quality and acceptable clinical/privacy behavior.
+    memory_pipeline_context_enabled: bool = False
+    memory_pipeline_context_budget_tokens: int = 800
+
     # --- App --------------------------------------------------------------
     app_env: str = "local"
     allow_mock_google_login: bool = False

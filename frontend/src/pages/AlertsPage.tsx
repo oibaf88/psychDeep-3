@@ -152,19 +152,21 @@ export default function AlertsPage() {
 
           {canManage && (a.status === "open" || a.status === "acknowledged") && (
             <div className="alert-actions stack-actions">
-              {a.status === "open" && <button onClick={() => acknowledge(a.id)}>Marcar como recibida</button>}
+              {a.status === "open" && <button aria-label={`Marcar como recibida alerta: ${a.title}`} onClick={() => acknowledge(a.id)}>Marcar como recibida</button>}
               <input
+                aria-label="Notas de resolución para esta alerta"
                 placeholder="Notas de resolución"
                 value={notes[a.id] || ""}
                 onChange={(e) => setNotes({ ...notes, [a.id]: e.target.value })}
               />
-              <button onClick={() => resolve(a.id)}>Resolver</button>
+              <button aria-label={`Resolver alerta: ${a.title}`} onClick={() => resolve(a.id)}>Resolver</button>
               <input
+                aria-label={a.alert_level === 4 ? "Justificación de descarte (obligatoria)" : "Motivo de descarte"}
                 placeholder={a.alert_level === 4 ? "Justificación de descarte (obligatoria L4)" : "Motivo de descarte"}
                 value={dismiss[a.id] || ""}
                 onChange={(e) => setDismiss({ ...dismiss, [a.id]: e.target.value })}
               />
-              <button className="btn-secondary" onClick={() => dismissAlert(a.id)}>
+              <button aria-label={`Descartar alerta: ${a.title}`} className="btn-secondary" onClick={() => dismissAlert(a.id)}>
                 Descartar
               </button>
             </div>

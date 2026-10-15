@@ -198,6 +198,47 @@ class CanonicalAnalyticsServiceTests(unittest.TestCase):
         self.assertNotIn("risk_assessment_id", response)
         self.assertTrue(all(item["change_value"] is None for item in response["change_signals"]))
 
+    def test_startup_catchup_refreshes_missing_baseline_once(self):
+        _seed_days(
+            self.db,
+            self.user.id,
+            days=14,
+            start_offset_days=20,
+            values={"mood": 5.0, "craving": 4.0, "sleep_hours": 7.0, "self_efficacy": 6.0},
+        )
+        _seed_days(
+            self.db,
+            self.user.id,
+            days=5,
+            start_offset_days=5,
+            values={"mood": 3.0, "craving": 7.0, "sleep_hours": 5.0, "self_efficacy": 3.0},
+        )
+
+        first = canonical_analytics.refresh_stale_trajectories(self.db)
+        self.assertEqual(first, {"checked": 1, "refreshed": 1, "failed": 0})
+        current = (
+            self.db.query(BaselineVersion)
+            .filter(
+                BaselineVersion.user_id == self.user.id,
+                BaselineVersion.algorithm_version == ALGORITHM_VERSION,
+            )
+            .one()
+        )
+        self.assertIn(current.status, ("active", "provisional"))
+
+        # A second startup with no later observation must not create a new run.
+        second = canonical_analytics.refresh_stale_trajectories(self.db)
+        self.assertEqual(second, {"checked": 1, "refreshed": 0, "failed": 0})
+        self.assertEqual(
+            self.db.query(BaselineVersion)
+            .filter(
+                BaselineVersion.user_id == self.user.id,
+                BaselineVersion.algorithm_version == ALGORITHM_VERSION,
+            )
+            .count(),
+            1,
+        )
+
     def test_run_analytics_router_uses_canonical_path_not_risk_engine(self):
         from pathlib import Path
 
