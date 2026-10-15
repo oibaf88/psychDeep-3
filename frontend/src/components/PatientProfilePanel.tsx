@@ -127,7 +127,34 @@ export default function PatientProfilePanel({
 
   return (
     <div className="profile-panel">
-      <h3>Quién es esta persona</h3>
+      <h3>Comprensión longitudinal del paciente</h3>
+      {!profile.longitudinal_consent_active ? (
+        <p className="meta">El modelo longitudinal no se muestra porque el consentimiento de análisis no figura activo.</p>
+      ) : profile.longitudinal_summary ? (
+        <section className="card">
+          <p>{profile.longitudinal_summary}</p>
+          <p className="meta">
+            Versión {profile.longitudinal_model_version ?? "—"}
+            {profile.longitudinal_created_at ? ` · Actualizada ${profile.longitudinal_created_at}` : ""}
+          </p>
+          {(profile.longitudinal_patterns?.length ?? 0) > 0 && <>
+            <h4>Patrones longitudinales provisionales</h4>
+            <ul>{profile.longitudinal_patterns?.map((item, index) => (
+              <li key={index}>{item.description ?? item.pattern ?? JSON.stringify(item)}</li>
+            ))}</ul>
+          </>}
+          {(profile.longitudinal_protective_factors?.length ?? 0) > 0 && <>
+            <h4>Factores protectores documentados</h4>
+            <ul>{profile.longitudinal_protective_factors?.map((item, index) => (
+              <li key={index}>{item.description ?? item.factor ?? JSON.stringify(item)}</li>
+            ))}</ul>
+          </>}
+          <p className="meta">Síntesis inferida a partir de fuentes longitudinales; no es un diagnóstico ni una verdad confirmada. Contrástala con las citas y con la evaluación profesional.</p>
+        </section>
+      ) : (
+        <p className="meta">Aún no hay una síntesis longitudinal disponible. Se mostrará cuando el proceso de memoria haya construido una versión.</p>
+      )}
+      <h3>Retrato editable del profesional</h3>
       {profile.portrait_edited_by_clinician ? (
         <p className="meta">
           Corregido por un profesional. El analizador puede añadir, pero se le indica que no

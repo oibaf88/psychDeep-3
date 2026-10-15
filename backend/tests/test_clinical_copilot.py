@@ -374,17 +374,13 @@ if __name__ == "__main__":
 
 
 class CopilotModelTests(unittest.TestCase):
-    """Agent 3 asks for its own model, and records what answered.
-
-    Before this it silently rode on Agent 1's setting, and the stored turn
-    named the model the app would request now rather than the one that
-    actually produced the text.
-    """
+    """Copilot shares the active chat model and whole-person memory."""
 
     def _capture(self, response_model=None):
         seen = {}
 
-        def _chat(*_args, **kwargs):
+        def _chat(*args, **kwargs):
+            seen["system_prompt"] = args[0] if args else kwargs.get("system_prompt", "")
             seen.update(kwargs)
             return ChatResult(
                 text="Resumen.",
