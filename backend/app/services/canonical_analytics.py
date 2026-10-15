@@ -511,6 +511,64 @@ def run_canonical_analytics(
     )
 
 
+def refresh_stale_trajectories(db: Session) -> dict[str, int]:
+    """Catch up persisted numeric trajectories after a missed/failed refresh.
+
+    A check-in commits before analytics. If analytics then fails, stored
+    observations can be newer than the latest canonical baseline indefinitely:
+    GET /api/v1/state intentionally reads and never recomputes. On startup,
+    refresh only users with numeric observations newer than their latest v3
+    baseline (or without a v3 baseline). This path is deterministic and does
+    not run the risk engine or call an LLM.
+    """
+    from sqlalchemy import func
+
+    latest_observations = (
+        db.query(Observation.user_id, func.max(Observation.occurred_at).label("latest_at"))
+        .filter(Observation.type.in_(list(OBSERVATION_TYPES)))
+        .group_by(Observation.user_id)
+        .all()
+    )
+
+    checked = 0
+    refreshed = 0
+    failed = 0
+    for user_id, latest_at in latest_observations:
+        checked += 1
+        latest_baseline = (
+            db.query(BaselineVersion)
+            .filter(
+                BaselineVersion.user_id == user_id,
+                BaselineVersion.algorithm_version == ALGORITHM_VERSION,
+                BaselineVersion.status.in_(["active", "provisional", "frozen"]),
+            )
+            .order_by(BaselineVersion.created_at.desc())
+            .first()
+        )
+        if latest_baseline is not None and latest_baseline.created_at is not None:
+            try:
+                if _utc(latest_baseline.created_at) >= _utc(latest_at):
+                    continue
+            except (TypeError, ValueError):
+                # Unknown timestamp comparison means stale; better to recompute
+                # than leave a potentially obsolete reading silently active.
+                pass
+
+        if refresh_trajectory(db, user_id):
+            refreshed += 1
+        else:
+            failed += 1
+
+    if refreshed or failed:
+        logger.info(
+            "Canonical trajectory startup catch-up: checked=%s refreshed=%s failed=%s.",
+            checked,
+            refreshed,
+            failed,
+        )
+    return {"checked": checked, "refreshed": refreshed, "failed": failed}
+
+
 def refresh_trajectory(db: Session, user_id) -> bool:
     """Recompute this person's canonical baseline and change signals.
 
