@@ -390,3 +390,32 @@ def test_episode_context_node_preserves_hierarchical_child_refs():
     assert item.item_type == "longitudinal_pattern"
     assert "Resumen con evidencia" in item.text
     assert item.source_refs == ("memory_episode:old-a", "memory_episode:old-b")
+
+
+def test_selected_structured_model_uses_current_provider_defaults(monkeypatch):
+    from app.services.patient_understanding import _selected_model_structured_analysis
+
+    captured = {}
+    db = SimpleNamespace(info={"authenticated_user_id": "previous-account"})
+
+    def analyse(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(value={"ok": True})
+
+    provider = SimpleNamespace(analyze_structured=analyse)
+    monkeypatch.setattr("app.services.llm.get_llm_provider", lambda supplied_db: provider)
+    outcome = _selected_model_structured_analysis(
+        system_prompt="system",
+        user_text="synthetic patient evidence",
+        tool_schema={"name": "test", "input_schema": {"type": "object"}},
+        purpose="test",
+        user_id=uuid.uuid4(),
+        correlation_id=uuid.uuid4(),
+        prompt_version="test-v1",
+        schema_version="test-schema",
+        db=db,
+    )
+    assert outcome.result.value == {"ok": True}
+    assert captured["kwargs"] == {}
+    assert db.info["authenticated_user_id"] == "previous-account"

@@ -1,6 +1,8 @@
 -- Allow canonical analytics to retire prior algorithm versions without failing
--- the refresh transaction. The v3 pipeline explicitly marks v1/v2 rows superseded.
+-- the refresh transaction. Run as the backend owner so it works after RLS hardening.
 begin;
+grant psychdeep_backend to postgres with set true;
+set local role psychdeep_backend;
 
 grant psychdeep_backend to postgres with set true;
 set local role psychdeep_backend;

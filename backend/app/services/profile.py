@@ -81,7 +81,7 @@ LINGUISTIC_BASELINE_MAX_AGE_HOURS = 12
 # turns a rounding difference into a three-sigma event.
 MIN_STD_FOR_DEVIATION = 0.02
 
-MAX_PORTRAIT_CHARS = 1500
+MAX_PORTRAIT_CHARS = 3000
 MAX_OPEN_THREADS = 8
 MAX_THREAD_TOPIC_CHARS = 120
 MAX_THREAD_NOTE_CHARS = 300
@@ -273,23 +273,20 @@ def apply_analyzer_update(db: Session, user_id, block) -> PatientProfile | None:
     """
     if not isinstance(block, dict):
         return None
-    portrait = block.get("portrait")
+    # A single-turn analyser cannot author a whole-person portrait. Doing
+    # so made the field drift toward the latest remark between longitudinal
+    # synthesis runs. Only longitudinal synthesis or a clinician owns it.
     threads = _clean_threads(block.get("open_threads"))
-    portrait_text = str(portrait).strip()[:MAX_PORTRAIT_CHARS] if isinstance(portrait, str) else ""
+    portrait_text = ""
 
-    if not portrait_text and not threads:
+    if not threads:
         return None
 
     try:
         profile = get_or_create(db, user_id)
         now = datetime.utcnow()
-        if portrait_text and portrait_text != (profile.portrait or ""):
-            profile.previous_portrait = profile.portrait
-            profile.portrait = portrait_text
-            profile.portrait_version = (profile.portrait_version or 0) + 1
-            profile.portrait_updated_at = now
-            # The model rewrote it, so it is no longer the clinician's text.
-            profile.portrait_edited_by = None
+        # portrait_text deliberately stays empty: per-turn analysis only
+        # updates the live agenda; explicit clinician edits use the route below.
         if threads:
             profile.open_threads = threads
         profile.updated_at = now
