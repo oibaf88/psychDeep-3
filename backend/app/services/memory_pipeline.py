@@ -595,8 +595,26 @@ def run_memory_job(db: Session, job: dict[str, Any]) -> None:
                    error_category = 'consent_revoked', locked_at = null
              where id = :job_id
         """), {"job_id": str(job["id"])})
+        if job.get("source_table") == "patient_clinical_documents":
+            db.execute(text("""
+                update psychdeep_v12.patient_clinical_documents
+                   set analysis_status = 'blocked', error_category = 'consent_revoked'
+                 where id = :document_id and user_id = :user_id
+            """), {"document_id": str(job["source_id"]), "user_id": str(user_id)})
         db.commit()
         return
+
+    if job.get("source_table") == "patient_clinical_documents":
+        # Report processing state is explicit in the clinician UI. Do not
+        # infer success from an enqueued task or from the presence of raw bytes.
+        db.execute(text("""
+            update psychdeep_v12.patient_clinical_documents
+               set analysis_status = 'analysing', error_category = null
+             where id = :document_id
+               and user_id = :user_id
+               and analysis_status in ('queued', 'analysing')
+        """), {"document_id": str(job["source_id"]), "user_id": str(user_id)})
+        db.commit()
 
     if job_type == "extract_items":
         _materialize_committed_summary(db, job, user_id)
@@ -990,6 +1008,19 @@ def run_memory_worker_once(db: Session) -> bool:
             "dead": dead,
             "job_id": str(job["id"]),
         })
+        if job.get("source_table") == "patient_clinical_documents":
+            db.execute(text("""
+                update psychdeep_v12.patient_clinical_documents
+                   set analysis_status = :document_status,
+                       error_category = :error_category,
+                       analyzed_at = null
+                 where id = :document_id and user_id = :user_id
+            """), {
+                "document_status": "failed" if dead else "queued",
+                "error_category": type(exc).__name__[:64] if dead else None,
+                "document_id": str(job["source_id"]),
+                "user_id": str(job["user_id"]),
+            })
         db.commit()
         logger.warning(
             "Memory job failed safely type=%s job_type=%s dead_letter=%s",
