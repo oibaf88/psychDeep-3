@@ -723,7 +723,7 @@ class PatientProfileIn(BaseModel):
     you do both at once would make one of them accidental.
     """
 
-    portrait: Optional[str] = Field(default=None, max_length=3000)
+    portrait: Optional[str] = Field(default=None, max_length=1500)
     open_threads: Optional[list[OpenThreadIn]] = None
 
 
@@ -738,19 +738,6 @@ class PatientProfileOut(BaseModel):
     linguistic_baseline_n: int = 0
     baseline_is_usable: bool = False
     minimum_signals_for_baseline: int = 0
-    longitudinal_summary: Optional[str] = None
-    longitudinal_model_version: Optional[int] = None
-    longitudinal_created_at: Optional[str] = None
-    longitudinal_source_watermark: Optional[str] = None
-    longitudinal_coverage: dict[str, Any] = Field(default_factory=dict)
-    longitudinal_facets: list[dict[str, Any]] = Field(default_factory=list)
-    longitudinal_patterns: list[dict[str, Any]] = Field(default_factory=list)
-    longitudinal_trajectories: list[dict[str, Any]] = Field(default_factory=list)
-    longitudinal_protective_factors: list[dict[str, Any]] = Field(default_factory=list)
-    longitudinal_contradictions: list[dict[str, Any]] = Field(default_factory=list)
-    longitudinal_open_questions: list[dict[str, Any]] = Field(default_factory=list)
-    longitudinal_limitations: list[str] = Field(default_factory=list)
-    longitudinal_consent_active: bool = False
 
 
 class SignalRefutationIn(BaseModel):

@@ -15,7 +15,6 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Literal
-from types import SimpleNamespace
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
@@ -38,7 +37,6 @@ from app.models_vnext import (
     ModelRun,
     PatientModelQuestion,
     PatientModelVersion,
-    PatientClinicalDocument,
     PsychReading,
     Observation,
 )
@@ -513,44 +511,6 @@ def _ref(kind: str, row_id: Any) -> str:
     return f"{kind}:{row_id}"
 
 
-
-def _selected_model_structured_analysis(
-    *,
-    system_prompt: str,
-    user_text: str,
-    tool_schema: dict[str, Any],
-    purpose: str,
-    user_id,
-    correlation_id,
-    prompt_version: str,
-    schema_version: str,
-    db: Session,
-):
-    """Use the active app provider and its selected chat model for structured memory work."""
-    from app.services.llm import get_llm_provider
-
-    info = getattr(db, "info", None)
-    had_identity = isinstance(info, dict) and "authenticated_user_id" in info
-    previous_identity = info.get("authenticated_user_id") if isinstance(info, dict) else None
-    if isinstance(info, dict):
-        info["authenticated_user_id"] = uuid.UUID(str(user_id))
-    try:
-        provider = get_llm_provider(db)
-    finally:
-        if isinstance(info, dict):
-            if had_identity:
-                info["authenticated_user_id"] = previous_identity
-            else:
-                info.pop("authenticated_user_id", None)
-
-    # Calling without a per-call model override uses the provider's configured
-    # analysis_model, exactly like the other structured agents.
-    result = provider.analyze_structured(system_prompt, user_text, tool_schema)
-    # The existing provider usage recorder tracks tokens; a vNext ModelRun FK
-    # is optional, so do not manufacture a trace for a different deployment.
-    return SimpleNamespace(result=result, model_run_id=None)
-
-
 def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
     """Build a source-linked chronology from canonical records and derived clinical memory.
 
@@ -574,17 +534,6 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
         db.query(DiaryEntry)
         .filter(DiaryEntry.user_id == user_id)
         .order_by(DiaryEntry.created_at.asc())
-        .all()
-    )
-    clinical_documents = (
-        db.query(PatientClinicalDocument)
-        .filter(
-            PatientClinicalDocument.user_id == user_id,
-            PatientClinicalDocument.extraction_status == "text_extracted",
-            PatientClinicalDocument.extracted_text.isnot(None),
-        )
-        .order_by(PatientClinicalDocument.document_date.asc().nullsfirst(),
-                  PatientClinicalDocument.created_at.asc())
         .all()
     )
     facts = (
@@ -695,24 +644,6 @@ def _source_documents(db: Session, user_id) -> list[dict[str, Any]]:
                 readings_by_source_fact[source_id].append(reading)
 
     docs: list[dict[str, Any]] = []
-    for clinical_document in clinical_documents:
-        document_time = clinical_document.document_date or clinical_document.created_at
-        docs.append({
-            "timestamp": _normalise_dt(document_time),
-            "source_refs": [_ref("clinical_document", clinical_document.id)],
-            "content": (
-                "INFORME CLÍNICO ADJUNTADO POR UN PROFESIONAL; "
-                f"archivo={clinical_document.original_filename}; "
-                f"tipo={clinical_document.document_type}; "
-                f"fecha_documento={_dt_text(clinical_document.document_date)}; "
-                f"fecha_carga={_dt_text(clinical_document.created_at)}. "
-                "La fuente es un documento clínico, no una declaración literal del paciente. "
-                "Texto conservado como evidencia atribuida:\n"
-                + str(clinical_document.extracted_text or "")
-            ),
-            "channel": "clinical_document",
-            "kind": "clinical_document",
-        })
 
     def append_record_groups(
         rows: list[Any],
@@ -1215,7 +1146,9 @@ def _consolidate_batch(db: Session, user_id, docs: list[dict[str, Any]], correla
         return 0, ["consent_revoked"]
 
     try:
-        outcome = _selected_model_structured_analysis(
+        from app.services.model_gateway import get_model_gateway
+
+        outcome = get_model_gateway().analyze_structured(
             system_prompt=EPISODE_SYSTEM_PROMPT,
             user_text=_render_source_batch(docs),
             tool_schema=EPISODE_BATCH_TOOL_SCHEMA,
@@ -1560,7 +1493,9 @@ def build_hierarchical_episode_context(
                     if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
                         _fail_run(db, analysis_run, "consent_revoked")
                         return {"status": "consent_revoked", "nodes": [], "pending_digest": None, "created": created}
-                    outcome = _selected_model_structured_analysis(
+                    from app.services.model_gateway import get_model_gateway
+
+                    outcome = get_model_gateway().analyze_structured(
                         system_prompt=EPISODE_DIGEST_SYSTEM_PROMPT,
                         user_text=rendered_input,
                         tool_schema=EPISODE_DIGEST_TOOL_SCHEMA,
@@ -2610,7 +2545,9 @@ def rebuild_patient_model(
         return {"status": "consent_revoked", "episodes_created": episodes_created, "model_version": None}
 
     try:
-        outcome = _selected_model_structured_analysis(
+        from app.services.model_gateway import get_model_gateway
+
+        outcome = get_model_gateway().analyze_structured(
             system_prompt=WHOLE_PERSON_SYSTEM_PROMPT,
             user_text=user_text,
             tool_schema=WHOLE_PERSON_TOOL_SCHEMA,
@@ -2685,20 +2622,6 @@ def rebuild_patient_model(
         source_digest=source_digest,
         model_run_id=outcome.model_run_id,
     )
-    # Mark documents analysed only after a whole-person version was persisted.
-    for clinical_document in (
-        db.query(PatientClinicalDocument)
-        .filter(
-            PatientClinicalDocument.user_id == user_id,
-            PatientClinicalDocument.extraction_status == "text_extracted",
-            PatientClinicalDocument.analysis_status.in_(("queued", "analysing")),
-        )
-        .all()
-    ):
-        clinical_document.analysis_status = "analysed"
-        clinical_document.analyzed_at = datetime.now(timezone.utc)
-        clinical_document.error_category = None
-        db.add(clinical_document)
     run = db.query(MemoryAnalysisRun).filter(MemoryAnalysisRun.id == run.id).first()
     model_usage = (
         db.query(ModelRun).filter(ModelRun.id == outcome.model_run_id).first()
@@ -2750,6 +2673,8 @@ def patient_model_context_block(db: Session, user_id, query: str, *, in_crisis: 
     Broad exploratory context is omitted in crisis mode. No model call occurs
     here; the read path is bounded and the current user turn remains authoritative.
     """
+    if in_crisis:
+        return ""
     try:
         from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 
@@ -2760,34 +2685,6 @@ def patient_model_context_block(db: Session, user_id, query: str, *, in_crisis: 
         if snapshot is None or not isinstance(snapshot.model_json, dict):
             return ""
         model = snapshot.model_json
-        if in_crisis:
-            safe_sections = [
-                "CONTEXTO LONGITUDINAL DE APOYO EN CRISIS: información provisional; "
-                "no descarta señales actuales ni sustituye el motor de riesgo."
-            ]
-            protective = model.get("protective_factors") if isinstance(model.get("protective_factors"), list) else []
-            for factor in protective:
-                if not isinstance(factor, dict) or factor.get("availability") != "reported_available":
-                    continue
-                value = str(factor.get("factor") or "").strip()
-                if value:
-                    safe_sections.append("- Apoyo que debe confirmarse ahora: " + value[:220])
-                if len(safe_sections) >= 3:
-                    break
-            facets = model.get("facets") if isinstance(model.get("facets"), list) else []
-            for facet in facets:
-                if not isinstance(facet, dict) or facet.get("domain") not in {
-                    "coping_and_regulation", "communication_and_support_preferences",
-                    "strengths_and_protective_factors",
-                }:
-                    continue
-                statement = str(facet.get("statement") or "").strip()
-                if statement:
-                    safe_sections.append("- Preferencia/recurso documentado: " + statement[:220])
-                if len(safe_sections) >= 4:
-                    break
-            return "\n".join(safe_sections) if len(safe_sections) > 1 else ""
-
         sections: list[str] = []
         summary = model.get("patient_summary")
         if isinstance(summary, str) and summary.strip():

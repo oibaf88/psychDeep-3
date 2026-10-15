@@ -47,9 +47,9 @@ describe("readComparison", () => {
     const reading = readComparison(noRecentLongitudinal, "patient");
     expect(reading.headline).toBe("Tu referencia está lista, pero faltan registros recientes");
     expect(reading.rows[0].missingLine).toBe("Ánimo: no hay registros en los últimos 7 días (la referencia tiene 21).");
-    expect(reading.staleNotice).toContain("marcada como desactualizada");
+    expect(reading.staleNotice).toContain("está desactualizada");
     expect(reading.staleNotice).not.toMatch(/sin check-ins posteriores|Desde entonces no hay check-ins/);
-    expect(reading.staleNotice).toMatch(/puede no describir el estado actual/);
+    expect(reading.staleNotice).toMatch(/pueden no estar reflejados en esta comparación/);
   });
 
   it("explains an insufficient reference with counts and the minimum", () => {

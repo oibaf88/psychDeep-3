@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed work
+- **Clinical/Scientific Review:** Modificadas las instrucciones de sistema de los Agentes 1 y 3 en `backend/app/content/prompts.py` para prevenir la iatrogenia digital promoviendo la autonomía del paciente, obligar a expresar incertidumbre y prohibir expresamente la invención de antecedentes. Creado informe de revisión clínica en `docs/agentes/06_informe_revision_clinica_llms.md`.
 - **Clinical/Scientific Review:** Integrated the scientific and clinical evaluation for the N3 vs N4 risk engine stratification, verified the prevention of state-to-trait conversion in `profile_update`, and documented the TRIPOD-LLM guidelines in the clinical safety basis documentation.
 - **Clinical/Scientific Review:** Drafted `docs/agentes/05_informe_revision_cientifica_profile_update.md` evaluating the memory state vs. trait separation in `profile_update` and ensuring we don't fixate the person in a clinical or immutable risk state.
 - **A11y Review:** Added `htmlFor` attributes and explicit visual required indicators to various form inputs across `ProfessionalDashboard.tsx`, `AdminUsersPage.tsx`, `DailyStatisticsPanel.tsx`, and `WavePage.tsx` to improve form accessibility and usability.
