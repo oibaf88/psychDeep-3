@@ -1,6 +1,9 @@
-# PsychDeep vNext
+# psychDeep-vOG
 
 PsychDeep is a cloud-first longitudinal self-regulation platform. Its purpose is to help a person understand changes relative to their own trajectory, strengthen self-efficacy, use low-intensity regulation tools and collaborate with authorised professionals without turning an LLM into a clinician.
+
+> **Project identity (2026-10-15):** psychDeep-vOG is the new product identity for this existing application. This is a continuity-preserving evolution, not a clean-room replacement. The existing Supabase project, `psychdeep_v12` schema, clinical source records, provenance, consent history and historical model versions remain the production source of truth. See `docs/psychdeep-vog/` for the agent contract, architecture, preservation policy, implementation plan, clinical validation and operations runbook.
+
 
 The master product/engineering specification is the release authority. Approved ADRs/change requests may refine its implementation contract when product requirements are clarified.
 

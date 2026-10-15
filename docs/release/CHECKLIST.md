@@ -1,4 +1,4 @@
-# PsychDeep vNext — mandatory release checklist
+# psychDeep-vOG — mandatory release checklist
 
 A release is not production-ready until every item below has evidence attached to its PR/release record.
 

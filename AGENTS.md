@@ -1,4 +1,4 @@
-# PsychDeep vNext — progressive implementation contract for agents
+# psychDeep-vOG — progressive implementation contract for agents
 
 Read this file before changing the repository. It is not a generic contributor guide: it is the live implementation contract for moving PsychDeep from the historical product toward the approved **PsychDeep vNext Full Product / Engineering / QA / PM Specification** without pretending that foundations, schemas or endpoints are already equivalent to finished user value.
 
@@ -420,3 +420,32 @@ This section is operating guidance for Cloud Agents. It does not change the prod
 - Before `python -m pytest tests/ -q`, unset `MODEL_LOCAL_CF_ACCESS_CLIENT_ID` and `MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET` when they are present without `MODEL_LOCAL_CF_ACCESS_HOST` and `MODEL_LOCAL_CF_ACCESS_REQUIRED`. That partial pair fails `tests/test_llm_endpoint.py::ProviderSelectionTests::test_local_profile_is_selectable_and_uses_its_endpoint` because `build_provider` reads live settings. With those two variables unset, the suite matches CI.
 - Local-tunnel inference stays unconfigured until `MODEL_LOCAL_BASE_URL` and a complete Cloudflare Access set exist. Login, check-in, and deterministic safety do not need a model. Health then reports `model.configured: false` while `status` remains `ok`.
 - The migration apply/re-apply gate is `.github/workflows/tests.yml`. It needs the Supabase role model (`supabase_admin` as superuser and a non-superuser `postgres`). Do not point that job at the local `psychapp` database.
+
+
+## psychDeep-vOG identity and preservation contract (2026-10-15)
+
+This section supplements—not replaces—the historical vNext specification and progress ledger above. Existing clinical records and validation history are authoritative.
+
+### Non-negotiable preservation rules
+- Never drop, truncate, overwrite, or bulk-normalise existing clinical/source tables or their rows as part of a feature migration.
+- Preserve stable identifiers, timestamps, consent/audit records, provenance/source references, model-run records, and all historical versions.
+- Treat the current Supabase project and schema `psychdeep_v12` as the production source of truth until a separately reviewed migration has parity evidence, checksums/counts, rollback and explicit approval.
+- Derived memory is versioned and rebuildable; source observations, chat, diary, check-ins, confirmed facts, professional annotations and their history are not rebuildable substitutes.
+- A new app/repository label does not imply a new database, new schema, or data copy. Do not switch production database URLs during branding work.
+
+### Longitudinal-memory release gate
+- Episode analysis must report safe diagnostic locations (file, line, function) and correlation/job identifiers, never patient text, prompts, exception payloads, secrets or provider responses.
+- Validate strict model output, exact source-reference coverage, consent before and after provider calls, and versioned schema/prompt contracts.
+- A failed batch must not publish a new active patient model. Keep the last successful model available and make partial/stale status explicit to the API and UI.
+- Retries must be bounded, idempotent and observable. Dead-letter replay is an explicit audited operator action; never mass-requeue on deploy.
+- Every new derived statement must carry provenance, perspective, uncertainty and source references. It must not be presented as diagnosis or deterministic risk assessment.
+- Test source preservation, consent revocation, duplicate delivery, late-arriving source data, malformed provider output, database failure, retry exhaustion, authorization boundaries and UI error states.
+
+### Agent operating protocol
+1. Read this file, the relevant ADRs and `docs/psychdeep-vog/` before changing memory or data contracts.
+2. Inspect existing code, schema, tests, deployment configuration and live failure evidence before proposing a database migration.
+3. Make one reviewable change set per concern; include tests, rollback notes and explicit acceptance criteria.
+4. Never claim production verification from unit tests or a successful build alone.
+5. Do not merge or deploy production changes until the product owner approves the exact PR and rollout.
+6. Daily agents may inspect source freshness, stuck/retried/dead-letter counts, failed analysis categories, model version freshness, API/UI contracts and test status. They must not automatically access patient text, change consent, replay dead-letter jobs, alter production schemas, or publish clinical interpretations without an authorised workflow.
+7. Use `psychDeep-vOG` for product-facing naming. Preserve historical technical identifiers (including `psychdeep_v12`, existing service URLs, migration IDs and old repository references) until a tested compatibility plan proves that changing each is safe.

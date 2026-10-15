@@ -39,7 +39,7 @@ class MainActivity : Activity() {
             setPadding(32, 32, 32, 32)
         }
         api = EditText(this).apply {
-            hint = "PsychDeep API"
+            hint = "psychDeep-vOG API"
             setText(store.get("api_url") ?: "https://psychdeep-api.onrender.com")
         }
         token = EditText(this).apply {

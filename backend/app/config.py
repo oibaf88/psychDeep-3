@@ -1,4 +1,4 @@
-"""PsychDeep vNext runtime configuration.
+"""psychDeep-vOG runtime configuration.
 
 Clinical data can be processed either by the cloud API or by an approved
 on-device inference runtime. Desktop local models remain available through
