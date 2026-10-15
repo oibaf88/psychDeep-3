@@ -181,6 +181,15 @@ def on_startup():
         Base.metadata.create_all(bind=engine)
         logger.info("Development database schema ensured.")
 
+    if settings.is_production:
+        from app.services.canonical_analytics import refresh_stale_trajectories
+
+        db = SessionLocal()
+        try:
+            refresh_stale_trajectories(db)
+        finally:
+            db.close()
+
     from app.maintenance.refresh_risk_v14 import run_configured_startup_refresh
 
     run_configured_startup_refresh()
