@@ -9,6 +9,7 @@ as a single-tenant MVP reasonably can:
                      does NOT get clinical signal/fact visibility or
                      alert-management rights.
 """
+import logging
 import uuid
 from datetime import datetime
 
@@ -76,6 +77,8 @@ from app.services import signals as signals_service
 from app.services.assignment_visibility import AssignmentLink, links_by_patient, summary_status
 from app.services.longitudinal_read import for_clinical_reader, longitudinal_state, longitudinal_states
 from app.services.timeline import build_timeline
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/professional", tags=["professional"])
 

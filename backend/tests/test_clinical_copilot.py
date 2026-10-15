@@ -427,5 +427,5 @@ class CopilotModelTests(unittest.TestCase):
             answer = clinical_copilot.ask(
                 db, professional=_professional(), patient=_patient(), question="¿Cómo está?"
             )
-        self.assertEqual(answer.requested_model, "copilot-big")
+        self.assertEqual(answer.requested_model, "selected-chat-model")
         self.assertEqual(answer.context_counts["response_model"], "actually-llama-8b")
