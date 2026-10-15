@@ -42,6 +42,9 @@ type Annotation = {
 };
 
 type MemoryView = {
+  linguistic_analysis_consent: boolean;
+  patient_model: PatientModel | null;
+  clinical_documents: ClinicalDocument[];
   formulation: Formulation | null;
   discourse: Discourse[];
   readings: Reading[];
@@ -154,8 +157,26 @@ export default function ClinicalMemoryPanel({
             )}
           </>
         ) : (
-          <p className="meta">Todavía no hay una formulación. Hace falta consentimiento de análisis lingüístico y un modelo disponible.</p>
+          <p className="meta">No hay una formulación del último tramo disponible.</p>
         )}
+        </details>
+      </section>
+
+      <section className="card">
+        <h2>Informes clínicos</h2>
+        <p className="subtitle">Los informes se guardan como fuentes atribuidas. La carga no equivale a lectura ni a análisis completado.</p>
+        {view.clinical_documents.length === 0 ? <p className="meta">No hay informes adjuntos.</p> : <ul>{view.clinical_documents.map((doc) => <li key={doc.id}><strong>{doc.original_filename}</strong><span className="meta"> · extracción: {doc.extraction_status} · análisis: {doc.analysis_status}{doc.error_category ? ` · ${doc.error_category}` : ""}{doc.created_at ? ` · ${formatDateTime(doc.created_at)}` : ""}</span></li>)}</ul>}
+        {canAnnotate && <form onSubmit={uploadClinicalDocument}>
+          <label htmlFor="clinical-document-file">Subir informe (PDF, DOCX, TXT o Markdown; hasta 15 MiB)</label>
+          <input id="clinical-document-file" type="file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" onChange={(event) => setFileToUpload(event.target.files?.[0] ?? null)} />
+          <label htmlFor="clinical-document-type">Tipo de informe</label>
+          <select id="clinical-document-type" value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+            <option value="clinical_report">Informe clínico</option><option value="discharge_summary">Informe de alta</option><option value="psychological_report">Informe psicológico</option><option value="psychiatric_report">Informe psiquiátrico</option><option value="medication_report">Informe de medicación</option><option value="other">Otro</option>
+          </select>
+          <label htmlFor="clinical-document-date">Fecha del informe (opcional)</label>
+          <input id="clinical-document-date" type="date" value={documentDate} onChange={(event) => setDocumentDate(event.target.value)} />
+          <button type="submit" disabled={busy || !fileToUpload || !view.linguistic_analysis_consent}>{busy ? "Procesando…" : "Subir y analizar informe"}</button>
+        </form>}
       </section>
 
       <section className="card">

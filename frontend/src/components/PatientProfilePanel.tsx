@@ -132,7 +132,7 @@ export default function PatientProfilePanel({
           <textarea
             rows={7}
             value={portraitDraft}
-            placeholder="Todavía no hay retrato. Puedes escribir uno."
+            placeholder="Corrección profesional opcional. La síntesis longitudinal se genera por separado."
             onChange={(e) => setPortraitDraft(e.target.value)}
           />
           <div className="alert-actions">
