@@ -784,7 +784,7 @@ def update_patient_profile(
         )
     # No re-evaluation: the profile shapes conversation and comparison, and
     # nothing here is an input the deterministic engine reads as evidence.
-    return PatientProfileOut(**profile_service.as_dict(profile_service.get(db, patient_id)))
+    return patient_profile(patient_id, db, professional)
 
 
 @router.post(
