@@ -1,4 +1,4 @@
-# PsychDeep vNext deployment runbook
+# psychDeep-vOG deployment runbook
 
 This runbook deploys the hybrid-inference vNext architecture without adding paid infrastructure during the prototype stage.
 
