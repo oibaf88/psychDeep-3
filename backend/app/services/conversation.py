@@ -147,6 +147,13 @@ def analyze_text_and_store(
     patient_profile = profile_service.get(db, user_id)
     system_prompt = ANALYZER_SYSTEM_PROMPT + profile_service.analyzer_context_block(patient_profile)
     system_prompt += clinical_memory.formulation_for_analyzer(db, user_id)
+    try:
+        from app.services.patient_understanding import patient_model_context_block
+        longitudinal_context = patient_model_context_block(db, user_id, text, in_crisis=False)
+        if longitudinal_context:
+            system_prompt += "\n\nCONTEXTO LONGITUDINAL PROVISIONAL (no sustituye al texto actual ni al motor determinista):\n" + longitudinal_context
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Longitudinal context omitted from turn analysis safely: %s", type(exc).__name__)
 
     try:
         provider_result = get_llm_provider(db, provider_override=provider_override).analyze_structured(

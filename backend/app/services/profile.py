@@ -273,23 +273,18 @@ def apply_analyzer_update(db: Session, user_id, block) -> PatientProfile | None:
     """
     if not isinstance(block, dict):
         return None
-    portrait = block.get("portrait")
+    # One message cannot author the whole-person portrait. A versioned
+    # longitudinal synthesis or an explicit clinician edit owns that field.
     threads = _clean_threads(block.get("open_threads"))
-    portrait_text = str(portrait).strip()[:MAX_PORTRAIT_CHARS] if isinstance(portrait, str) else ""
-
-    if not portrait_text and not threads:
+    portrait_text = ""
+    if not threads:
         return None
 
     try:
         profile = get_or_create(db, user_id)
         now = datetime.utcnow()
-        if portrait_text and portrait_text != (profile.portrait or ""):
-            profile.previous_portrait = profile.portrait
-            profile.portrait = portrait_text
-            profile.portrait_version = (profile.portrait_version or 0) + 1
-            profile.portrait_updated_at = now
-            # The model rewrote it, so it is no longer the clinician's text.
-            profile.portrait_edited_by = None
+        # portrait_text intentionally stays empty: the per-turn analyser
+        # may keep its agenda, but it cannot replace the longitudinal portrait.
         if threads:
             profile.open_threads = threads
         profile.updated_at = now
