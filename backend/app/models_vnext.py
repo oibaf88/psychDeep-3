@@ -1,4 +1,4 @@
-"""SQLAlchemy mappings for PsychDeep vNext canonical expand-only tables."""
+"""SQLAlchemy mappings for psychDeep-vOG canonical expand-only tables."""
 import uuid
 from datetime import date, datetime
 
