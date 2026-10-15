@@ -374,17 +374,13 @@ if __name__ == "__main__":
 
 
 class CopilotModelTests(unittest.TestCase):
-    """Agent 3 asks for its own model, and records what answered.
-
-    Before this it silently rode on Agent 1's setting, and the stored turn
-    named the model the app would request now rather than the one that
-    actually produced the text.
-    """
+    """Copilot shares the active chat model and whole-person memory."""
 
     def _capture(self, response_model=None):
         seen = {}
 
-        def _chat(*_args, **kwargs):
+        def _chat(*args, **kwargs):
+            seen["system_prompt"] = args[0] if args else kwargs.get("system_prompt", "")
             seen.update(kwargs)
             return ChatResult(
                 text="Resumen.",
@@ -395,37 +391,41 @@ class CopilotModelTests(unittest.TestCase):
                 ),
             )
 
-        provider = SimpleNamespace(
-            chat=_chat, copilot_model="copilot-big", copilot_effort="xhigh"
-        )
-        return provider, seen
+        provider = SimpleNamespace(chat=_chat, copilot_model="different-copilot-model", copilot_effort="xhigh")
+        active = SimpleNamespace(provider="anthropic", chat_model="shared-chat-model", is_local=False)
+        return provider, active, seen
 
-    def test_the_call_requests_the_copilot_model_and_effort(self):
-        db = _populated_db()
-        provider, seen = self._capture()
-        with patch.object(clinical_copilot, "build_provider", return_value=provider):
-            clinical_copilot.ask(
-                db, professional=_professional(), patient=_patient(), question="¿Cómo está?"
+    def _ask(self, provider, active, **kwargs):
+        with patch.object(clinical_copilot.llm_config, "resolve", return_value=active), \
+             patch.object(clinical_copilot, "build_provider", return_value=provider), \
+             patch("app.services.patient_understanding.patient_model_context_block", return_value="LONGITUDINAL PATIENT CONTEXT"):
+            return clinical_copilot.ask(
+                _populated_db(),
+                professional=_professional(),
+                patient=_patient(),
+                question="¿Cómo está?",
+                **kwargs,
             )
-        self.assertEqual(seen["model"], "copilot-big")
-        self.assertEqual(seen["effort"], "xhigh")
 
-    def test_the_stored_turn_records_the_copilot_model(self):
-        db = _populated_db()
-        provider, _ = self._capture()
-        with patch.object(clinical_copilot, "build_provider", return_value=provider):
-            answer = clinical_copilot.ask(
-                db, professional=_professional(), patient=_patient(), question="¿Cómo está?"
-            )
-        self.assertEqual(answer.requested_model, "copilot-big")
+    def test_uses_the_same_active_chat_model_as_the_other_agents(self):
+        provider, active, seen = self._capture()
+        answer = self._ask(provider, active)
+        self.assertEqual(seen["model"], "shared-chat-model")
+        self.assertNotIn("effort", seen)
+        self.assertEqual(answer.requested_model, "shared-chat-model")
+
+    def test_adds_the_consent_gated_longitudinal_memory_to_prompt(self):
+        provider, active, seen = self._capture()
+        answer = self._ask(provider, active)
+        self.assertIn("LONGITUDINAL PATIENT CONTEXT", seen["system_prompt"])
+        self.assertEqual(answer.context_counts["whole_person_memory_included"], 1)
 
     def test_a_differing_response_model_is_recorded_separately(self):
-        """On a local runtime the loaded weights need not be the configured ones."""
-        db = _populated_db()
-        provider, _ = self._capture(response_model="actually-llama-8b")
-        with patch.object(clinical_copilot, "build_provider", return_value=provider):
-            answer = clinical_copilot.ask(
-                db, professional=_professional(), patient=_patient(), question="¿Cómo está?"
-            )
-        self.assertEqual(answer.requested_model, "copilot-big")
-        self.assertEqual(answer.context_counts["response_model"], "actually-llama-8b")
+        provider, active, seen = self._capture(response_model="actually-loaded-model")
+        answer = self._ask(provider, active)
+        self.assertEqual(answer.requested_model, "shared-chat-model")
+        self.assertEqual(answer.context_counts["response_model"], "actually-loaded-model")
+
+
+if __name__ == "__main__":
+    unittest.main()
