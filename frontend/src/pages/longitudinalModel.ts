@@ -361,7 +361,7 @@ export function readComparison(
   const staleNotice = summary.is_stale
     ? you(
         audience,
-        `La comparación se calculó el ${computed} y está marcada como desactualizada. Puede no describir el estado actual porque hay registros más recientes que aún no están reflejados; revisa sus fechas antes de interpretarla.`,
+        `La comparación se calculó el ${computed} y está marcada como desactualizada; puede no describir el estado actual porque hay registros más recientes que aún no están reflejados. Revisa sus fechas antes de interpretarla.`,
         `Comparación calculada el ${computed} y marcada como desactualizada: compruebe si hay registros posteriores aún no incorporados.`,
       )
     : null;
