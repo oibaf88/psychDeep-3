@@ -256,6 +256,8 @@ def _extract_clinical_document(filename: str, payload: bytes) -> tuple[str, str,
                 if text.strip():
                     paragraphs.append(text)
             extracted = "\n".join(paragraphs).strip()
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(status_code=422, detail="No se ha podido leer el DOCX. Comprueba que no esté dañado.") from None
         if not extracted:
