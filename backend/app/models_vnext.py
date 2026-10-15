@@ -2,7 +2,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, func
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, SmallInteger, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -492,3 +492,35 @@ class MemoryJob(Base):
     output_refs: Mapped[list] = mapped_column(JSON_DOC, nullable=False, default=list)
     model_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PatientClinicalDocument(Base):
+    """Private clinical report preserving source bytes and extracted text."""
+
+    __tablename__ = "patient_clinical_documents"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(96), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    document_type: Mapped[str] = mapped_column(String(48), nullable=False, default="clinical_report")
+    document_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    raw_content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    extracted_text: Mapped[str | None] = mapped_column(Text)
+    extraction_status: Mapped[str] = mapped_column(String(24), nullable=False, default="text_extracted")
+    analysis_status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    error_category: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_patient_clinical_documents_user_created", "user_id", "created_at"),
+        Index("ix_patient_clinical_documents_user_sha256", "user_id", "sha256"),
+    )
