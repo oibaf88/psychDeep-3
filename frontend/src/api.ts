@@ -39,8 +39,9 @@ export function errorDetail(body: unknown, fallback: string): string {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string> | undefined),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -77,6 +78,7 @@ export const api = {
   put: <T,>(path: string, body?: unknown) =>
     request<T>(path, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined }),
   del: <T,>(path: string) => request<T>(path, { method: "DELETE" }),
+  upload: <T,>(path: string, body: FormData) => request<T>(path, { method: "POST", body }),
 };
 
 export type UserRole = "patient" | "therapist" | "supervisor" | "admin_clinical";
