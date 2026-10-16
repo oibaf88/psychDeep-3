@@ -251,3 +251,40 @@ Preguntas que requieren datos/decisión clínica:
 3. Si hay fuente legítima de medicación dispensada/cambios de tratamiento/citas o solo información auto-reportada.
 4. Objetivos clínicos de sensibilidad, PPV, falsas alertas/mes y antelación mínima útil.
 5. Finalidad prevista y clasificación MDR/AI Act, responsable del tratamiento, DPO/ética y protocolo de investigación.
+
+
+## 12. Model availability, public datasets and Modal Starter budget
+
+### What this proposal does and does not ship
+This PR is a research/design proposal only. It does not package model weights, an inference endpoint, a trained psychDeep predictor or a runnable training pipeline. A model family name is not a downloadable model artifact. Modal can run Python/PyTorch/Transformers training and inference, but the application still needs selected weights, a task-specific model interface, versioned data preparation and evaluation. Modal Shared Endpoints expose selected general-purpose models and charge per token; they are not a pre-validated psychiatric-relapse predictor.
+
+### Public or access-request datasets to evaluate
+Access conditions can change; confirm the data use agreement, licensing and research eligibility at download time. A public dataset is for research/benchmarking, not automatically approved for production patient inference.
+
+| Dataset | Access and content | Best use / limitation |
+|---|---|---|
+| **14-day smartphone ambulatory assessment of depression symptoms and mood dynamics** | Zenodo, CC BY 4.0; 14 days of mood/depression ambulatory ratings, PHQ-9 and demographics. https://doi.org/10.5281/zenodo.3384860 | Small, open, convenient first dataset for irregular-time feature pipeline and within-person mood trajectory baselines. Short duration; not relapse-labelled longitudinal follow-up. |
+| **Depresjon** | Public download at Simula: https://datasets.simula.no/depresjon/ | Motor activity from people with unipolar/bipolar depression episodes; useful for activity-feature experiments. Not a general app dataset and not equivalent to EMA or prospective relapse prediction. Check the dataset's terms and cite the study. |
+| **openESM — Wang (2016)** | Harmonized dataset for schizophrenia/schizoaffective/psychosis, 60 participants, repeated mood/experience sampling over 165 days: https://doi.org/10.5281/zenodo.17347402 | Relevant to psychiatric EMA and irregular longitudinal data. Check metadata, permitted uses, consent scope and any restrictions before use. |
+| **Real-world behavioral dataset from two remote smartphone-based depression trials (Brighten / Survetory)** | More than 2,000 participants; longitudinal self-assessments and passively collected phone behavioral features. Access requires Synapse Certified User, public intended-use statement and agreement to dataset-specific conditions. https://www.nature.com/articles/s41597-022-01633-7 | Strong candidate for digital behavior and longitudinal modelling; not unrestricted one-click public data. Avoid assuming that every raw modality is included or that it predicts relapse directly. |
+| **RADAR-MDD** | 623 participants with recurrent MDD; two-year follow-up with active and passive remote measurements. Access by contacting the study team: https://atlaslongitudinaldatasets.ac.uk/datasets/radar-mdd | Highly relevant to longitudinal depression/relapse questions and includes Spanish/Catalan recruitment sites; access is by request, not immediately open download. |
+| **BD² Integrated Network Longitudinal Cohort** | Public release described as 615 de-identified participants, available to qualified researchers through an application: https://www.bipolardiscoveries.org/our-work/data-release/ | High relevance to bipolar disorder and multimodal longitudinal research; application and permitted-use conditions apply. |
+| **GLOBEM** | Multi-year smartphone/wearable human-behavior data on PhysioNet; feature-level access requires credentialing: https://physionet.org/content/globem/1.0/ | Useful for cross-year temporal generalisation and missingness/sensor methodology; not a psychiatric relapse cohort, so it cannot establish psychiatric clinical validity. |
+| **Synthea** | Open synthetic patient generator with FHIR, C-CDA and CSV outputs: https://synthetichealth.github.io/synthea/ | Suitable for interoperability, schema mapping, consent-independent software tests and synthetic encounters/medications. Its generic simulated disease trajectories are not realistic psychiatric relapse ground truth. |
+
+Additional public mental-health datasets exist, but modality, diagnostic label, population, sampling frequency, access restrictions and prediction target differ substantially. The first benchmark should use (a) open mood/EMA data to test temporal code, (b) a psychiatric dataset such as openESM/Depresjon where the task matches, and (c) synthetic FHIR data for interface and integration tests. Request RADAR-MDD or BD² only if the target and governance justify the application process.
+
+**Do not pool these datasets into one training table without a harmonisation plan.** Preserve dataset provenance, instruments, target definitions, time semantics and cohort-specific splits. A model that distinguishes depression status in one dataset is not thereby validated to predict a future relapse in psychDeep.
+
+### Modal Starter free compute — what it can realistically support
+Modal's current public pricing page lists Starter at $0/month plus compute with **$30/month included compute credits**. Credits apply to CPU/GPU/function/notebook compute billed by the second, but **do not cover Shared Endpoint token usage**; token-based endpoints are charged separately from the first request. Verify live pricing and workspace budget before running jobs: https://modal.com/pricing and https://modal.com/docs/guide/shared-endpoints
+
+Practical implication:
+- Likely enough to prototype a feature builder, unit tests, small CPU baselines, small public/synthetic datasets, and a few short GPU experiments with compact GRU/Transformer models, depending on chosen hardware and runtime.
+- Not a guarantee that a GPU training job is free: GPU type, memory, wall-clock time, image build, data movement and failed/repeated jobs affect cost. Set a strict workspace budget and monitor usage before any GPU run.
+- Not enough evidence to promise free continuous production inference or fine-tuning of large BEHRT-like models. Use a locally runnable small model and cap each experiment first.
+- Shared Endpoint model calls do not consume the included compute credit; if the user requires zero spend, do not use token-billed endpoints and do not allow overage beyond the budget.
+- Academic credits may be available by application, but must not be assumed until approved.
+
+### Data governance
+Do not upload current patient records or raw diary text to Modal or a public research platform for convenience. For public research data, comply with its terms. For the live pilot, first build the adapter and experiment using synthetic/de-identified data; any use of live clinical data in external compute requires an explicit privacy, contract, region, logging, subprocessor and consent review.
