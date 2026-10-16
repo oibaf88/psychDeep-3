@@ -12,9 +12,9 @@ This is a progressive plan, not a statement that the end-state features are alre
 ## P1 — Make the three core product functions explicit
 - [x] Define the core product outcomes: outpatient deterioration modelling, consented behavioural/digital change detection, and human-care coordination under scarce capacity.
 - [x] Document the target architecture, predictive-model evaluation plan, event/feature contract and care-coordination workflow.
-- [ ] Map the current frontend, API, workers and database tables to each target capability; classify each as implemented, partial, absent or unverified.
+- [x] Map current foundations and gaps in `CURRENT_CAPABILITY_AUDIT.md` from read-only source/schema inspection; end-to-end and runtime validation remain unverified.
 - [ ] Define clinical outcomes, index time, label protocol, exclusions and adjudication before constructing prediction datasets.
-- [ ] Inventory current EMA/check-in instruments, versions, validation evidence and consent flows; do not add or silently modify instruments before clinical review.
+- [~] Initial code inspection found check-ins for mood, craving, sleep hours and self-efficacy plus granular consent APIs; formal instrument/version/validity review remains outstanding.
 - [ ] Define service workflow, task ownership, response windows, professional eligibility and capacity semantics with clinical/service stakeholders.
 
 ## P2 — Correctness and contract validation
