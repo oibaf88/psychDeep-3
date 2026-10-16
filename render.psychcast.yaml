@@ -1,0 +1,62 @@
+# Blueprint independiente para psychcast.
+# Requiere que https://github.com/oibaf88/psychcast exista antes de sincronizar.
+# No modificar el render.yaml de psychDeep ni reutilizar sus secretos o DB.
+services:
+  - type: web
+    name: psychcast-api
+    runtime: docker
+    repo: https://github.com/oibaf88/psychcast
+    branch: master
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/v1/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SCHEMA
+        value: public
+      - key: APP_ENV
+        value: psychcast
+      - key: FRONTEND_ORIGIN
+        value: https://psychcast.bfab.io
+      - key: CORS_ORIGINS
+        value: https://psychcast.bfab.io
+      - key: MODEL_PREDICTION_ENABLED
+        value: "false"
+      - key: MEMORY_LAYER_ENABLED
+        value: "false"
+      - key: RUNPOD_ENABLED
+        value: "false"
+      - key: MODEL_LOCAL_BASE_URL
+        sync: false
+      - key: MODEL_CLOUD_BASE_URL
+        sync: false
+      - key: MODEL_CLOUD_API_KEY
+        sync: false
+      - key: MODEL_CLOUD_CHAT_MODEL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+
+  - type: web
+    name: psychcast-web
+    runtime: static
+    repo: https://github.com/oibaf88/psychcast
+    branch: master
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    autoDeployTrigger: commit
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
