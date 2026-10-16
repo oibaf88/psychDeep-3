@@ -46,7 +46,7 @@ from app.models import (
     TherapistCopilotMessage,
     User,
 )
-from app.services import clinical_view, llm_config, local_llm_access, psychosocial
+from app.services import audit, clinical_view, llm_config, local_llm_access, output_validation, psychosocial
 from app.services.llm import build_provider
 
 logger = logging.getLogger("psychapp.copilot")
@@ -63,6 +63,16 @@ MAX_HISTORY_TURNS = 16
 DIARY_CHARS = 1200
 CHAT_CHARS = 700
 MAX_ANSWER_TOKENS = 2000
+
+# Shown instead of a copilot answer that broke an output rule. Server-owned;
+# the withheld model text is neither shown nor stored.
+COPILOT_OUTPUT_BLOCKED_MESSAGE = (
+    "He retenido esta respuesta porque no ha superado la validación de seguridad del servidor "
+    "(por ejemplo, afirmaba ausencia de riesgo, citaba un teléfono no verificado o una técnica excluida). "
+    "El nivel de alerta lo decide solo el motor determinista y los recursos de crisis aprobados están en el plan de seguridad. "
+    "El expediente sigue disponible en las pestañas de esta ficha: check-ins, diario, chat, hechos, evidencia y motor de riesgo. "
+    "Puedes reformular la pregunta."
+)
 
 
 def _fmt(value: datetime | None) -> str:
@@ -380,6 +390,43 @@ def _recent_turns(db: Session, professional_id, patient_id) -> list[dict[str, st
     return [{"role": row.role, "content": row.content} for row in reversed(rows) if row.role in ("user", "assistant")]
 
 
+
+def _log_blocked_output(
+    db: Session,
+    *,
+    professional: User,
+    patient: User,
+    check: output_validation.OutputValidation,
+    answer_id: uuid.UUID,
+    provider: str | None,
+    model: str | None,
+) -> None:
+    """Record that a copilot answer was withheld: rule codes, never the text."""
+    logger.warning(
+        "Agent 3 copilot output withheld by %s: %s", check.validator_version, ",".join(check.violations)
+    )
+    try:
+        audit.log(
+            db,
+            actor_id=professional.id,
+            actor_role="system",
+            action=output_validation.AUDIT_ACTION,
+            entity_type="therapist_copilot_message",
+            entity_id=answer_id,
+            extra=check.audit_extra(
+                audience="professional",
+                patient_id=str(patient.id),
+                provider=provider,
+                model=model,
+                prompt_version=AGENT3_PROMPT_VERSION,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        # The answer is still withheld; only the audit row is lost.
+        logger.error("Could not audit withheld copilot output: %s", type(exc).__name__)
+        db.rollback()
+
+
 def ask(
     db: Session,
     *,
@@ -432,6 +479,7 @@ def ask(
     # Resolved once, so the row records the model that actually answered
     # rather than whatever the environment happens to say today.
     active = llm_config.resolve(db)
+    answer_id = uuid.uuid4()
     error_kind: str | None = None
     response_model: str | None = None
     requested_model: str | None = None
@@ -453,6 +501,19 @@ def ask(
         response_model = result.metadata.response_model or requested_model
         if not content:
             raise RuntimeError("empty_reply")
+        check = output_validation.validate_copilot_output(content)
+        if check.blocked:
+            _log_blocked_output(
+                db,
+                professional=professional,
+                patient=patient,
+                check=check,
+                answer_id=answer_id,
+                provider=active.provider,
+                model=response_model,
+            )
+            content = COPILOT_OUTPUT_BLOCKED_MESSAGE
+            error_kind = output_validation.AUDIT_ACTION
     except local_llm_access.LocalLlmAccessDenied as exc:
         error_kind = type(exc).__name__[:64]
         logger.warning("Agent 3 copilot call blocked: %s", error_kind)
@@ -474,7 +535,7 @@ def ask(
         )
 
     answer = TherapistCopilotMessage(
-        id=uuid.uuid4(),
+        id=answer_id,
         professional_id=professional.id,
         patient_id=patient.id,
         role="assistant",

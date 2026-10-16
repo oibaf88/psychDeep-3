@@ -21,6 +21,13 @@ A reply that breaks a rule is not repaired or partially shown: the caller
 replaces it with deterministic, server-owned support and logs the event
 (rule codes only, never the patient's or the model's text).
 
+Agent 3, the professional copilot, gets a narrower rule set
+(``validate_copilot_output``). A clinician legitimately reads the engine's
+alert level and patient-reported quantities in the dossier, so stated
+levels and quantities are not blocked there. What stays blocked for every
+audience is what the LLM boundary forbids outright: a "no risk" claim,
+an invented contact number and an excluded technique.
+
 This does not change the risk engine, alert levels or crisis rules. It
 can only withhold model text; it never lowers or raises an alert.
 """
@@ -33,6 +40,7 @@ from dataclasses import dataclass, field
 from app.content.safety_resources import FORBIDDEN_TECHNIQUES, NATIONAL_CRISIS_RESOURCES, crisis_resources
 
 VALIDATOR_VERSION = "agent1-output-validation-v1"
+COPILOT_VALIDATOR_VERSION = "copilot-output-validation-v1"
 
 AUDIT_ACTION = "llm_output_blocked"
 
@@ -54,6 +62,17 @@ _RISK_LEVEL_PATTERNS = [
         r"\btu riesgo (?:es|esta|parece)\b",
         r"\briesgo (?:es )?(?:bajo|alto|moderado|nulo|minimo|cero|elevado)\b",
         r"\balert_level\b",
+    )
+]
+
+# Copilot: only the "no risk" claim, in second or third person. Stated
+# levels are allowed because the clinician reads the engine's level anyway.
+_NO_RISK_PATTERNS = [
+    re.compile(p)
+    for p in (
+        r"\b(?:sin|no hay|no tienes?|no existe|no presentas?|ningun|cero) (?:ningun )?riesgo\b",
+        r"\bno (?:estas?|te encuentras|se encuentra) en (?:situacion de )?riesgo\b",
+        r"\briesgo (?:es )?(?:nulo|cero)\b",
     )
 ]
 
@@ -103,6 +122,25 @@ class OutputValidation:
         return {"validator_version": self.validator_version, "violations": list(self.violations), **context}
 
 
+def _unapproved_contact(norm: str) -> bool:
+    approved = _approved_numbers()
+    for match in _PHONE_TOKEN.finditer(norm):
+        digits = re.sub(r"\D", "", match.group(0))
+        if digits in approved:
+            continue
+        if len(digits) >= 9:
+            return True
+        window = norm[max(0, match.start() - 30): match.start()]
+        if len(digits) in (3, 4, 5, 6) and _CONTACT_CUE.search(window):
+            return True
+    return False
+
+
+def _forbidden_technique(norm: str) -> bool:
+    forbidden = [_normalise(t) for t in FORBIDDEN_TECHNIQUES]
+    return any(t in norm for t in forbidden) or any(p.search(norm) for p in _EXTRA_FORBIDDEN_PATTERNS)
+
+
 def validate_agent1_output(text: str) -> OutputValidation:
     norm = _normalise(text)
     if not norm.strip():
@@ -113,24 +151,35 @@ def validate_agent1_output(text: str) -> OutputValidation:
     if any(p.search(norm) for p in _RISK_LEVEL_PATTERNS):
         violations.append("risk_level_claim")
 
-    approved = _approved_numbers()
-    for match in _PHONE_TOKEN.finditer(norm):
-        digits = re.sub(r"\D", "", match.group(0))
-        if digits in approved:
-            continue
-        if len(digits) >= 9:
-            violations.append("unapproved_contact")
-            break
-        window = norm[max(0, match.start() - 30): match.start()]
-        if len(digits) in (3, 4, 5, 6) and _CONTACT_CUE.search(window):
-            violations.append("unapproved_contact")
-            break
+    if _unapproved_contact(norm):
+        violations.append("unapproved_contact")
 
     if _DOSAGE_PATTERN.search(norm):
         violations.append("dosage_instruction")
 
-    forbidden = [_normalise(t) for t in FORBIDDEN_TECHNIQUES]
-    if any(t in norm for t in forbidden) or any(p.search(norm) for p in _EXTRA_FORBIDDEN_PATTERNS):
+    if _forbidden_technique(norm):
         violations.append("forbidden_technique")
 
     return OutputValidation(violations=violations)
+
+
+def validate_copilot_output(text: str) -> OutputValidation:
+    """Agent 3 (professional copilot) rules: no-risk claims, invented
+    contacts and excluded techniques. Levels and quantities read from the
+    dossier are allowed for a clinician and are not checked here."""
+    norm = _normalise(text)
+    if not norm.strip():
+        return OutputValidation(validator_version=COPILOT_VALIDATOR_VERSION)
+
+    violations: list[str] = []
+
+    if any(p.search(norm) for p in _NO_RISK_PATTERNS):
+        violations.append("no_risk_claim")
+
+    if _unapproved_contact(norm):
+        violations.append("unapproved_contact")
+
+    if _forbidden_technique(norm):
+        violations.append("forbidden_technique")
+
+    return OutputValidation(violations=violations, validator_version=COPILOT_VALIDATOR_VERSION)
