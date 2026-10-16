@@ -916,6 +916,7 @@ export const ASSIGNMENT_STATUS_LABELS: Record<string, string> = {
 
 export const CONSENT_LABELS: Record<string, string> = {
   data_processing: "Tratamiento de datos",
+  linguistic_analysis: "Análisis lingüístico",
   professional_sharing: "Compartir con profesional",
   crisis_sms: "SMS de crisis (opcional)",
   research: "Uso en investigación",
