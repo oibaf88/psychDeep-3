@@ -4,7 +4,7 @@
 A web-based platform for longitudinal mental health monitoring that combines patient-authorized conversation data (check-ins, diary, chat), a deterministic clinical risk engine, and a conversational LLM orchestrator (Agent 1) to support self-regulation and professional review without autonomously prescribing or diagnosing.
 
 ## Specification coverage
-- **Consentimiento y control (E1):** PARTIAL
+- **Consentimiento y control (E1):** DONE
 - **Check-in y diario (E2):** DONE
 - **Perfil y baseline (E3):** DONE
 - **Timeline (E4):** DONE
@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed work
+- **Consent:** Ensured granular revocation flows (E1) are fully robust and visible in the UI by verifying the `ConsentsPage`, `AssignmentsPage` and creating `test_assignments.py`.
 - **Clinical/Scientific Review:** Modificadas las instrucciones de sistema de los Agentes 1 y 3 en `backend/app/content/prompts.py` para prevenir la iatrogenia digital promoviendo la autonomía del paciente, obligar a expresar incertidumbre y prohibir expresamente la invención de antecedentes. Creado informe de revisión clínica en `docs/agentes/06_informe_revision_clinica_llms.md`.
 - **Clinical/Scientific Review:** Integrated the scientific and clinical evaluation for the N3 vs N4 risk engine stratification, verified the prevention of state-to-trait conversion in `profile_update`, and documented the TRIPOD-LLM guidelines in the clinical safety basis documentation.
 - **Clinical/Scientific Review:** Drafted `docs/agentes/05_informe_revision_cientifica_profile_update.md` evaluating the memory state vs. trait separation in `profile_update` and ensuring we don't fixate the person in a clinical or immutable risk state.
@@ -49,4 +50,3 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 
 ## Recommended next work
 2. **Complete Professional Panel (Epic E10)**: Finish selective sharing, professional workflows, and robust UI elements for patient-clinician linkages.
-3. **Complete Consent Verification**: Ensure granular revocation flows (E1) are fully robust and visible in the UI.
