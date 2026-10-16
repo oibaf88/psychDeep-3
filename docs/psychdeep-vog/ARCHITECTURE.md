@@ -75,3 +75,7 @@ Do not rename or replace existing tables for the remodel. Define a versioned ada
 
 ## Deployment
 Use a review branch and CI first. Production remains attached to the existing database and service URLs during the branding/research phase. No production replay or deploy occurs as a side effect of a documentation or code change.
+
+
+## Additive integration with the existing four LLM agents
+The four-agent LLM orchestration is a preserved product capability, not a migration target. Do not remove, merge, replace, rename or silently reroute any existing agent/provider, memory/context path, tool permission or workflow as part of predictive-model work. New predictive capabilities are separate services behind typed contracts. Existing agents may call a prediction/read API only when authorized and consent permits, and must show the model status, horizon, evidence and uncertainty verbatim. They cannot fabricate scores, promote models, access training data by default, or convert research/shadow predictions into clinical recommendations. The deterministic safety plane and current four-agent workflows continue to function if the ML service is unavailable.
