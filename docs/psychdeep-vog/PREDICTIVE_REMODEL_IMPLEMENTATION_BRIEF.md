@@ -37,3 +37,12 @@ Supabase PostgreSQL is the best current option for continuity, existing data, au
 
 ## Current implementation status — must remain explicit
 Existing product supports check-ins/EMA-like observations, baselines/change signals, consent, assignments, patient longitudinal memory and a deterministic risk engine. Memory synthesis is LLM-driven and is not a validated deterioration predictor. The predictive deep-learning models, validated outcome labels, clinical benchmarking and validated staff allocation logic do not yet exist as production capabilities.
+
+
+## Model availability and compute budget
+This PR does not contain model weights or a ready predictor endpoint. Modal can execute custom PyTorch/Transformers code and host chosen models, but the model, training/evaluation pipeline and release checks must still be implemented. Modal Starter currently advertises $30/month included compute credits; these are not credits for Shared Endpoint token billing. Treat this as a small experimentation budget, not guaranteed free production inference. Use workspace budgets and run a small CPU baseline before a capped GPU experiment.
+
+Dataset candidates, access conditions and limits are detailed in `PREDICTIVE_MODEL_RESEARCH_AND_TARGET_ARCHITECTURE.md`: open 14-day ambulatory depression mood data (Zenodo CC BY 4.0), Depresjon, openESM Wang schizophrenia/psychosis EMA, Brighten/Survetory (Synapse application), RADAR-MDD (contact-based access), BD² (qualified researcher application), GLOBEM (credentialed access), and Synthea (synthetic FHIR/EHR). None alone proves performance for the psychDeep pilot target.
+
+## Existing four-LLM-agent architecture is additive and must be preserved
+The existing four-LLM-agent system and its current provider/model routing, memory/context, tools and user-facing workflows must remain available. The predictive research pipeline is an additional bounded service/capability, not a replacement for the agents. The agents may request a prediction or summarize an approved result through a typed, permission-checked interface, but must not invent a risk score, train/publish a model, bypass consent, or turn a research/shadow output into clinical advice. Keep LLM synthesis, deterministic safety rules and predictive models as separate components with distinct output contracts and audit trails. No existing agent should be removed, collapsed or silently rerouted as part of this remodel.
