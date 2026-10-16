@@ -11,3 +11,7 @@
 ## 2026-10-07 - Botones de adjudicación con contexto
 **Learning:** En listas o tarjetas múltiples (como DomainCard o listas de alertas) que repiten botones de acción ('Confirmar', 'Refutar', 'Resolver', 'Descartar') y campos de texto (como notas de resolución), los usuarios de lectores de pantalla pierden el contexto si no hay `aria-label` específicos que conecten la acción con el ítem concreto.
 **Action:** Usar `aria-label` dinámicos que incluyan el título de la tarjeta o el elemento afectado (ej. `aria-label={"Resolver alerta " + a.title}`) en todos los botones de acción y campos de texto interactivos dentro de listas iteradas, asegurando el contexto en aplicaciones clínicas complejas.
+
+## 2023-10-25 - Missing explicit label associations in inline inputs
+**Learning:** Found an instance in `CopilotPanel.tsx` where a `<select>` input was nested inside a `<label>` but lacked explicit `id` and `htmlFor` attributes. While implicit wrapping is supported by some screen readers, relying solely on it can cause accessibility failures across different assistive technologies and devices.
+**Action:** Always ensure that inline inputs (like `<select>` or `<input>`) have a unique `id` and are explicitly associated with their wrapping `<label>` using the `htmlFor` attribute.

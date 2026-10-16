@@ -115,9 +115,10 @@ export default function CopilotPanel({
         <button type="button" onClick={summarize} disabled={busy}>
           {busy ? "Generando…" : "Resumir situación del paciente"}
         </button>
-        <label className="copilot-window">
+        <label className="copilot-window" htmlFor="copilot-window-select">
           Ventana de expediente
           <select
+            id="copilot-window-select"
             value={windowDays}
             onChange={(e) => setWindowDays(Number(e.target.value))}
             disabled={busy}
