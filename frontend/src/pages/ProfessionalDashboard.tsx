@@ -178,11 +178,15 @@ export default function ProfessionalDashboard() {
                   {role === "admin_clinical" ? (
                     <Link to={assignmentHref(p)}>Ver asignaciones</Link>
                   ) : p.assignment_status === "pending" && role === "therapist" ? (
-                    <span className="meta">Esperando aceptación</span>
+                    <>
+                      <span className="meta">Esperando aceptación</span>
+                      {" · "}
+                      <Link to={assignmentHref(p)}>Gestionar</Link>
+                    </>
                   ) : (
                     <>
                       <Link to={`/professional/patients/${p.id}`}>Ver historial</Link>
-                      {role === "supervisor" && (
+                      {(role === "supervisor" || role === "therapist") && (
                         <>
                           {" · "}
                           <Link to={assignmentHref(p)}>Asignaciones</Link>

@@ -7,6 +7,8 @@ PsychDeep is a cloud-first longitudinal self-regulation platform. Its purpose is
 
 The master product/engineering specification is the release authority. Approved ADRs/change requests may refine its implementation contract when product requirements are clarified.
 
+The latest version now implements Epic E10: it incorporates a robust Professional Dashboard and selective sharing linkage management where patients and professionals can securely request, pause, resume, cancel, and end sharing assignments directly via UI.
+
 ## Non-negotiable architecture
 
 ```text

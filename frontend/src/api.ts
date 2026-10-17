@@ -912,6 +912,7 @@ export const ASSIGNMENT_STATUS_LABELS: Record<string, string> = {
   paused: "Pausada",
   ended: "Finalizada",
   rejected: "Rechazada",
+  canceled: "Cancelada",
 };
 
 export const CONSENT_LABELS: Record<string, string> = {
