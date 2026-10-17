@@ -50,7 +50,7 @@ from app.content.safety_resources import (
 )
 from app.models import AlfaSignal, ChatMessage, PatientProfessionalAssignment, User
 from app.services import agent1_context, clinical_memory, llm_config, profile as profile_service, psychosocial, risk_engine
-from app.services import agent2_trace, audit, output_validation
+from app.services import agent2_trace, audit, output_validation, reply_model_run
 from app.services.llm import ChatResult, ProviderMetadata, StructuredAnalysisError, get_llm_provider
 
 logger = logging.getLogger("psychapp.conversation")
@@ -372,7 +372,9 @@ def _reply_provenance(
     }
 
 
-def _agent1_crisis_accompaniment(db: Session, user_id, system_prompt: str) -> ChatResult | None:
+def _agent1_crisis_accompaniment(
+    db: Session, user_id, system_prompt: str, messages: list[dict[str, str]] | None = None
+) -> ChatResult | None:
     """Agent 1's turn during an alert-level 3/4 conversation.
 
     The model keeps accompanying the person with the real conversation
@@ -386,7 +388,7 @@ def _agent1_crisis_accompaniment(db: Session, user_id, system_prompt: str) -> Ch
         provider = get_llm_provider(db)
         result = provider.chat(
             system_prompt,
-            _recent_messages(db, user_id),
+            messages if messages is not None else _recent_messages(db, user_id),
             max_tokens=400,
         )
         return result if result.text.strip() else None
@@ -497,12 +499,34 @@ def get_reply(
     # records what answered rather than what the resolver would say now.
     reply_metadata: ProviderMetadata | None = None
 
+    def _record_model_run(db_, user_id_, check_, metadata_, system_prompt_, messages_) -> None:
+        """Canonical ModelRun for this validated reply: succeeded or output_withheld."""
+        reply_model_run.record_validated_reply(
+            db_,
+            check=check_,
+            metadata=metadata_,
+            purpose="agent1_chat",
+            audience="patient",
+            user_id=user_id_,
+            prompt_version=AGENT1_PROMPT_VERSION,
+            system_prompt=system_prompt_,
+            messages=messages_,
+            correlation_id=correlation_id,
+        )
+
     def _checked_accompaniment(db_, user_id_, system_prompt_) -> ChatResult | None:
         """Crisis prose that breaks an output rule is dropped; the fixed copy stays."""
-        result_ = _agent1_crisis_accompaniment(db_, user_id_, system_prompt_)
+        try:
+            messages_ = _recent_messages(db_, user_id_)
+        except Exception as exc:  # noqa: BLE001
+            # Same outcome as a failed accompaniment: fixed crisis copy only.
+            logger.warning("Agent1 crisis history unavailable; using fixed safety copy only: %s", type(exc).__name__)
+            return None
+        result_ = _agent1_crisis_accompaniment(db_, user_id_, system_prompt_, messages_)
         if result_ is None:
             return None
         check_ = output_validation.validate_agent1_output(result_.text)
+        _record_model_run(db_, user_id_, check_, result_.metadata, system_prompt_, messages_)
         if check_.blocked:
             _log_blocked_output(
                 db_, user_id_, check_, level=level, correlation_id=correlation_id,
@@ -542,6 +566,7 @@ def get_reply(
             reply_metadata = result.metadata
             reply_text = result.text
             check = output_validation.validate_agent1_output(reply_text)
+            _record_model_run(db, user.id, check, reply_metadata, agent1_system_prompt, messages)
             if check.blocked:
                 _log_blocked_output(
                     db, user.id, check, level=level, correlation_id=correlation_id,

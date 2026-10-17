@@ -25,7 +25,7 @@ from app.models import (
     SafetyPlan,
     TherapistCopilotMessage,
 )
-from app.models_vnext import BaselineVersion, ChangeSignal
+from app.models_vnext import BaselineVersion, ChangeSignal, ModelRun
 from app.services import clinical_copilot
 from app.services.llm.base import ChatResult, ProviderMetadata
 
@@ -365,8 +365,10 @@ class AskTests(unittest.TestCase):
             return_value=_fake_provider("ok"),
         ):
             clinical_copilot.ask(db, professional=_professional(), patient=_patient(), question="hola")
+        # ModelRun is model-governance metadata (status, versions, hashes,
+        # rule codes), not a clinical record.
         for row in db.added:
-            self.assertIsInstance(row, TherapistCopilotMessage)
+            self.assertIsInstance(row, (TherapistCopilotMessage, ModelRun))
 
 
 if __name__ == "__main__":
