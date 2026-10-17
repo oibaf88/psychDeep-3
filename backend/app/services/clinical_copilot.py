@@ -46,7 +46,7 @@ from app.models import (
     TherapistCopilotMessage,
     User,
 )
-from app.services import audit, clinical_view, llm_config, local_llm_access, output_validation, psychosocial
+from app.services import audit, clinical_view, llm_config, local_llm_access, output_validation, psychosocial, reply_model_run
 from app.services.llm import build_provider
 
 logger = logging.getLogger("psychapp.copilot")
@@ -489,9 +489,10 @@ def ask(
         provider_instance = build_provider(active)
         # Use the same active chat model as the other conversational agents.
         requested_model = getattr(provider_instance, "chat_model", None) or provider_instance.copilot_model
+        turns = _recent_turns(db, professional.id, patient.id)
         result = provider_instance.chat(
             system_prompt,
-            _recent_turns(db, professional.id, patient.id),
+            turns,
             max_tokens=MAX_ANSWER_TOKENS,
             model=requested_model,
             effort=getattr(provider_instance, "chat_effort", None) or getattr(provider_instance, "copilot_effort", None) or None,
@@ -502,6 +503,21 @@ def ask(
         if not content:
             raise RuntimeError("empty_reply")
         check = output_validation.validate_copilot_output(content)
+        # Canonical ModelRun for this answer: succeeded or output_withheld,
+        # with validator version and rule codes, never text. Linked to the
+        # stored answer (and its audit row) through answer_id.
+        reply_model_run.record_validated_reply(
+            db,
+            check=check,
+            metadata=result.metadata,
+            purpose="agent3_copilot",
+            audience="professional",
+            user_id=patient.id,
+            prompt_version=AGENT3_PROMPT_VERSION,
+            system_prompt=system_prompt,
+            messages=turns,
+            correlation_id=answer_id,
+        )
         if check.blocked:
             _log_blocked_output(
                 db,

@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from app.models import AuditLog, TherapistCopilotMessage
+from app.models_vnext import ModelRun
 from app.services import clinical_copilot, output_validation
 from tests.test_clinical_copilot import _fake_provider, _patient, _populated_db, _professional
 
@@ -59,7 +60,7 @@ class CopilotRuleTests(unittest.TestCase):
         self.assertEqual(check.validator_version, output_validation.COPILOT_VALIDATOR_VERSION)
 
 
-class CopilotAskTests(unittest.TestCase):
+class _AskHarness:
     def _ask(self, reply):
         db = _populated_db()
         patient = _patient()
@@ -69,6 +70,8 @@ class CopilotAskTests(unittest.TestCase):
             )
         return db, patient, answer
 
+
+class CopilotAskTests(_AskHarness, unittest.TestCase):
     def test_unsafe_answer_is_withheld_and_replaced(self):
         unsafe = "El paciente no presenta riesgo; que llame al 900 123 456."
         db, _patient_, answer = self._ask(unsafe)
@@ -100,9 +103,45 @@ class CopilotAskTests(unittest.TestCase):
         self.assertFalse([row for row in db.added if isinstance(row, AuditLog)])
 
     def test_validation_never_writes_clinical_records(self):
+        # ModelRun is model-governance metadata (codes and hashes), not a
+        # clinical record.
         db, _patient_, _answer = self._ask("No hay riesgo.")
         for row in db.added:
-            self.assertIsInstance(row, (TherapistCopilotMessage, AuditLog))
+            self.assertIsInstance(row, (TherapistCopilotMessage, AuditLog, ModelRun))
+
+
+class CopilotModelRunTests(_AskHarness, unittest.TestCase):
+    """Each validated copilot answer writes one canonical ModelRun whose status
+    says whether output validation withheld it: rule codes, never text."""
+
+    def _run(self, db):
+        runs = [row for row in db.added if isinstance(row, ModelRun)]
+        self.assertEqual(len(runs), 1)
+        return runs[0]
+
+    def test_withheld_answer_records_output_withheld_run(self):
+        unsafe = "El paciente no presenta riesgo; que llame al 900 123 456."
+        db, patient, answer = self._ask(unsafe)
+        run = self._run(db)
+        self.assertEqual(run.status, "output_withheld")
+        self.assertEqual(run.purpose, "agent3_copilot")
+        self.assertEqual(run.audience, "professional")
+        self.assertEqual(run.user_id, patient.id)
+        self.assertEqual(run.correlation_id, answer.id)
+        self.assertEqual(run.prompt_version, clinical_copilot.AGENT3_PROMPT_VERSION)
+        self.assertEqual(run.output_validator_version, output_validation.COPILOT_VALIDATOR_VERSION)
+        self.assertEqual(run.output_violation_codes, ["no_risk_claim", "unapproved_contact"])
+        self.assertEqual(len(run.input_hash), 64)
+        stored = " ".join(str(getattr(run, col.key, "")) for col in ModelRun.__table__.columns)
+        for fragment in ("presenta", "900", "¿Cómo está?", "Paciente Demo", "mal día"):
+            self.assertNotIn(fragment, stored)
+
+    def test_clean_answer_records_succeeded_run(self):
+        db, _patient_, answer = self._ask("Nivel de alerta 2 según el motor; evidencia parcial.")
+        run = self._run(db)
+        self.assertEqual(run.status, "succeeded")
+        self.assertEqual(run.output_violation_codes, [])
+        self.assertIsNone(answer.error_kind)
 
 
 if __name__ == "__main__":

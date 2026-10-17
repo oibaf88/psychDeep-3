@@ -77,6 +77,8 @@ required_columns(table_name, column_name) as (values
     ('baseline_versions', 'id'),
     ('change_signals', 'id'),
     ('model_runs', 'id'),
+    ('model_runs', 'output_validator_version'),
+    ('model_runs', 'output_violation_codes'),
     ('inferences', 'id'),
     ('intervention_events', 'id'),
     ('knowledge_items', 'id'),

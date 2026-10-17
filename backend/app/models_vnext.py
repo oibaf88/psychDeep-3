@@ -2,7 +2,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, func
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -160,6 +160,10 @@ class KnowledgeItem(Base):
 
 class ModelRun(Base):
     __tablename__ = "model_runs"
+    # Server defaults are read back lazily (on refresh/access), not through
+    # INSERT ... RETURNING, so an insert that does not set the output
+    # validation columns never names them (see below).
+    __mapper_args__ = {"eager_defaults": False}
 
     id: Mapped[uuid.UUID] = uuid_pk()
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), index=True)
@@ -178,6 +182,17 @@ class ModelRun(Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
+    # Output validation (G3), migration 20261017090000. Rule codes only,
+    # never patient or model text. Nullable, deferred and with a NULL server
+    # default so that ModelGateway inserts and ordinary reads, which never
+    # set these, do not name the columns at all: an app release that lands
+    # before the migration keeps writing its other ModelRun rows.
+    output_validator_version: Mapped[str | None] = mapped_column(
+        String(64), deferred=True, server_default=text("NULL")
+    )
+    output_violation_codes: Mapped[list | None] = mapped_column(
+        JSON_DOC, deferred=True, server_default=text("NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
