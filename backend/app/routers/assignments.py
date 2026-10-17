@@ -155,6 +155,27 @@ def _get_owned_assignment(db: Session, assignment_id: uuid.UUID, user: User) -> 
     return assignment
 
 
+@router.post("/{assignment_id}/cancel", response_model=AssignmentOut)
+def cancel_assignment(assignment_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    assignment = db.get(PatientProfessionalAssignment, assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    allowed = (
+        (user.role == "therapist" and assignment.professional_id == user.id)
+        or user.role in ("supervisor", "admin_clinical")
+    )
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Not allowed to cancel this assignment request")
+    if assignment.status != "pending":
+        raise HTTPException(status_code=400, detail="Only pending assignments can be canceled")
+    assignment.status = "canceled"
+    assignment.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(assignment)
+    audit.log(db, actor_id=user.id, actor_role=user.role, action="assignment_canceled", entity_type="assignment", entity_id=assignment.id)
+    return _enrich(db, assignment)
+
+
 @router.post("/{assignment_id}/accept", response_model=AssignmentOut)
 def accept_assignment(assignment_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role != "patient":

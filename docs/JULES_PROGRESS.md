@@ -13,7 +13,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Plan preventivo (E7):** DONE
 - **Seguridad (E8):** DONE
 - **RAG de contenidos (E9):** DONE
-- **Panel profesional (E10):** PARTIAL
+- **Panel profesional (E10):** DONE
 - **Evaluación (E11):** PARTIAL
 - **Operaciones (E12):** PARTIAL
 
@@ -48,6 +48,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **RAG foundation:** Registro versionado con aprobación administrativa, fuente, nivel de evidencia, fecha de revisión y contraindicaciones. Los ítems `active` con `review_due` nulo o vigente se copian al contexto de Agent 1. Ese camino no recupera por turno, no aplica contraindicaciones y no guarda `content_version` en `ModelRun`.
 - **Clinical/Scientific Review:** Drafted `docs/agentes/04_informe_revision_cientifica_n3_adverse_z.md` evaluating the memory state vs. trait separation in `profile_update` and the statistical bounds validation of `adverse_composite_z` > 2.4 (N3_convergencia_critica_extrema) against NG225 and clinical standards.
 - **Clinical/Scientific Review:** Drafted `docs/agentes/05_informe_revision_clinica_general.md` to confirm the deterministic rule engine safely isolates statistical divergence to N3 alerts, reserving N4 exclusively for explicit ideation or direct crisis declarations.
+- **Selective Sharing (Epic E10):** Added professional workflow functionality for therapists to cancel pending assignment requests via the `AssignmentsPage` and `ProfessionalDashboard` UI, closing Epic E10 implementation.
 
 ## Recommended next work
-2. **Complete Professional Panel (Epic E10)**: Finish selective sharing, professional workflows, and robust UI elements for patient-clinician linkages.
+1. **Eval (Epic E11)**: Establish the evaluation architecture, test cases, and metric gathering for continuous improvement of model prompts.

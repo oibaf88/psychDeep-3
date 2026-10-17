@@ -36,7 +36,7 @@ export default function AssignmentsPage() {
     load().catch(() => undefined);
   }, [patientId, isPatient]);
 
-  async function act(id: string, action: "accept" | "reject" | "pause" | "resume" | "end") {
+  async function act(id: string, action: "accept" | "reject" | "pause" | "resume" | "end" | "cancel") {
     setBusy(id + action);
     setError(null);
     try {
@@ -134,7 +134,7 @@ function AssignmentGroup({
   empty: string;
   isPatient: boolean;
   busy: string | null;
-  act: (id: string, action: "accept" | "reject" | "pause" | "resume" | "end") => void;
+  act: (id: string, action: "accept" | "reject" | "pause" | "resume" | "end" | "cancel") => void;
 }) {
   return (
     <section aria-labelledby={id}>
@@ -161,7 +161,7 @@ function AssignmentCard({
   assignment: AssignmentOut;
   isPatient: boolean;
   busy: string | null;
-  act: (id: string, action: "accept" | "reject" | "pause" | "resume" | "end") => void;
+  act: (id: string, action: "accept" | "reject" | "pause" | "resume" | "end" | "cancel") => void;
 }) {
   const counterpart = isPatient
     ? assignment.professional_display_name || assignment.professional_email
@@ -192,6 +192,11 @@ function AssignmentCard({
               Rechazar
             </button>
           </>
+        )}
+        {!isPatient && assignment.status === "pending" && (
+          <button className="btn-secondary" disabled={!!busy} onClick={() => act(assignment.id, "cancel")} aria-label={`Cancelar solicitud a ${counterpart}`}>
+            Cancelar solicitud
+          </button>
         )}
         {assignment.status === "active" && (
           <>

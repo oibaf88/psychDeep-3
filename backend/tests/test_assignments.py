@@ -63,6 +63,24 @@ class AssignmentsApiTests(unittest.TestCase):
         self.db.commit()
         return row
 
+    def test_therapist_can_cancel_pending_assignment(self):
+        assignment = PatientProfessionalAssignment(
+            patient_id=self.patient.id, professional_id=self.therapist.id, status="pending"
+        )
+        self.db.add(assignment)
+        self.db.commit()
+
+        # Auth as therapist
+        app.dependency_overrides[get_current_user] = lambda: self.therapist
+
+        response = self.client.post(f"/api/v1/assignments/{assignment.id}/cancel")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["status"], "canceled")
+
+        # Verify DB
+        self.db.refresh(assignment)
+        self.assertEqual(assignment.status, "canceled")
+
     def test_patient_can_accept_assignment_and_consent_is_granted(self):
         assignment = PatientProfessionalAssignment(
             patient_id=self.patient.id, professional_id=self.therapist.id, status="pending"
