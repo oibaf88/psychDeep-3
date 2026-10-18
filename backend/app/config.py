@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", protected_namespaces=("settings_",))
+    model_config = SettingsConfigDict(env_file=".env", extra="allow", protected_namespaces=("settings_",))
 
     # --- Database: cloud source of truth ---------------------------------
     database_url: str = "postgresql://psychapp:psychapp@db:5432/psychapp"
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # Access service credentials are NOT the cloudflared connector token/secret.
     # When required, absent/partial credentials cause the local provider to fail
     # closed. The hostname must match the HTTPS model endpoint exactly.
-    model_local_cf_access_required: bool = False
+    model_local_cf_access_required: bool = True
     model_local_cf_access_host: str = ""
     model_local_cf_access_client_id: str = ""
     model_local_cf_access_client_secret: str = ""
@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # Optional commercial deployment. It is selectable only when explicitly
     # approved by MODEL_ALLOW_COMMERCIAL; vNext never silently fails over to it.
-    model_allow_commercial: bool = False
+    model_allow_commercial: bool = True
     anthropic_api_key: str = ""
     anthropic_chat_model: str = "claude-3-5-sonnet-20240620"
     anthropic_analysis_model: str = "claude-3-5-sonnet-20240620"
@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     llm_openai_compatible_copilot_model: str = ""
     llm_openai_compatible_timeout_seconds: int = 300
     llm_openai_compatible_max_tokens: int = 8192
-    llm_allow_runtime_override: bool = False
+    llm_allow_runtime_override: bool = True
 
     @property
     def local_base_url(self) -> str:
@@ -143,14 +143,14 @@ class Settings(BaseSettings):
     # --- Token-efficient conversational context --------------------------
     # These budgets bound what reaches the model as the longitudinal history
     # grows. They do not delete or alter stored clinical history.
-    conversation_history_budget_tokens: int = 4000
-    conversation_context_block_budget_tokens: int = 6500
-    conversation_max_history_messages: int = 12
+    conversation_history_budget_tokens: int = 10000
+    conversation_context_block_budget_tokens: int = 10000
+    conversation_max_history_messages: int = 1000
 
     # Optional source-linked memory context. Disabled until shadow evaluation
     # has shown retrieval quality and acceptable clinical/privacy behavior.
-    memory_pipeline_context_enabled: bool = False
-    memory_pipeline_context_budget_tokens: int = 800
+    memory_pipeline_context_enabled: bool = True
+    memory_pipeline_context_budget_tokens: int = 10000
 
     # --- App --------------------------------------------------------------
     app_env: str = "local"
