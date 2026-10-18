@@ -18,6 +18,7 @@ from app.routers import (
     chat,
     checkins,
     consents,
+    clinical_documents,
     diary,
     facts,
     knowledge,
@@ -102,6 +103,9 @@ def _verify_production_schema() -> None:
         ("intervention_events", "id"),
         ("model_deployments", "alias"),
         ("mobile_inference_events", "id"),
+        ("patient_clinical_documents", "file_content"),
+        ("patient_clinical_documents", "extracted_text"),
+        ("patient_clinical_documents", "patient_model_version_id"),
     }
     canonical_tables = {
         "observations",
@@ -116,6 +120,7 @@ def _verify_production_schema() -> None:
         "fine_tune_runs",
         "model_deployments",
         "mobile_inference_events",
+        "patient_clinical_documents",
     }
     with engine.connect() as conn:
         rows = conn.execute(
@@ -250,6 +255,7 @@ def health():
 app.include_router(auth.router)
 app.include_router(admin_users.router)
 app.include_router(consents.router)
+app.include_router(clinical_documents.router)
 app.include_router(checkins.router)
 app.include_router(diary.router)
 app.include_router(timeline.router)

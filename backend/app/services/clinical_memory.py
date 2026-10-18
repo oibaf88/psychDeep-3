@@ -1064,6 +1064,8 @@ def dossier_section(db: Session, user_id) -> str:
 
 
 def bundle(db: Session, user_id) -> dict[str, Any]:
+    from app.services.consent import CLINICAL_DOCUMENT_ANALYSIS, is_granted
+
     formulation = _latest_formulation(db, user_id)
     facts = (
         db.query(DiscourseFact)
@@ -1133,6 +1135,7 @@ def bundle(db: Session, user_id) -> dict[str, Any]:
         "annotations": notes,
         "patient_model": patient_model,
         "linguistic_analysis_consent": is_granted(db, user_id, LINGUISTIC_ANALYSIS),
+        "clinical_document_analysis_consent": is_granted(db, user_id, CLINICAL_DOCUMENT_ANALYSIS),
     }
 
 

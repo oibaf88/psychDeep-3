@@ -300,7 +300,7 @@ def retrieve_longitudinal_context(
     """
     from datetime import datetime, timezone
     from uuid import UUID as UUIDType
-    from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+    from app.services.consent import CLINICAL_DOCUMENT_ANALYSIS, LINGUISTIC_ANALYSIS, is_granted
 
     started_at = perf_counter()
     if in_crisis or task_type == "crisis" or not query.strip():
@@ -327,7 +327,11 @@ def retrieve_longitudinal_context(
         return tuple(str(ref) for ref in value if ref is not None and str(ref).strip())
 
     candidates: list[MemoryEvidence] = []
-    query_params = {"user_id": str(user_uuid), "query": query.strip()}
+    query_params = {
+        "user_id": str(user_uuid),
+        "query": query.strip(),
+        "clinical_document_analysis_allowed": is_granted(db, user_uuid, CLINICAL_DOCUMENT_ANALYSIS),
+    }
 
     try:
         # 1) Atomic derived memories: GIN full-text index covers every active,
@@ -343,6 +347,14 @@ def retrieve_longitudinal_context(
                and mi.attribution <> 'PsychDeep whole-person model'
                and mi.status = 'active'
                and (mi.expires_at is null or mi.expires_at > now())
+               and (
+                   :clinical_document_analysis_allowed
+                   or not exists (
+                       select 1
+                         from jsonb_array_elements_text(coalesce(mi.source_refs::jsonb, '[]'::jsonb)) as source_ref(value)
+                        where source_ref.value like 'clinical_document:%'
+                   )
+               )
                and to_tsvector('simple', coalesce(mi.content, '')) @@ q.tsq
              order by relevance desc, mi.created_at desc
              limit 16
@@ -375,6 +387,14 @@ def retrieve_longitudinal_context(
                            ) as document
                       from psychdeep_v12.memory_episodes e
                      where e.user_id = :user_id and e.status = 'active'
+                       and (
+                           :clinical_document_analysis_allowed
+                           or not exists (
+                               select 1
+                                 from jsonb_array_elements_text(coalesce(e.source_refs::jsonb, '[]'::jsonb)) as source_ref(value)
+                                where source_ref.value like 'clinical_document:%'
+                           )
+                       )
                  )
             select e.id, e.title, e.l0, e.l1, e.themes, e.transitions,
                    e.source_refs, e.uncertainty, e.start_at, e.end_at, e.created_at,
@@ -417,6 +437,14 @@ def retrieve_longitudinal_context(
                            ) as document
                       from psychdeep_v12.memory_summary_versions s
                      where s.user_id = :user_id and s.status = 'active'
+                       and (
+                           :clinical_document_analysis_allowed
+                           or not exists (
+                               select 1
+                                 from jsonb_array_elements_text(coalesce(s.source_refs::jsonb, '[]'::jsonb)) as source_ref(value)
+                                where source_ref.value like 'clinical_document:%'
+                           )
+                       )
                        and (
                            (s.scope_type = 'topic' and s.scope_key = 'longitudinal-v1')
                            or (s.scope_type = 'time_window' and s.scope_key like 'episode-digest:%')
@@ -597,7 +625,7 @@ def _query_words(value: str) -> set[str]:
 def run_memory_job(db: Session, job: dict[str, Any]) -> None:
     """Process one claimed memory job. Raises only to drive retry/dead-letter policy."""
     from uuid import UUID
-    from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+    from app.services.consent import CLINICAL_DOCUMENT_ANALYSIS, LINGUISTIC_ANALYSIS, is_granted
 
     try:
         user_id = UUID(str(job["user_id"]))
@@ -612,6 +640,13 @@ def run_memory_job(db: Session, job: dict[str, Any]) -> None:
         return
     job_type = str(job["job_type"])
     if not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+        db.execute(text("""
+            update psychdeep_v12.patient_clinical_documents
+               set analysis_status = 'consent_revoked',
+                   error_category = 'consent_revoked'
+             where user_id = :user_id
+               and analysis_status in ('queued', 'analysing')
+        """), {"user_id": str(user_id)})
         db.execute(text("""
             update psychdeep_v12.memory_jobs
                set status = 'cancelled', completed_at = now(),
@@ -632,6 +667,24 @@ def run_memory_job(db: Session, job: dict[str, Any]) -> None:
         from app.services.patient_understanding import rebuild_patient_model
 
         result = rebuild_patient_model(db, user_id, max_batches=8)
+        if result.get("status") in {"consent_required", "consent_revoked"} or not is_granted(db, user_id, LINGUISTIC_ANALYSIS):
+            db.execute(text("""
+                update psychdeep_v12.memory_jobs
+                   set status = 'cancelled', completed_at = now(),
+                       error_category = 'consent_revoked', locked_at = null
+                 where id = :job_id
+            """), {"job_id": str(job["id"])})
+            db.commit()
+            return
+        if "consent_revoked" in (result.get("errors") or []) and not is_granted(db, user_id, CLINICAL_DOCUMENT_ANALYSIS):
+            db.execute(text("""
+                update psychdeep_v12.memory_jobs
+                   set status = 'cancelled', completed_at = now(),
+                       error_category = 'consent_revoked', locked_at = null
+                 where id = :job_id
+            """), {"job_id": str(job["id"])})
+            db.commit()
+            return
         if result.get("errors"):
             errors = result.get("errors")
             first_safe_category = next(
@@ -645,17 +698,6 @@ def run_memory_job(db: Session, job: dict[str, Any]) -> None:
         if result.get("status") in {"analysis_failed", "no_context_fit"}:
             status = result.get("status")
             raise MemoryJobFailure(status if status in _SAFE_MEMORY_FAILURE_CATEGORIES else "analysis_failed")
-        if result.get("status") in {"consent_required", "consent_revoked"}:
-            # Consent may be revoked while the worker is doing expensive analysis.
-            # Cancel this task explicitly; do not mark it successful or retry it.
-            db.execute(text("""
-                update psychdeep_v12.memory_jobs
-                   set status = 'cancelled', completed_at = now(),
-                       error_category = 'consent_revoked', locked_at = null
-                 where id = :job_id
-            """), {"job_id": str(job["id"])})
-            db.commit()
-            return
         if result.get("status") not in {
             "succeeded", "unchanged", "processing", "no_source_evidence",
         }:
@@ -970,7 +1012,26 @@ def _run_longitudinal_analysis(db: Session, job: dict[str, Any], user_id) -> Non
 def claim_next_memory_job(db: Session) -> dict[str, Any] | None:
     """Atomically claim one pending job from the shared PostgreSQL queue."""
     result = db.execute(text("""
-        with candidate as (
+        with stale_jobs as (
+            update psychdeep_v12.memory_jobs
+               set status = case when attempts >= max_attempts then 'dead_letter' else 'retry' end,
+                   available_at = now(),
+                   error_category = 'worker_lease_expired',
+                   locked_at = null,
+                   completed_at = case when attempts >= max_attempts then now() else null end
+             where status = 'processing'
+               and locked_at < now() - interval '10 minutes'
+            returning user_id, job_type, status
+        ), stale_documents as (
+            update psychdeep_v12.patient_clinical_documents document
+               set analysis_status = case when stale_jobs.status = 'dead_letter' then 'failed' else 'queued' end,
+                   error_category = 'worker_lease_expired'
+              from stale_jobs
+             where stale_jobs.job_type = 'longitudinal_analysis'
+               and document.user_id = stale_jobs.user_id
+               and document.analysis_status = 'analysing'
+            returning document.id
+        ), candidate as (
             select id
               from psychdeep_v12.memory_jobs
              where status in ('pending', 'retry')
@@ -993,12 +1054,36 @@ def claim_next_memory_job(db: Session) -> dict[str, Any] | None:
 def run_memory_worker_once(db: Session) -> bool:
     """Process at most one queued task; failures retry with bounded backoff."""
     import logging
+    import threading
     from datetime import timedelta
 
     logger = logging.getLogger("psychapp.memory_worker")
     job = claim_next_memory_job(db)
     if job is None:
         return False
+
+    heartbeat_stop = threading.Event()
+
+    def renew_lease() -> None:
+        from app.database import SessionLocal
+
+        while not heartbeat_stop.wait(30):
+            heartbeat_db = SessionLocal()
+            try:
+                heartbeat_db.execute(text("""
+                    update psychdeep_v12.memory_jobs
+                       set locked_at = now()
+                     where id = :job_id and status = 'processing'
+                """), {"job_id": str(job["id"])})
+                heartbeat_db.commit()
+            except Exception as exc:  # noqa: BLE001
+                heartbeat_db.rollback()
+                logger.warning("Memory job lease renewal failed exception_type=%s", type(exc).__name__)
+            finally:
+                heartbeat_db.close()
+
+    heartbeat = threading.Thread(target=renew_lease, name="memory-job-lease", daemon=True)
+    heartbeat.start()
     try:
         run_memory_job(db, job)
     except Exception as exc:  # noqa: BLE001
@@ -1007,6 +1092,19 @@ def run_memory_worker_once(db: Session) -> bool:
         maximum = int(job.get("max_attempts") or 5)
         dead = attempts >= maximum
         delay_seconds = min(3600, 30 * (2 ** max(0, attempts - 1)))
+        safe_category = str(getattr(exc, "category", type(exc).__name__))[:64]
+        if job.get("job_type") == "longitudinal_analysis":
+            db.execute(text("""
+                update psychdeep_v12.patient_clinical_documents
+                   set analysis_status = :document_status,
+                       error_category = :error_category
+                 where user_id = :user_id
+                   and analysis_status = 'analysing'
+            """), {
+                "document_status": "failed" if dead else "queued",
+                "error_category": safe_category,
+                "user_id": str(job.get("user_id")),
+            })
         db.execute(text("""
             update psychdeep_v12.memory_jobs
                set status = :status,
@@ -1018,7 +1116,7 @@ def run_memory_worker_once(db: Session) -> bool:
         """), {
             "status": "dead_letter" if dead else "retry",
             "delay_seconds": delay_seconds,
-            "error_category": str(getattr(exc, "category", type(exc).__name__))[:64],
+            "error_category": safe_category,
             "dead": dead,
             "job_id": str(job["id"]),
         })
@@ -1028,4 +1126,7 @@ def run_memory_worker_once(db: Session) -> bool:
             str(getattr(exc, "category", type(exc).__name__))[:64], type(exc).__name__,
             job.get("job_type"), str(job.get("id", ""))[:64], dead, safe_exception_frames(exc),
         )
+    finally:
+        heartbeat_stop.set()
+        heartbeat.join(timeout=1)
     return True

@@ -40,9 +40,13 @@ export function errorDetail(body: unknown, fallback: string): string {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
     ...(options.headers as Record<string, string> | undefined),
   };
+  const multipartBody = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (multipartBody) delete headers["Content-Type"];
+  else if (!Object.keys(headers).some((key) => key.toLowerCase() === "content-type")) {
+    headers["Content-Type"] = "application/json";
+  }
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const base = getApiBase();
@@ -68,12 +72,39 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function requestBlob(path: string): Promise<Blob> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const base = getApiBase();
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, { method: "GET", headers });
+  } catch {
+    throw new ApiError("No se pudo conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.", 0);
+  }
+  if (!res.ok) {
+    let detail = res.status >= 500
+      ? "El servidor no está disponible temporalmente. Inténtalo de nuevo en unos momentos."
+      : `No se pudo completar la solicitud (${res.status}).`;
+    try {
+      detail = errorDetail(await res.json(), detail);
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(detail, res.status);
+  }
+  return res.blob();
+}
+
 export const api = {
   get: <T,>(path: string) => request<T>(path, { method: "GET" }),
   post: <T,>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
   upload: <T,>(path: string, formData: FormData) =>
     request<T>(path, { method: "POST", body: formData }),
+  download: (path: string) => requestBlob(path),
   patch: <T,>(path: string, body?: unknown) =>
     request<T>(path, { method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined }),
   put: <T,>(path: string, body?: unknown) =>
@@ -918,6 +949,7 @@ export const ASSIGNMENT_STATUS_LABELS: Record<string, string> = {
 export const CONSENT_LABELS: Record<string, string> = {
   data_processing: "Tratamiento de datos",
   linguistic_analysis: "Análisis lingüístico",
+  clinical_document_analysis: "Análisis de informes clínicos",
   professional_sharing: "Compartir con profesional",
   crisis_sms: "SMS de crisis (opcional)",
   research: "Uso en investigación",

@@ -27,6 +27,7 @@ expected_tables(table_name) as (values
     ('llm_endpoint_configs'), ('llm_usage_events'), ('notifications'),
     ('password_reset_tokens'), ('patient_professional_assignments'),
     ('patient_profiles'), ('professional_alerts'), ('psychosocial_observations'),
+    ('patient_clinical_documents'),
     ('risk_assessments'), ('safety_plans'), ('therapist_copilot_messages'),
     ('user_consents'), ('users'),
     -- Canonical vNext data plane.
@@ -85,7 +86,10 @@ required_columns(table_name, column_name) as (values
     ('knowledge_items', 'objective'),
     ('knowledge_items', 'approved_at'),
     ('fine_tune_runs', 'id'),
-    ('model_deployments', 'alias')
+    ('model_deployments', 'alias'),
+    ('patient_clinical_documents', 'file_content'),
+    ('patient_clinical_documents', 'extracted_text'),
+    ('patient_clinical_documents', 'patient_model_version_id')
 ),
 checks(sort_key, check_name, failures) as (
     select 1, 'schema exists',

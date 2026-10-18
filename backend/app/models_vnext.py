@@ -2,7 +2,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, func, text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, LargeBinary, SmallInteger, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -408,6 +408,29 @@ class PatientModelVersion(Base):
     prompt_version: Mapped[str] = mapped_column(String(96), nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="provisional")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PatientClinicalDocument(Base):
+    """Private source document uploaded by an assigned therapist for analysis."""
+
+    __tablename__ = "patient_clinical_documents"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    uploaded_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
+    original_filename: Mapped[str] = mapped_column(String(240), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    extracted_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    text_truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    extraction_status: Mapped[str] = mapped_column(String(24), nullable=False, default="text_extracted")
+    analysis_status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    error_category: Mapped[str | None] = mapped_column(String(64))
+    patient_model_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("patient_model_versions.id", ondelete="SET NULL"))
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PatientModelQuestion(Base):

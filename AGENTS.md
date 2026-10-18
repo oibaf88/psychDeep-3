@@ -155,6 +155,8 @@ Why G4 is **not complete**: the patient still experiences much of the old applic
 - [~] Preserve longitudinal patient history access for authorised clinicians.
 - [~] Assigned clinicians can read clinical memory and receive a separate in-app attention notice.
   - The patient chart has a Memoria y lectura section: formulation, discourse facts, readings, professional notes and open notices. Notices are deterministic rules over stored memory. They do not write `ProfessionalAlert` or change `alert_level`. `admin_clinical` remains excluded. Negative tests cover an unassigned therapist and `admin_clinical`.
+- [~] Assigned therapists can upload source-linked clinical reports for the whole-person model.
+  - The restoration branch adds private PDF/DOCX/TXT storage and extraction, a separate `clinical_document_analysis` consent, document provenance in the longitudinal synthesis, profile controls, and a Render memory worker. It remains unreleased until the additive Supabase migration and Blueprint worker are approved/applied and the clinical authorization, revocation, extraction and end-to-end flows have release evidence. Scanned PDF OCR is not included.
 - [ ] Redesign the professional patient view around longitudinal trajectory, baseline, ChangeSignals, evidence, uncertainty, assessment trace, interventions and outcomes.
 - [ ] Implement a structured **session preparation summary** derived from authorised structured data, with evidence and limitations.
 - [ ] Allow professionals to add context and confirm/correct facts with versioned history rather than silent edits.
