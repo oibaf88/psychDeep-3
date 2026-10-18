@@ -193,10 +193,15 @@ begin
 end
 $$;
 
-create index if not exists ix_patient_clinical_documents_user_uploaded
+
+drop index if exists psychdeep_v12.ix_patient_clinical_documents_user_uploaded;
+create index ix_patient_clinical_documents_user_uploaded
     on psychdeep_v12.patient_clinical_documents(user_id, uploaded_at desc);
-create index if not exists ix_patient_clinical_documents_analysis_queue
+
+drop index if exists psychdeep_v12.ix_patient_clinical_documents_analysis_queue;
+create index ix_patient_clinical_documents_analysis_queue
     on psychdeep_v12.patient_clinical_documents(user_id, analysis_status, uploaded_at);
+
 
 alter table psychdeep_v12.patient_clinical_documents enable row level security;
 alter table psychdeep_v12.patient_clinical_documents force row level security;

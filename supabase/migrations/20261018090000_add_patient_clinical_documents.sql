@@ -28,9 +28,9 @@ create table if not exists psychdeep_v12.patient_clinical_documents (
 );
 
 create index if not exists ix_patient_clinical_documents_user_uploaded
-    on psychdeep_v12.patient_clinical_documents(user_id, uploaded_at desc);
+    on psychdeep_v12.patient_clinical_documents(user_id);
 create index if not exists ix_patient_clinical_documents_analysis_queue
-    on psychdeep_v12.patient_clinical_documents(user_id, analysis_status, uploaded_at);
+    on psychdeep_v12.patient_clinical_documents(user_id, analysis_status);
 
 alter table psychdeep_v12.patient_clinical_documents enable row level security;
 alter table psychdeep_v12.patient_clinical_documents force row level security;

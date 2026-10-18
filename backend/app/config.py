@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     llm_openai_compatible_copilot_model: str = ""
     llm_openai_compatible_timeout_seconds: int = 300
     llm_openai_compatible_max_tokens: int = 8192
-    llm_allow_runtime_override: bool = False
+    llm_allow_runtime_override: bool = True
 
     @property
     def local_base_url(self) -> str:
