@@ -76,6 +76,7 @@ from app.services import profile as profile_service
 from app.services import signals as signals_service
 from app.services.assignment_visibility import AssignmentLink, links_by_patient, summary_status
 from app.services.longitudinal_read import for_clinical_reader, longitudinal_state, longitudinal_states
+from app.services.consent import sharing_allowed
 from app.services.timeline import build_timeline
 
 logger = logging.getLogger(__name__)
@@ -261,16 +262,21 @@ def _require_clinical_read(db: Session, professional: User, patient_id: uuid.UUI
             detail="admin_clinical no tiene visibilidad clínica de señales/hechos (RBAC doc 16)",
         )
     if professional.role == "therapist":
-        if not _assignment(db, patient_id, professional.id, statuses=("active", "paused")):
-            raise HTTPException(status_code=403, detail="No tienes asignación activa/pausada con este paciente")
+        if not sharing_allowed(
+            db, patient_id, professional.id, assignment_statuses=("active", "paused")
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes asignación y consentimiento de compartición vigentes con este paciente",
+            )
     # supervisor: full clinical read (assumption in README)
 
 
 def _require_fact_access(professional: User, db: Session, patient_id):
     if professional.role != "therapist":
         raise HTTPException(status_code=403, detail="Solo el terapeuta asignado ve/edita hechos confirmados (RBAC)")
-    if not _active_assignment(db, patient_id, professional.id):
-        raise HTTPException(status_code=403, detail="Se requiere asignación activa para hechos")
+    if not sharing_allowed(db, patient_id, professional.id):
+        raise HTTPException(status_code=403, detail="Se requiere asignación activa y consentimiento de compartición")
 
 
 def _alert_out(db: Session, alert: ProfessionalAlert, *, with_evidence: bool = True) -> AlertOut:
@@ -415,6 +421,8 @@ def _batch_patient_summaries(
     db: Session,
     patients: list[tuple[User | None, str]],
     assignment_outs: dict[uuid.UUID, list[AssignmentLinkOut]] | None = None,
+    *,
+    professional: User | None = None,
 ) -> list[PatientSummaryOut]:
     patient_ids = [p.id for p, _ in patients if p]
     if not patient_ids:
@@ -496,7 +504,12 @@ def _batch_patient_summaries(
             latest_score = assessment.input_signals.get("structural_score")
             latest_band = assessment.input_signals.get("confidence_band")
 
-        user_alerts = alerts_by_user.get(patient.id, [])
+        share = True
+        if professional is not None and professional.role == "therapist":
+            share = sharing_allowed(
+                db, patient.id, professional.id, assignment_statuses=("active", "paused")
+            )
+        user_alerts = alerts_by_user.get(patient.id, []) if share else []
         pending = user_alerts[0] if user_alerts else None
 
         summaries.append(
@@ -505,16 +518,16 @@ def _batch_patient_summaries(
                 display_name=patient.display_name,
                 email=patient.email,
                 assignment_status=status_label,
-                latest_alert_level=assessment.alert_level if assessment else None,
-                latest_structural_score=latest_score,
-                latest_confidence_band=latest_band,
+                latest_alert_level=(assessment.alert_level if assessment and share else None),
+                latest_structural_score=latest_score if share else None,
+                latest_confidence_band=latest_band if share else None,
                 pending_alert_level=pending.alert_level if pending else None,
                 pending_alert_status=pending.status if pending else None,
                 open_alerts=len(user_alerts),
-                checkin_count=counts_by_user.get(patient.id, 0),
-                last_checkin_at=last_checkin_by_user.get(patient.id),
+                checkin_count=counts_by_user.get(patient.id, 0) if share else 0,
+                last_checkin_at=last_checkin_by_user.get(patient.id) if share else None,
                 assignments=(assignment_outs or {}).get(patient.id, []),
-                longitudinal=for_clinical_reader(longitudinal_by_user[patient.id]),
+                longitudinal=for_clinical_reader(longitudinal_by_user[patient.id]) if share else None,
             )
         )
 
@@ -539,7 +552,7 @@ def list_patients(db: Session = Depends(get_db), professional: User = Depends(re
             else {}
         )
         patients = [(users.get(assignment.patient_id), assignment.status) for assignment in assignments]
-        return _batch_patient_summaries(db, patients)
+        return _batch_patient_summaries(db, patients, professional=professional)
 
     roster = db.query(User).filter(User.role == "patient").order_by(User.display_name.asc()).all()
     assignment_outs = _links_out(db, [patient.id for patient in roster])
@@ -549,7 +562,7 @@ def list_patients(db: Session = Depends(get_db), professional: User = Depends(re
     ]
 
     if professional.role != "admin_clinical":
-        return _batch_patient_summaries(db, patients, assignment_outs)
+        return _batch_patient_summaries(db, patients, assignment_outs, professional=professional)
 
     # admin_clinical manages links. The roster carries pending and done
     # assignments and nothing from the chart: no alerts, scores or ChangeSignal.
@@ -1394,6 +1407,9 @@ def list_alerts(
                 PatientProfessionalAssignment.professional_id == professional.id,
                 PatientProfessionalAssignment.status.in_(["active", "paused"]),
             )
+            if sharing_allowed(
+                db, a.patient_id, professional.id, assignment_statuses=("active", "paused")
+            )
         ]
         query = query.filter(ProfessionalAlert.user_id.in_(assigned_ids or [uuid.uuid4()]))
 
@@ -1417,8 +1433,8 @@ def _get_alert_for_professional(db: Session, alert_id: uuid.UUID, professional: 
     alert = db.get(ProfessionalAlert, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    if professional.role == "therapist" and not _assignment(
-        db, alert.user_id, professional.id, statuses=("active", "paused")
+    if professional.role == "therapist" and not sharing_allowed(
+        db, alert.user_id, professional.id, assignment_statuses=("active", "paused")
     ):
         raise HTTPException(status_code=403, detail="Not one of your patients")
     return alert

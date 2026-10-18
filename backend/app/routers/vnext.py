@@ -25,7 +25,7 @@ from app.services.longitudinal_read import (
     for_clinical_reader as _for_clinical_reader,
     longitudinal_state as _longitudinal_state,
 )
-from app.services.consent import CORE_PROCESSING, is_granted
+from app.services.consent import CORE_PROCESSING, is_granted, require_granted
 from app.services.deterministic_safety_text import materialize_user_declaration
 from app.services.model_gateway import APPROVED_ALIASES, ModelUnavailable, get_model_gateway
 from app.services.timeline import build_patient_timeline
@@ -159,6 +159,9 @@ def run_analytics(db: Session = Depends(get_db), user: User = Depends(require_pa
     A check-in already does this. This endpoint remains for an explicit refresh.
     ChangeSignal stays separate from RiskAssessment. The LLM is not consulted.
     """
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status_code=403, detail="Account is inactive")
+    require_granted(db, user.id, CORE_PROCESSING)
     result = run_canonical_analytics(db, user.id)
     return result.to_response()
 
