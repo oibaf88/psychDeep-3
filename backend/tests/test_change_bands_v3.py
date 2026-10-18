@@ -182,9 +182,23 @@ class MissingDataTests(_DbCase):
         self.assertIsNone(result.score)
 
     def test_several_checkins_on_one_day_count_as_one_reference_day(self):
+        anchor = datetime.utcnow().replace(hour=12, minute=0, second=0, microsecond=0)
         for d in range(12, 8, -1):
-            for h in (2, 5, 8):
-                self.add(d, 6, 3, 7.0, 6, hours=h)
+            day = anchor - timedelta(days=d)
+            for hour in (2, 5, 8):
+                row = CheckIn(
+                    user_id=self.user.id,
+                    mood=6,
+                    craving=3,
+                    sleep_hours=7.0,
+                    self_efficacy=6,
+                    created_at=day.replace(hour=hour),
+                )
+                self.db.add(row)
+                self.db.commit()
+                self.db.refresh(row)
+                record_checkin(self.db, row)
+                self.db.commit()
         self.assertIsNone(baseline.compute_or_refresh_baseline(self.db, self.user.id))
 
 
