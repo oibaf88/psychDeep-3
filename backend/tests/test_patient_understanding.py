@@ -308,9 +308,9 @@ def test_fulltext_retrieval_is_user_scoped_and_returns_source_evidence(monkeypat
         def rollback(self):
             pass
 
-    seen_consent_identities = []
+    seen_consent_checks = []
     def fake_is_granted(db, candidate_user_id, purpose):
-        seen_consent_identities.append(candidate_user_id)
+        seen_consent_checks.append((candidate_user_id, purpose))
         return True
 
     monkeypatch.setattr(consent, "is_granted", fake_is_granted)
@@ -329,7 +329,10 @@ def test_fulltext_retrieval_is_user_scoped_and_returns_source_evidence(monkeypat
     telemetry = [params for sql, params in calls if "insert into psychdeep_v12.memory_retrieval_runs" in sql]
     assert telemetry and telemetry[0]["query_hash"]
     assert telemetry[0]["estimated_tokens"] == result.estimated_tokens
-    assert seen_consent_identities == [user_id]
+    assert seen_consent_checks == [
+        (user_id, consent.LINGUISTIC_ANALYSIS),
+        (user_id, consent.CLINICAL_DOCUMENT_ANALYSIS),
+    ]
 
 
 def test_hierarchical_episode_groups_are_bounded_and_lossless():

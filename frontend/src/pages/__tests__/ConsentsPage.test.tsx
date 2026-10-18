@@ -47,8 +47,8 @@ describe("ConsentsPage", () => {
     });
 
     const notGranted = screen.getAllByText("No concedido / revocado");
-    // 4 other types should not be granted
-    expect(notGranted.length).toBe(4);
+    // The remaining five consent purposes should not be granted.
+    expect(notGranted.length).toBe(5);
 
     expect(api.get).toHaveBeenCalledWith("/api/v1/consents");
   });
