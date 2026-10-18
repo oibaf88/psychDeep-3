@@ -34,7 +34,18 @@ expected_tables(table_name) as (values
     ('observations'), ('feature_definitions'), ('feature_values'),
     ('baseline_versions'), ('change_signals'), ('model_runs'), ('inferences'),
     ('intervention_events'), ('knowledge_items'), ('fine_tune_runs'),
-    ('model_deployments')
+    ('model_deployments'),
+    ('llm_user_preferences'), ('mobile_inference_events'),
+    -- Versioned clinical memory (migrations 20261005+); not Advisor drift.
+    ('memory_commits'), ('discourse_facts'), ('psych_readings'),
+    ('formulation_versions'), ('memory_annotations'),
+    ('clinical_attention_notices'), ('memory_embeddings'),
+    ('memory_event_ledger'), ('memory_items'), ('memory_item_sources'),
+    ('memory_summary_versions'), ('memory_jobs'), ('memory_retrieval_runs'),
+    ('memory_episodes'), ('memory_relations'), ('patient_model_versions'),
+    ('patient_model_questions'), ('memory_analysis_runs'),
+    -- Canonical embeddings on ChangeSignal (never alert_level).
+    ('change_signal_embeddings')
 ),
 required_columns(table_name, column_name) as (values
     ('agent2_analysis_traces', 'id'),
@@ -89,7 +100,14 @@ required_columns(table_name, column_name) as (values
     ('model_deployments', 'alias'),
     ('patient_clinical_documents', 'file_content'),
     ('patient_clinical_documents', 'extracted_text'),
-    ('patient_clinical_documents', 'patient_model_version_id')
+    ('patient_clinical_documents', 'patient_model_version_id'),
+    ('llm_user_preferences', 'user_id'),
+    ('mobile_inference_events', 'id'),
+    ('memory_jobs', 'id'),
+    ('memory_event_ledger', 'consent_purpose'),
+    ('change_signal_embeddings', 'change_signal_id'),
+    ('change_signal_embeddings', 'consent_id'),
+    ('change_signal_embeddings', 'purpose')
 ),
 checks(sort_key, check_name, failures) as (
     select 1, 'schema exists',
@@ -223,6 +241,14 @@ checks(sort_key, check_name, failures) as (
                     and pg_indexes.indexdef ilike '%unique%'
                     and pg_indexes.indexdef ilike '%where %status%active%')
              )
+
+    union all
+    select 18, 'no unexpected relations in psychdeep_v12',
+           (select count(*) from pg_class relation
+              join pg_namespace namespace on namespace.oid = relation.relnamespace
+              join settings on namespace.nspname = settings.target_schema
+             where relation.relkind in ('r', 'p', 'v', 'm', 'f')
+               and relation.relname not in (select table_name from expected_tables))
 )
 select check_name,
        case when failures = 0 then 'ok' else 'FAILED' end as status,

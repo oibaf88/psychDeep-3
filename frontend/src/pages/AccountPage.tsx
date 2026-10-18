@@ -24,7 +24,7 @@ export default function AccountPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [busy, setBusy] = useState<"" | "profile" | "password">("");
+  const [busy, setBusy] = useState<"" | "profile" | "password" | "export" | "erasure">("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -89,6 +89,49 @@ export default function AccountPage() {
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      setBusy("");
+    }
+  }
+
+  async function downloadExport() {
+    if (busy) return;
+    setBusy("export");
+    setError(null);
+    setNotice(null);
+    try {
+      const data = await api.get<Record<string, unknown>>("/api/v1/me/data-export");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "psychdeep-mis-datos.json";
+      link.click();
+      URL.revokeObjectURL(url);
+      setNotice("Descarga lista. Copia de acceso/portabilidad, no un certificado de conformidad.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function requestErasure() {
+    if (busy) return;
+    if (!window.confirm("Esto cierra la cuenta y detiene el tratamiento futuro. No borra el histórico clínico. ¿Continuar?")) {
+      return;
+    }
+    setBusy("erasure");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.post<{ retention_note?: string }>("/api/v1/me/erasure-request");
+      logout();
+      navigate("/login", {
+        replace: true,
+        state: { notice: result.retention_note || "Cuenta cerrada. El histórico no se ha borrado." },
+      });
+    } catch (e) {
+      setError((e as Error).message);
       setBusy("");
     }
   }
@@ -174,11 +217,20 @@ export default function AccountPage() {
 
       {user.role === "patient" && (
         <section className="card no-print">
-          <h2>Historial Clínico</h2>
-          <p className="meta">Para consultar tu historial clínico, gráficas y notas de sesión, dirígete a tu panel principal.</p>
-          <button type="button" onClick={() => navigate("/")}>
-            Ir a Mi Panel Clínico
-          </button>
+          <h2>Tus datos (arts. 15 y 20 RGPD)</h2>
+          <p className="meta">
+            JSON de cuenta, consentimientos, check-ins, diario, hechos y plan. El riesgo determinista va como copia de acceso.
+            La supresión no borra el histórico (Ley 41/2002 art. 17 / art. 17.3 RGPD): corta el tratamiento futuro y cierra la cuenta.
+          </p>
+          <div className="alert-actions">
+            <button type="button" className="btn-secondary" disabled={!!busy} onClick={() => void downloadExport()}>
+              {busy === "export" ? "Preparando…" : "Descargar mis datos"}
+            </button>
+            <button type="button" className="btn-secondary" disabled={!!busy} onClick={() => void requestErasure()}>
+              {busy === "erasure" ? "Enviando…" : "Solicitar cierre y cese de tratamiento"}
+            </button>
+            <button type="button" onClick={() => navigate("/")}>Ir a Mi Panel</button>
+          </div>
         </section>
       )}
       {user.role === "admin_clinical" && (

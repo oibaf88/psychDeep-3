@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models import PatientProfessionalAssignment, User
 from app.security import get_current_user, require_professional
 from app.services import clinical_memory
+from app.services.consent import sharing_allowed
 from app.utils import utc_iso
 
 router = APIRouter(prefix="/api/v1", tags=["clinical-memory"])
@@ -39,8 +40,13 @@ def _assignment(db: Session, patient_id, professional_id, statuses=("active", "p
 def _require_clinical_read(db: Session, professional: User, patient_id: uuid.UUID) -> None:
     if professional.role == "admin_clinical":
         raise HTTPException(status_code=403, detail="admin_clinical no tiene visibilidad clínica de la memoria")
-    if professional.role == "therapist" and not _assignment(db, patient_id, professional.id):
-        raise HTTPException(status_code=403, detail="No tienes asignación activa/pausada con este paciente")
+    if professional.role == "therapist" and not sharing_allowed(
+        db, patient_id, professional.id, assignment_statuses=("active", "paused")
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes asignación y consentimiento de compartición vigentes con este paciente",
+        )
 
 
 def _require_active_writer(db: Session, professional: User, patient_id: uuid.UUID) -> None:

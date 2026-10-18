@@ -27,6 +27,7 @@ from app.routers import (
     mobile,
     notifications,
     professional,
+    rights,
     safety,
     timeline,
     vnext,
@@ -272,3 +273,4 @@ app.include_router(audit.router)
 app.include_router(llm_settings.router)
 app.include_router(mobile.router)
 app.include_router(vnext.router)
+app.include_router(rights.router)

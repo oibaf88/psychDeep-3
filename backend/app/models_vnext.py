@@ -100,6 +100,23 @@ class ChangeSignal(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class ChangeSignalEmbedding(Base):
+    """Vector on a ChangeSignal. Retrieval only; never writes alert_level."""
+
+    __tablename__ = "change_signal_embeddings"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    change_signal_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("change_signals.id", ondelete="CASCADE"), nullable=False, unique=True)
+    consent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("user_consents.id", ondelete="SET NULL"))
+    purpose: Mapped[str] = mapped_column(String(48), nullable=False, default="linguistic_analysis")
+    embedding: Mapped[list | None] = mapped_column(JSON_DOC)
+    provider: Mapped[str] = mapped_column(String(96), nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(192), nullable=False)
+    algorithm_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class Inference(Base):
     __tablename__ = "inferences"
 
