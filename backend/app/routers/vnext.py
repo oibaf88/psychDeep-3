@@ -32,3 +32,223 @@ from app.services.model_gateway import APPROVED_ALIASES, ModelUnavailable, get_m
 from app.services.timeline import build_patient_timeline
 
 router = APIRouter(prefix="/api/v1", tags=["vnext"])
+
+
+class ObservationIn(BaseModel):
+    type: str = Field(min_length=1, max_length=96)
+    value: Any
+    unit: str | None = Field(default=None, max_length=48)
+    source: str = Field(default="self_report", max_length=64)
+    occurred_at: datetime | None = None
+    timezone: str | None = Field(default=None, max_length=64)
+    quality: dict[str, Any] = Field(default_factory=dict)
+
+
+class SupportIn(BaseModel):
+    message: str = Field(min_length=1, max_length=12000)
+
+
+class FeedbackIn(BaseModel):
+    action_id: str = Field(min_length=1, max_length=96)
+    state: str = Field(pattern="^(accepted|rejected|postponed|completed)$")
+    usefulness: int | None = Field(default=None, ge=1, le=5)
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+@router.post("/observations", status_code=201)
+def create_observation(
+    payload: ObservationIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_patient),
+):
+    if not is_granted(db, user.id, CORE_PROCESSING):
+        raise HTTPException(status_code=403, detail="core processing consent is required")
+    occurred_at = payload.occurred_at or datetime.now(timezone.utc)
+    if occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+    row = Observation(
+        user_id=user.id,
+        source=payload.source,
+        type=payload.type,
+        value={"value": payload.value},
+        unit=payload.unit,
+        occurred_at=occurred_at.astimezone(timezone.utc),
+        timezone=payload.timezone,
+        quality=payload.quality,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {
+        "id": str(row.id),
+        "type": row.type,
+        "source": row.source,
+        "occurred_at": row.occurred_at,
+        "received_at": row.received_at,
+        "quality": row.quality,
+    }
+
+
+@router.get("/state")
+def current_state(db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    """Current observations, with safety and longitudinal change kept apart.
+
+    `safety` is only the latest RiskAssessment snapshot.
+    `longitudinal` is the current BaselineVersion plus the latest ChangeSignals
+    for that baseline. This read does not run analytics, calculate risk, or
+    call a model. Missing canonical rows stay insufficient_data / null.
+    """
+    recent = (
+        db.query(Observation)
+        .filter(Observation.user_id == user.id)
+        .order_by(Observation.occurred_at.desc())
+        .limit(20)
+        .all()
+    )
+    risk = risk_engine.latest_assessment(db, user.id)
+    latest_by_type: dict[str, dict[str, Any]] = {}
+    for row in recent:
+        latest_by_type.setdefault(
+            row.type,
+            {
+                "observation_id": str(row.id),
+                "value": row.value,
+                "occurred_at": row.occurred_at,
+                "quality": row.quality,
+            },
+        )
+    expected = {"mood", "craving", "sleep_hours", "self_efficacy"}
+    return {
+        "latest": latest_by_type,
+        "missing": sorted(expected - set(latest_by_type)),
+        "safety": {
+            "alert_level": risk.alert_level if risk else None,
+            "assessment_id": str(risk.id) if risk else None,
+            "model_version": risk.model_version if risk else None,
+            "correlation_id": str(risk.correlation_id) if risk and risk.correlation_id else None,
+        },
+        "longitudinal": _longitudinal_state(db, user.id),
+        "limits": ["La ausencia de una señal no demuestra ausencia de riesgo."],
+    }
+
+
+@router.get("/baselines/current")
+def current_baseline(db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    return _baseline_summary(_current_baseline(db, user.id))
+
+
+@router.get("/changes")
+def changes(
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_patient),
+):
+    rows = (
+        db.query(ChangeSignal)
+        .filter(ChangeSignal.user_id == user.id)
+        .order_by(ChangeSignal.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_change_signal_summary(row) for row in rows]
+
+
+@router.post("/analytics/run")
+def run_analytics(db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    """Recompute the canonical trajectory without calculating clinical risk.
+
+    A check-in already does this. This endpoint remains for an explicit refresh.
+    ChangeSignal stays separate from RiskAssessment. The LLM is not consulted.
+    """
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status_code=403, detail="Account is inactive")
+    require_granted(db, user.id, CORE_PROCESSING)
+    result = run_canonical_analytics(db, user.id)
+    embed_change_signals(db, user.id, result.change_signals)
+    return result.to_response()
+
+
+@router.post("/safety/evaluate")
+def evaluate_safety(db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    assessment = risk_engine.run_and_persist(db, user.id)
+    return {
+        "assessment_id": str(assessment.id),
+        "alert_level": assessment.alert_level,
+        "triggering_rules": assessment.triggering_rules,
+        "calculation_trace": assessment.calculation_trace,
+        "model_version": assessment.model_version,
+        "correlation_id": str(assessment.correlation_id) if assessment.correlation_id else None,
+    }
+
+
+@router.post("/support/respond")
+def support_respond(payload: SupportIn, db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    materialize_user_declaration(db, user.id, payload.message)
+    result = conversation.get_reply(db, user, payload.message)
+    return {
+        "mode": result["ui_mode"],
+        "summary": result["reply"],
+        "resources": result.get("resources"),
+        "correlation_id": str(result["correlation_id"]),
+        "limits": ["No sustituye una valoración clínica."],
+    }
+
+
+@router.get("/review/weekly")
+def weekly_review(db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    """Seven-day review with safety and change kept in separate objects.
+
+    `safety` is only the latest RiskAssessment snapshot. `longitudinal` is the
+    persisted BaselineVersion and ChangeSignals. This read does not recompute
+    analytics, calculate risk, or call a model. A missing change stays
+    insufficient_data / null and is never copied from the alert level.
+    """
+    timeline = build_patient_timeline(db, user.id, 7)
+    risk = risk_engine.latest_assessment(db, user.id)
+    return {
+        "window_days": 7,
+        "timeline": timeline,
+        "safety": {
+            "alert_level": risk.alert_level if risk else None,
+            "assessment_id": str(risk.id) if risk else None,
+        },
+        "longitudinal": _for_clinical_reader(_longitudinal_state(db, user.id)),
+        "questions_for_review": [
+            "¿Qué cambió respecto a tus días habituales?",
+            "¿Qué pareció protegerte o ayudarte?",
+            "¿Hay contexto que explique algún cambio?",
+        ],
+    }
+
+
+@router.get("/model/deployments/status")
+def model_status(user: User = Depends(get_current_user)):
+    # No URL, credential reference or secret is included in the response.
+    active = get_model_gateway()
+    active_status = active.health()
+    configured = []
+    for alias in sorted(APPROVED_ALIASES):
+        try:
+            deployment = get_model_gateway(alias).deployment()
+        except ModelUnavailable:
+            continue
+        configured.append(deployment.public_dict())
+    return {"active": active_status, "deployments": configured}
+
+
+@router.post("/feedback", status_code=201)
+def feedback(payload: FeedbackIn, db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    row = InterventionEvent(
+        user_id=user.id,
+        action_id=payload.action_id,
+        state=payload.state,
+        reason=payload.reason,
+        authority="user_feedback",
+        usefulness=payload.usefulness,
+        source="patient",
+        acted_at=datetime.now(timezone.utc),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"id": str(row.id), "state": row.state, "usefulness": row.usefulness}
