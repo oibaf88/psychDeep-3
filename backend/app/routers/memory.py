@@ -122,6 +122,7 @@ def _view(rows) -> dict:
             for row in rows["annotations"]
         ],
         "linguistic_analysis_consent": bool(rows.get("linguistic_analysis_consent", False)),
+        "clinical_document_analysis_consent": bool(rows.get("clinical_document_analysis_consent", False)),
         "patient_model": None if not rows.get("patient_model") else {
             **rows["patient_model"],
             "source_watermark": _iso(rows["patient_model"].get("source_watermark")),

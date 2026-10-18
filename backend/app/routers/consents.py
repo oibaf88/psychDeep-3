@@ -5,10 +5,17 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Consent, User
+from app.models_vnext import PatientClinicalDocument
 from app.schemas import ConsentIn, ConsentOut
 from app.security import get_current_user
 from app.services import audit
-from app.services.consent import VALID_PURPOSES
+from app.services.consent import (
+    CLINICAL_DOCUMENT_ANALYSIS,
+    LINGUISTIC_ANALYSIS,
+    VALID_PURPOSES,
+    is_granted,
+)
+from app.services.memory_pipeline import enqueue_memory_job
 
 router = APIRouter(prefix="/api/v1/consents", tags=["consents"])
 
@@ -37,8 +44,44 @@ def set_consent(payload: ConsentIn, db: Session = Depends(get_db), user: User = 
 
     consent = Consent(user_id=user.id, consent_type=consent_type, granted=payload.granted)
     db.add(consent)
-    db.commit()
-    db.refresh(consent)
+    db.flush()
+
+    if consent_type in {LINGUISTIC_ANALYSIS, CLINICAL_DOCUMENT_ANALYSIS}:
+        document_consent_active = is_granted(db, user.id, CLINICAL_DOCUMENT_ANALYSIS)
+        linguistic_consent_active = is_granted(db, user.id, LINGUISTIC_ANALYSIS)
+
+        if not document_consent_active or not linguistic_consent_active:
+            db.query(PatientClinicalDocument).filter(
+                PatientClinicalDocument.user_id == user.id,
+                PatientClinicalDocument.extraction_status == "text_extracted",
+            ).update({
+                PatientClinicalDocument.analysis_status: "consent_revoked",
+                PatientClinicalDocument.error_category: "consent_revoked",
+            }, synchronize_session=False)
+        else:
+            # A renewed grant explicitly authorises a fresh synthesis over the
+            # stored source files; it does not silently reuse a hidden snapshot.
+            db.query(PatientClinicalDocument).filter(
+                PatientClinicalDocument.user_id == user.id,
+                PatientClinicalDocument.extraction_status == "text_extracted",
+            ).update({
+                PatientClinicalDocument.analysis_status: "queued",
+                PatientClinicalDocument.error_category: None,
+            }, synchronize_session=False)
+
+        # Revocation must replace any snapshot that incorporated documents.
+        # The worker will build a document-free version when the general
+        # linguistic-analysis purpose remains granted. A new grant also queues
+        # processing of the stored documents.
+        if linguistic_consent_active:
+            enqueue_memory_job(
+                db,
+                user_id=user.id,
+                job_type="longitudinal_analysis",
+                source_table="patient_model",
+                source_id=user.id,
+                idempotency_key=f"patient-model:consent:{consent.id}",
+            )
 
     audit.log(
         db,
@@ -49,4 +92,5 @@ def set_consent(payload: ConsentIn, db: Session = Depends(get_db), user: User = 
         entity_id=consent.id,
         extra={"consent_type": consent_type, "granted": payload.granted},
     )
+    db.refresh(consent)
     return consent

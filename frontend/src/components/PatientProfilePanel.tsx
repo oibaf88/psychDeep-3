@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../api";
 import PsychDeepLoader from "./PsychDeepLoader";
@@ -46,6 +46,33 @@ export interface PatientProfile {
   longitudinal_open_questions: Array<Record<string, unknown>>;
   longitudinal_limitations: string[];
   longitudinal_consent_active: boolean;
+  clinical_document_analysis_consent: boolean;
+}
+
+interface PatientClinicalDocument {
+  id: string;
+  original_filename: string;
+  media_type: string;
+  file_size_bytes: number;
+  text_truncated: boolean;
+  extraction_status: "text_extracted" | "failed";
+  analysis_status: "queued" | "analysing" | "analysed" | "failed" | "consent_revoked";
+  error_category: string | null;
+  patient_model_version_id: string | null;
+  uploaded_at: string;
+  analyzed_at: string | null;
+}
+
+function documentStatusLabel(document: PatientClinicalDocument): string {
+  if (document.extraction_status === "failed") return "No se pudo extraer texto";
+  switch (document.analysis_status) {
+    case "queued": return "En cola";
+    case "analysing": return "Analizando";
+    case "analysed": return "Incluido en la memoria";
+    case "consent_revoked": return "Análisis detenido por consentimiento revocado";
+    case "failed": return "Análisis pendiente de revisión";
+    default: return document.analysis_status;
+  }
 }
 
 function normalizeProfile(data: PatientProfile): PatientProfile {
@@ -84,6 +111,7 @@ function normalizeProfile(data: PatientProfile): PatientProfile {
     longitudinal_limitations: Array.isArray(raw.longitudinal_limitations)
       ? raw.longitudinal_limitations.filter((item): item is string => typeof item === "string") : [],
     longitudinal_consent_active: raw.longitudinal_consent_active === true,
+    clinical_document_analysis_consent: raw.clinical_document_analysis_consent === true,
   };
 }
 
@@ -124,6 +152,14 @@ export default function PatientProfilePanel({
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [showPrevious, setShowPrevious] = useState(false);
+  const [documents, setDocuments] = useState<PatientClinicalDocument[]>([]);
+  const [selectedDocument, setSelectedDocument] = useState<File | null>(null);
+  const [documentsError, setDocumentsError] = useState<string | null>(null);
+  const [documentsMessage, setDocumentsMessage] = useState<string | null>(null);
+  const [documentBusy, setDocumentBusy] = useState(false);
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  const previouslyPending = useRef(false);
+  const documentInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     api
@@ -137,7 +173,33 @@ export default function PatientProfilePanel({
       .catch((e) => setError((e as Error).message));
   }, [patientId]);
 
-  useEffect(load, [load]);
+  const loadDocuments = useCallback(() => {
+    api
+      .get<PatientClinicalDocument[]>(`/api/v1/professional/patients/${patientId}/documents`)
+      .then((rows) => {
+        setDocuments(Array.isArray(rows) ? rows : []);
+        setDocumentsError(null);
+      })
+      .catch((e) => setDocumentsError((e as Error).message));
+  }, [patientId]);
+
+  useEffect(() => {
+    load();
+    loadDocuments();
+  }, [load, loadDocuments]);
+
+  const hasPendingAnalysis = documents.some((doc) => doc.analysis_status === "queued" || doc.analysis_status === "analysing");
+
+  useEffect(() => {
+    if (!hasPendingAnalysis) return;
+    const timer = window.setInterval(loadDocuments, 8000);
+    return () => window.clearInterval(timer);
+  }, [hasPendingAnalysis, loadDocuments]);
+
+  useEffect(() => {
+    if (previouslyPending.current && !hasPendingAnalysis) load();
+    previouslyPending.current = hasPendingAnalysis;
+  }, [hasPendingAnalysis, load]);
 
   async function save(body: Record<string, unknown>, message: string) {
     setBusy(true);
@@ -177,6 +239,66 @@ export default function PatientProfilePanel({
     void save({ open_threads: threads }, "Tema cerrado.");
   }
 
+  async function uploadDocument() {
+    if (!selectedDocument) return;
+    setDocumentBusy(true);
+    setDocumentsError(null);
+    setDocumentsMessage(null);
+    try {
+      const body = new FormData();
+      body.append("file", selectedDocument);
+      const uploaded = await api.upload<PatientClinicalDocument>(
+        `/api/v1/professional/patients/${patientId}/documents`,
+        body,
+      );
+      setDocuments((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)]);
+      setDocumentsMessage(uploaded.extraction_status === "failed"
+        ? "El archivo quedó guardado, pero no se encontró texto extraíble. Los PDF escaneados requieren OCR antes de subirlos."
+        : "Documento guardado. El análisis longitudinal se ha añadido a la cola.");
+      setSelectedDocument(null);
+      if (documentInput.current) documentInput.current.value = "";
+      loadDocuments();
+    } catch (e) {
+      setDocumentsError((e as Error).message);
+    } finally {
+      setDocumentBusy(false);
+    }
+  }
+
+  async function rebuildMemory() {
+    setMemoryBusy(true);
+    setDocumentsError(null);
+    setDocumentsMessage(null);
+    try {
+      const result = await api.post<{ status: string; message: string }>(
+        `/api/v1/professional/patients/${patientId}/memory/rebuild`,
+      );
+      setDocumentsMessage(result.message);
+      loadDocuments();
+    } catch (e) {
+      setDocumentsError((e as Error).message);
+    } finally {
+      setMemoryBusy(false);
+    }
+  }
+
+  async function downloadDocument(item: PatientClinicalDocument) {
+    setDocumentsError(null);
+    try {
+      const blob = await api.download(
+        `/api/v1/professional/patients/${patientId}/documents/${item.id}/download`,
+      );
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement("a");
+      anchor.href = url;
+      anchor.download = item.original_filename;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (e) {
+      setDocumentsError((e as Error).message);
+    }
+  }
+
   if (error) return <p className="error">No se pudo cargar el perfil: {error}</p>;
   if (!profile) return <PsychDeepLoader size="sm" label="Cargando perfil…" />;
 
@@ -184,33 +306,6 @@ export default function PatientProfilePanel({
 
   return (
     <div className="profile-panel">
-      <h3>Comprensión longitudinal del paciente</h3>
-      {!profile.longitudinal_consent_active ? (
-        <p className="meta">El modelo longitudinal no se muestra porque el consentimiento de análisis no figura activo.</p>
-      ) : profile.longitudinal_summary ? (
-        <section className="card">
-          <p>{profile.longitudinal_summary}</p>
-          <p className="meta">
-            Versión {profile.longitudinal_model_version ?? "—"}
-            {profile.longitudinal_created_at ? ` · Actualizada ${profile.longitudinal_created_at}` : ""}
-          </p>
-          {(profile.longitudinal_patterns?.length ?? 0) > 0 && <>
-            <h4>Patrones longitudinales provisionales</h4>
-            <ul>{profile.longitudinal_patterns?.map((item, index) => (
-              <li key={index}>{formatLongitudinalItem(item, ["description", "pattern"])}</li>
-            ))}</ul>
-          </>}
-          {(profile.longitudinal_protective_factors?.length ?? 0) > 0 && <>
-            <h4>Factores protectores documentados</h4>
-            <ul>{profile.longitudinal_protective_factors?.map((item, index) => (
-              <li key={index}>{formatLongitudinalItem(item, ["description", "factor"])}</li>
-            ))}</ul>
-          </>}
-          <p className="meta">Síntesis inferida a partir de fuentes longitudinales; no es un diagnóstico ni una verdad confirmada. Contrástala con las citas y con la evaluación profesional.</p>
-        </section>
-      ) : (
-        <p className="meta">Aún no hay una síntesis longitudinal disponible. Se mostrará cuando el proceso de memoria haya construido una versión.</p>
-      )}
       <h3>Retrato editable del profesional</h3>
       {profile.portrait_edited_by_clinician ? (
         <p className="meta">
@@ -301,7 +396,67 @@ export default function PatientProfilePanel({
             {profile.longitudinal_limitations.length > 0 && <p className="meta">Limitaciones: {profile.longitudinal_limitations.join(" · ")}</p>}
           </>
         ) : (
-          <p className="meta">Aún no existe una síntesis longitudinal disponible. El retrato editable de arriba no se sustituye por comentarios recientes.</p>
+          <p className="meta">Aún no hay una síntesis longitudinal disponible con los consentimientos vigentes. El retrato editable de arriba no se sustituye por comentarios recientes.</p>
+        )}
+      </section>
+
+      <section className="card" aria-labelledby="clinical-documents-heading">
+        <h3 id="clinical-documents-heading">Informes y documentos clínicos</h3>
+        <p className="meta">
+          El documento original se guarda en el expediente privado. Con ambos consentimientos activos,
+          el texto extraído se incorpora como fuente atribuida al profesional en la síntesis longitudinal y en la
+          memoria contextual. Los patrones psicológicos son hipótesis revisables, no diagnósticos.
+        </p>
+        <p className="meta">Admite PDF con texto, DOCX y TXT de hasta 8 MiB. Los PDF escaneados no tienen OCR automático.</p>
+        {canEdit && profile.longitudinal_consent_active && profile.clinical_document_analysis_consent && (
+          <div className="alert-actions">
+            <label htmlFor="patient-clinical-document">Añadir informe clínico</label>
+            <input
+              id="patient-clinical-document"
+              ref={documentInput}
+              type="file"
+              accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+              disabled={documentBusy}
+              onChange={(event) => setSelectedDocument(event.target.files?.[0] ?? null)}
+            />
+            <button type="button" className="btn-secondary" disabled={documentBusy || !selectedDocument} onClick={() => void uploadDocument()}>
+              {documentBusy ? "Guardando…" : "Subir y analizar"}
+            </button>
+          </div>
+        )}
+        {canEdit && (!profile.longitudinal_consent_active || !profile.clinical_document_analysis_consent) && (
+          <p className="meta">Para subir y analizar informes, la persona debe autorizar “Análisis lingüístico” y “Análisis de informes clínicos” en Consentimientos.</p>
+        )}
+        {!canEdit && <p className="meta">Solo el terapeuta asignado puede añadir documentos o solicitar un nuevo análisis.</p>}
+        {canEdit && profile.longitudinal_consent_active && (
+          <div className="alert-actions">
+            <button type="button" className="btn-secondary" disabled={memoryBusy || hasPendingAnalysis} onClick={() => void rebuildMemory()}>
+              {memoryBusy ? "Añadiendo…" : hasPendingAnalysis ? "Análisis en curso…" : profile.clinical_document_analysis_consent ? "Analizar historial y documentos" : "Analizar historial disponible"}
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => { load(); loadDocuments(); }}>
+              Actualizar estado
+            </button>
+          </div>
+        )}
+        {documentsError && <p className="error" role="alert">{documentsError}</p>}
+        {documentsMessage && <p className="info" role="status">{documentsMessage}</p>}
+        {documents.length === 0 ? (
+          <p className="meta">Todavía no hay documentos clínicos asociados.</p>
+        ) : (
+          <ul className="plain-list">
+            {documents.map((item) => (
+              <li key={item.id}>
+                <strong>{item.original_filename}</strong>
+                <span className="meta"> · {documentStatusLabel(item)} · {new Date(item.uploaded_at).toLocaleString()}</span>
+                {item.patient_model_version_id && <span className="meta"> · versión {item.patient_model_version_id.slice(0, 8)}</span>}
+                {item.text_truncated && <span className="meta"> · texto limitado por tamaño</span>}
+                {item.error_category === "no_extractable_text" && <span className="meta"> · puede ser un escaneo que requiera OCR</span>}
+                <button type="button" className="btn-secondary" onClick={() => void downloadDocument(item)}>
+                  Descargar original
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

@@ -142,6 +142,254 @@ services:
       - key: SMTP_FROM
         value: psychapp@bfab.io
 
+  # Long-running, PostgreSQL-backed consumer for analysis, memory and other
+  # consent-gated jobs. This is a separate billable Render worker; activating
+  # it requires a Blueprint sync after reviewing the worker plan/cost.
+  - type: worker
+    name: psychdeep-memory-worker
+    runtime: docker
+    repo: https://github.com/oibaf88/psychDeep-3
+    branch: master
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python -m app.memory_worker
+    plan: 0.5c-512mb
+    region: frankfurt
+    maxShutdownDelaySeconds: 300
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: DATABASE_URL
+      - key: DATABASE_SCHEMA
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: DATABASE_SCHEMA
+      - key: APP_ENV
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: APP_ENV
+      - key: MODEL_DEPLOYMENT_ALIAS
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_DEPLOYMENT_ALIAS
+      - key: MODEL_POLICY_VERSION
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_POLICY_VERSION
+      - key: MODEL_ALLOW_COMMERCIAL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_ALLOW_COMMERCIAL
+      - key: RUNPOD_ENABLED
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: RUNPOD_ENABLED
+      - key: MODEL_CLOUD_BASE_URL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_CLOUD_BASE_URL
+      - key: MODEL_CLOUD_API_KEY
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_CLOUD_API_KEY
+      - key: MODEL_CLOUD_CHAT_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_CLOUD_CHAT_MODEL
+      - key: MODEL_CLOUD_ANALYSIS_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_CLOUD_ANALYSIS_MODEL
+      - key: MODEL_CLOUD_COPILOT_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_CLOUD_COPILOT_MODEL
+      - key: MODEL_CLOUD_TIMEOUT_SECONDS
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_CLOUD_TIMEOUT_SECONDS
+      - key: MODEL_CLOUD_MAX_TOKENS
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_CLOUD_MAX_TOKENS
+      - key: MODEL_LOCAL_BASE_URL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_LOCAL_BASE_URL
+      - key: MODEL_LOCAL_CF_ACCESS_REQUIRED
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_LOCAL_CF_ACCESS_REQUIRED
+      - key: MODEL_LOCAL_CF_ACCESS_HOST
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_LOCAL_CF_ACCESS_HOST
+      - key: MODEL_LOCAL_CF_ACCESS_CLIENT_ID
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_LOCAL_CF_ACCESS_CLIENT_ID
+      - key: MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_LOCAL_CF_ACCESS_CLIENT_SECRET
+      - key: LLM_USER_CREDENTIALS_KEY
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: LLM_USER_CREDENTIALS_KEY
+      - key: LLM_PERSONAL_MODE
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: LLM_PERSONAL_MODE
+      - key: MODEL_LOCAL_CHAT_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_LOCAL_CHAT_MODEL
+      - key: MODEL_LOCAL_ANALYSIS_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_LOCAL_ANALYSIS_MODEL
+      - key: MODEL_LOCAL_COPILOT_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_LOCAL_COPILOT_MODEL
+      - key: MODEL_LOCAL_TIMEOUT_SECONDS
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_LOCAL_TIMEOUT_SECONDS
+      - key: MODEL_LOCAL_MAX_TOKENS
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: MODEL_LOCAL_MAX_TOKENS
+      - key: ANTHROPIC_API_KEY
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: ANTHROPIC_API_KEY
+      - key: ANTHROPIC_CHAT_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: ANTHROPIC_CHAT_MODEL
+      - key: ANTHROPIC_ANALYSIS_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: ANTHROPIC_ANALYSIS_MODEL
+      - key: ANTHROPIC_COPILOT_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: ANTHROPIC_COPILOT_MODEL
+      - key: OPENAI_API_KEY
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: OPENAI_API_KEY
+      - key: OPENAI_CHAT_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: OPENAI_CHAT_MODEL
+      - key: OPENAI_ANALYSIS_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: OPENAI_ANALYSIS_MODEL
+      - key: OPENAI_COPILOT_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: OPENAI_COPILOT_MODEL
+      - key: OPENAI_MAX_TOKENS
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: OPENAI_MAX_TOKENS
+      - key: OPENAI_TIMEOUT_SECONDS
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: OPENAI_TIMEOUT_SECONDS
+      - key: OPENAI_CHAT_EFFORT
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: OPENAI_CHAT_EFFORT
+      - key: OPENAI_ANALYSIS_EFFORT
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: OPENAI_ANALYSIS_EFFORT
+      - key: LLM_DEFAULT_PROVIDER
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: LLM_DEFAULT_PROVIDER
+      - key: LLM_OPENAI_COMPATIBLE_BASE_URL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: LLM_OPENAI_COMPATIBLE_BASE_URL
+      - key: LLM_OPENAI_COMPATIBLE_CHAT_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: LLM_OPENAI_COMPATIBLE_CHAT_MODEL
+      - key: LLM_OPENAI_COMPATIBLE_ANALYSIS_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: LLM_OPENAI_COMPATIBLE_ANALYSIS_MODEL
+      - key: LLM_OPENAI_COMPATIBLE_COPILOT_MODEL
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: LLM_OPENAI_COMPATIBLE_COPILOT_MODEL
+      - key: LLM_OPENAI_COMPATIBLE_TIMEOUT_SECONDS
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: LLM_OPENAI_COMPATIBLE_TIMEOUT_SECONDS
+      - key: LLM_OPENAI_COMPATIBLE_MAX_TOKENS
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: LLM_OPENAI_COMPATIBLE_MAX_TOKENS
+      - key: LLM_ALLOW_RUNTIME_OVERRIDE
+        fromService:
+          type: web
+          name: psychdeep-api
+          envVarKey: LLM_ALLOW_RUNTIME_OVERRIDE
+
   - type: web
     name: psychdeep-web
     runtime: static

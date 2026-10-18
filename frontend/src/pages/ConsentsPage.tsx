@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, ConsentOut, CONSENT_LABELS, formatDateTime } from "../api";
 
-const TYPES = ["data_processing", "linguistic_analysis", "professional_sharing", "crisis_sms", "research"] as const;
+const TYPES = ["data_processing", "linguistic_analysis", "clinical_document_analysis", "professional_sharing", "crisis_sms", "research"] as const;
 
 const EXPLANATIONS: Record<string, string> = {
   data_processing: "Permite guardar y procesar los datos necesarios para check-ins, diario, trayectoria, baseline y seguridad básica.",
-  linguistic_analysis: "Permite enviar texto del chat/diario al deployment LLM aprobado para extraer señales lingüísticas. Si lo revocas, no se harán nuevos análisis de texto; la seguridad determinista y tus datos siguen funcionando.",
+  linguistic_analysis: "Permite analizar texto del chat y diario usando el deployment LLM aprobado. Sus resultados son hipótesis revisables que pueden formar parte de la memoria contextual. Si lo revocas, se detendrán los nuevos análisis y no se usará esa síntesis en el chat; la seguridad determinista y tus datos siguen funcionando.",
+  clinical_document_analysis: "Permite que el terapeuta asignado suba informes clínicos para extraer su texto e incorporarlo, atribuido como informe profesional, a la síntesis longitudinal y la memoria contextual. Requiere también el consentimiento de análisis lingüístico. Revocarlo detiene su análisis y oculta las síntesis anteriores que los incluyeron mientras se reconstruyen sin esos documentos.",
   professional_sharing: "Permite compartir seguimiento con profesionales que hayas autorizado mediante una vinculación activa.",
   crisis_sms: "Permite comunicaciones de crisis según el protocolo aplicable. No autoriza al LLM a contactar a terceros.",
   research: "Permite usos secundarios específicamente gobernados. No se usa por defecto para entrenar modelos.",

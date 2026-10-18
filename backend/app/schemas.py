@@ -751,6 +751,7 @@ class PatientProfileOut(BaseModel):
     longitudinal_open_questions: list[dict[str, Any]] = []
     longitudinal_limitations: list[str] = []
     longitudinal_consent_active: bool = False
+    clinical_document_analysis_consent: bool = False
 
 
 class SignalRefutationIn(BaseModel):

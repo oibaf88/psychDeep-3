@@ -718,11 +718,13 @@ def patient_profile(
         "longitudinal_trajectories": [], "longitudinal_protective_factors": [],
         "longitudinal_contradictions": [], "longitudinal_open_questions": [],
         "longitudinal_limitations": [], "longitudinal_consent_active": False,
+        "clinical_document_analysis_consent": False,
     })
     try:
-        from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+        from app.services.consent import CLINICAL_DOCUMENT_ANALYSIS, LINGUISTIC_ANALYSIS, is_granted
         from app.services.patient_understanding import latest_patient_model
         data["longitudinal_consent_active"] = is_granted(db, patient_id, LINGUISTIC_ANALYSIS)
+        data["clinical_document_analysis_consent"] = is_granted(db, patient_id, CLINICAL_DOCUMENT_ANALYSIS)
         if data["longitudinal_consent_active"]:
             snapshot = latest_patient_model(db, patient_id)
             if snapshot is not None and isinstance(snapshot.model_json, dict):
