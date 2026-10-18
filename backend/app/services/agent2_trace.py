@@ -29,7 +29,7 @@ from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
 from app.services.llm import ProviderMetadata, StructuredAnalysisError
 
 ANALYZER_ROLE = "analyzer_merged"
-LINGUISTIC_ROLES = (ANALYZER_ROLE, "agent2_linguistic")
+LINGUISTIC_ROLES = (ANALYZER_ROLE, "agent2_linguistic", "agent4_psychosocial")
 
 AGENT_CONTRACTS = {
     ANALYZER_ROLE: (
