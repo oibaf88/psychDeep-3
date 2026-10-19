@@ -1,0 +1,7 @@
+# Optional machine-learning dependencies for the single-patient sequence model.
+
+# These are NOT part of the safe runtime image. Install them only on the
+# authenticated administration endpoint where the patient has given
+# `linguistic_analysis` consent and where the ML gate is allowed.
+torch>=2.6.0,<3
+scikit-learn>=1.6.0,<2
