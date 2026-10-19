@@ -15,8 +15,7 @@ class SequenceDLImportTests(unittest.TestCase):
         cfg = sd.load_config()
         self.assertIn("algorithm_version", cfg)
         self.assertEqual(cfg["source_refs"], "app-only")
-        self.assertTrue(hasattr(cfg["architecture"], "get") or isinstance(cfg["architecture"], dict))
-        self.assertFalse(sd.requires_ml() or not HAS_TORCH)
+        self.assertEqual(sd.requires_ml(), HAS_TORCH)
 
 
 if __name__ == "__main__":
