@@ -14,14 +14,15 @@ def write_imaging_change(
     *,
     comparable_count: int = 0,
     same_sequence_family: bool = False,
-    incidental_protocol: bool = False,
 ) -> None:
     """Refuse a volume write. This is the only imaging writer.
 
-    Order is binding: consent purpose first, then two comparable acquisitions
-    of the same person, then a human incidental-finding path. There is no
-    DICOM/NIfTI table and this function does not insert one. It does not read
-    or write RiskAssessment.alert_level and it does not emit a DSM label.
+    Order is binding: distinct consent purpose, then two comparable
+    acquisitions of the same person. An incidental finding is not a boolean
+    a client can set. A radiologist or the responsible psychiatrist signs it
+    outside the app. Until that circuit exists, this function always refuses
+    after the structural checks. It does not insert a DICOM/NIfTI row, does
+    not emit a DSM label, and does not read or write alert_level.
     """
     require_imaging_grant(db, user_id)
     if comparable_count < MIN_COMPARABLE_VOLUMES or not same_sequence_family:
@@ -32,15 +33,11 @@ def write_imaging_change(
                 "and sequence family. One scan is not a change."
             ),
         )
-    if not incidental_protocol:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Imaging ingest is blocked until a human incidental-finding protocol "
-                "exists. Incidental findings are not written to ChangeSignal or alert_level."
-            ),
-        )
     raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="No versioned volume store. Imaging change is not written.",
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "Imaging ingest is blocked until a radiologist or the responsible psychiatrist "
+            "signs incidental findings outside the app. That sign-off is not a client flag. "
+            "Nothing is written to ChangeSignal or alert_level."
+        ),
     )
