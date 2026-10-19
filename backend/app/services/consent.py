@@ -10,6 +10,8 @@ CLINICAL_DOCUMENT_ANALYSIS = "clinical_document_analysis"
 PROFESSIONAL_SHARING = "professional_sharing"
 CRISIS_COMMUNICATIONS = "crisis_sms"
 RESEARCH_MODEL_IMPROVEMENT = "research"
+# Own-scan change vs prior volume. Not diagnosis. Not covered by diary/check-in consent.
+NEUROIMAGING_CHANGE = "neuroimaging_change"
 
 VALID_PURPOSES = {
     CORE_PROCESSING,
@@ -18,7 +20,12 @@ VALID_PURPOSES = {
     PROFESSIONAL_SHARING,
     CRISIS_COMMUNICATIONS,
     RESEARCH_MODEL_IMPROVEMENT,
+    NEUROIMAGING_CHANGE,
 }
+
+# No volume ingest yet. Collecting this grant would be inaccurate (art. 12).
+# data_processing / linguistic_analysis never substitute for it (art. 5.1.b).
+NOT_OFFERED_YET = {NEUROIMAGING_CHANGE}
 
 
 def is_granted(db: Session, user_id, purpose: str) -> bool:
@@ -56,6 +63,20 @@ def sharing_allowed(
     if assignment is None:
         return False
     return is_granted(db, patient_id, PROFESSIONAL_SHARING)
+
+
+def require_imaging_grant(db: Session, user_id) -> None:
+    """fMRI/NIfTI change-vs-self is a distinct art. 9.2.a purpose.
+
+    A live `data_processing` or `linguistic_analysis` grant does not authorise
+    it. Call this before any volume ingest or imaging model. Fail closed.
+    """
+    if is_granted(db, user_id, CORE_PROCESSING) and not is_granted(db, user_id, NEUROIMAGING_CHANGE):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Consent required for purpose: neuroimaging_change (not covered by data_processing)",
+        )
+    require_granted(db, user_id, NEUROIMAGING_CHANGE)
 
 
 def require_granted(db: Session, user_id, purpose: str) -> None:
