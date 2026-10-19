@@ -735,6 +735,7 @@ class RoleConstraintTests(unittest.TestCase):
 
         self.assertIn(agent2_trace.ANALYZER_ROLE, agent2_trace.LINGUISTIC_ROLES)
         self.assertIn("agent2_linguistic", agent2_trace.LINGUISTIC_ROLES)
+        self.assertIn("agent4_psychosocial", agent2_trace.LINGUISTIC_ROLES)
 
         backend = pathlib.Path(__file__).resolve().parents[1] / "app"
         for name in ("services/clinical_view.py", "routers/professional.py"):

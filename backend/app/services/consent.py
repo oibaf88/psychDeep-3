@@ -2,7 +2,7 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models import Consent
+from app.models import Consent, PatientProfessionalAssignment
 
 CORE_PROCESSING = "data_processing"
 LINGUISTIC_ANALYSIS = "linguistic_analysis"
@@ -35,6 +35,27 @@ def is_granted(db: Session, user_id, purpose: str) -> bool:
         .first()
     )
     return bool(row and row.granted)
+
+
+def sharing_allowed(
+    db: Session,
+    patient_id,
+    professional_id,
+    assignment_statuses: tuple[str, ...] = ("active",),
+) -> bool:
+    """Therapist may read only with a live assignment AND professional_sharing."""
+    assignment = (
+        db.query(PatientProfessionalAssignment)
+        .filter(
+            PatientProfessionalAssignment.patient_id == patient_id,
+            PatientProfessionalAssignment.professional_id == professional_id,
+            PatientProfessionalAssignment.status.in_(list(assignment_statuses)),
+        )
+        .first()
+    )
+    if assignment is None:
+        return False
+    return is_granted(db, patient_id, PROFESSIONAL_SHARING)
 
 
 def require_granted(db: Session, user_id, purpose: str) -> None:
