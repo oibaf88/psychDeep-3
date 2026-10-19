@@ -12,6 +12,7 @@ from app.services import audit
 from app.services.consent import (
     CLINICAL_DOCUMENT_ANALYSIS,
     LINGUISTIC_ANALYSIS,
+    NOT_OFFERED_YET,
     VALID_PURPOSES,
     is_granted,
 )
@@ -32,6 +33,14 @@ def set_consent(payload: ConsentIn, db: Session = Depends(get_db), user: User = 
     """Append a granular purpose grant/revocation without rewriting history."""
     if payload.consent_type not in VALID_CONSENT_TYPES:
         raise HTTPException(status_code=400, detail=f"consent_type must be one of {sorted(VALID_CONSENT_TYPES)}")
+    if payload.consent_type in NOT_OFFERED_YET:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{payload.consent_type} is a distinct purpose and is not collected until "
+                "versioned volume ingest exists. data_processing does not cover it."
+            ),
+        )
     consent_type = payload.consent_type
 
     previous = (
@@ -59,8 +68,6 @@ def set_consent(payload: ConsentIn, db: Session = Depends(get_db), user: User = 
                 PatientClinicalDocument.error_category: "consent_revoked",
             }, synchronize_session=False)
         else:
-            # A renewed grant explicitly authorises a fresh synthesis over the
-            # stored source files; it does not silently reuse a hidden snapshot.
             db.query(PatientClinicalDocument).filter(
                 PatientClinicalDocument.user_id == user.id,
                 PatientClinicalDocument.extraction_status == "text_extracted",
@@ -69,10 +76,6 @@ def set_consent(payload: ConsentIn, db: Session = Depends(get_db), user: User = 
                 PatientClinicalDocument.error_category: None,
             }, synchronize_session=False)
 
-        # Revocation must replace any snapshot that incorporated documents.
-        # The worker will build a document-free version when the general
-        # linguistic-analysis purpose remains granted. A new grant also queues
-        # processing of the stored documents.
         if linguistic_consent_active:
             enqueue_memory_job(
                 db,
