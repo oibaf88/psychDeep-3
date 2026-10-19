@@ -14,12 +14,9 @@ create table if not exists psychdeep_v12.patient_clinical_documents (
     file_sha256 varchar(64) not null,
     file_content bytea not null,
     extracted_text text not null default '',
-    text_truncated boolean not null default false,
     extraction_status varchar(24) not null default 'text_extracted',
     analysis_status varchar(24) not null default 'queued',
     error_category varchar(64),
-    patient_model_version_id uuid references psychdeep_v12.patient_model_versions(id) on delete set null,
-    uploaded_at timestamptz not null default now(),
     analyzed_at timestamptz,
     constraint uq_patient_clinical_document_hash unique (user_id, file_sha256),
     constraint ck_patient_clinical_document_file_size check (file_size_bytes between 1 and 8388608),
@@ -31,9 +28,9 @@ create table if not exists psychdeep_v12.patient_clinical_documents (
 );
 
 create index if not exists ix_patient_clinical_documents_user_uploaded
-    on psychdeep_v12.patient_clinical_documents(user_id, uploaded_at desc);
+    on psychdeep_v12.patient_clinical_documents(user_id);
 create index if not exists ix_patient_clinical_documents_analysis_queue
-    on psychdeep_v12.patient_clinical_documents(user_id, analysis_status, uploaded_at);
+    on psychdeep_v12.patient_clinical_documents(user_id, analysis_status);
 
 alter table psychdeep_v12.patient_clinical_documents enable row level security;
 alter table psychdeep_v12.patient_clinical_documents force row level security;

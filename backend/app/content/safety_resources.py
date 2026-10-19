@@ -135,6 +135,13 @@ SAFE_GROUNDING_ALTERNATIVES = [
 # Shown instead of a conversational reply that failed deterministic output
 # validation (app/services/output_validation.py). Server-owned, so it names
 # only the national lines above and never states a risk level.
+# Shown to clinicians in place of an Agent 2 ``short_rationale`` that failed
+# ``validate_analysis_prose``. The structured signals beside it are kept.
+ANALYSIS_RATIONALE_WITHHELD = (
+    "Justificación del modelo retenida: no superó la validación de salida. "
+    "Las señales estructuradas de este análisis se conservan."
+)
+
 AGENT1_OUTPUT_BLOCKED_MESSAGE = (
     "Prefiero no darte la respuesta que había preparado, porque no cumplía las normas "
     "de seguridad de esta aplicación.\n\n"

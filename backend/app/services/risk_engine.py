@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from app.content.safety_resources import SAFETY_PROTOCOL_VERSION
 from app.models import AlfaSignal, ConfirmedFact, ProfessionalAlert, RiskAssessment
 from app.services import baseline as baseline_service
 from app.services import change_config
@@ -944,6 +945,10 @@ def calculate_risk_level(db: Session, user_id, *, linguistic_signal_id=None) -> 
             "name": "deterministic-risk-engine",
             "version": MODEL_VERSION,
             "clinical_basis": CLINICAL_BASIS,
+            # Server-owned safety pack (crisis resources, fixed LEVEL3/LEVEL4
+            # patient and professional copy) in force for this decision, so
+            # the crisis response that followed can be reproduced later.
+            "safety_protocol_version": SAFETY_PROTOCOL_VERSION,
             "evaluated_at": _utc_iso(evaluated_at),
             "evaluation_order": [rule["code"] for rule in rules],
             "thresholds": {
@@ -1249,6 +1254,7 @@ def run_and_persist(
                 **(decision.input_signals or {}),
                 "triggering_rules": decision.triggering_rules,
                 "assessment_id": str(assessment.id),
+                "safety_protocol_version": SAFETY_PROTOCOL_VERSION,
             }
             existing.related_assessment_id = assessment.id
             existing.title = _alert_title(decision)
@@ -1266,6 +1272,7 @@ def run_and_persist(
                 related_signals={
                     **(decision.input_signals or {}),
                     "triggering_rules": decision.triggering_rules,
+                    "safety_protocol_version": SAFETY_PROTOCOL_VERSION,
                 },
                 related_assessment_id=assessment.id,
             )

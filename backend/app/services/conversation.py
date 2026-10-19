@@ -42,6 +42,7 @@ from app.content.prompts import (
     ANALYZER_TOOL_SCHEMA,
 )
 from app.content.safety_resources import (
+    ANALYSIS_RATIONALE_WITHHELD,
     AGENT1_OUTPUT_BLOCKED_MESSAGE,
     CRISIS_RESOURCES,
     LEVEL3_PATIENT_MESSAGE,
@@ -158,6 +159,7 @@ def analyze_text_and_store(
         if not isinstance(value, dict):
             raise ValueError("analyzer returned a non-object")
         result = LinguisticAnalysis.model_validate(value.get("linguistic")).model_dump()
+        prose_check = _withhold_unsafe_analysis_prose(result, value)
     except Exception as exc:  # noqa: BLE001
         # Persist only an allow-listed category and class name.  Raw SDK
         # error messages can echo request data and therefore never enter
@@ -222,6 +224,16 @@ def analyze_text_and_store(
         )
         logger.error("Analysis result could not be persisted")
         return AnalysisOutcome(correlation_id, trace.id, None, trace.status, None)
+    if prose_check.blocked:
+        _log_blocked_analysis_prose(
+            db,
+            user_id,
+            prose_check,
+            trace=trace,
+            source_type=source_type,
+            correlation_id=correlation_id,
+            metadata=provider_result.metadata,
+        )
     # Fold what was learned about the person back in, after the analysis is
     # safely committed. A failure here costs the profile update only; it must
     # never roll back the signal the risk engine is about to read, and it must
@@ -243,6 +255,102 @@ def analyze_text_and_store(
         observation_ids=[row.id for row in rows],
         psychosocial_status=psychosocial_status,
     )
+
+
+@dataclass(frozen=True)
+class AnalysisProseCheck:
+    """Which Agent 2 prose fields were withheld, and by which rules."""
+
+    fields: tuple[str, ...] = ()
+    violations: tuple[str, ...] = ()
+
+    @property
+    def blocked(self) -> bool:
+        return bool(self.fields)
+
+
+def _withhold_unsafe_analysis_prose(result: dict, value: dict) -> AnalysisProseCheck:
+    """Check the analyser's prose fields and withhold the ones that fail.
+
+    Mutates ``result`` and ``value`` in place. A failing
+    ``short_rationale`` is replaced by server-owned copy; a failing
+    portrait becomes "no change"; if any open thread fails, the whole
+    thread list becomes "no change" (the model returns the full list, so
+    dropping one item would silently close a thread). Numeric and boolean
+    signals are never touched.
+    """
+    fields: list[str] = []
+    violations: list[str] = []
+
+    def _check(name: str, text) -> bool:
+        if not isinstance(text, str) or not text.strip():
+            return False
+        check = output_validation.validate_analysis_prose(text)
+        if check.blocked:
+            fields.append(name)
+            violations.extend(v for v in check.violations if v not in violations)
+        return check.blocked
+
+    if _check("short_rationale", result.get("short_rationale")):
+        result["short_rationale"] = ANALYSIS_RATIONALE_WITHHELD
+
+    update = value.get("profile_update")
+    if isinstance(update, dict):
+        if _check("portrait", update.get("portrait")):
+            update["portrait"] = ""
+        threads = update.get("open_threads")
+        if isinstance(threads, list):
+            thread_text = " \n".join(
+                f"{item.get('topic') or ''}. {item.get('note') or ''}"
+                for item in threads
+                if isinstance(item, dict)
+            )
+            if _check("open_threads", thread_text):
+                update["open_threads"] = []
+
+    return AnalysisProseCheck(fields=tuple(fields), violations=tuple(violations))
+
+
+def _log_blocked_analysis_prose(
+    db: Session,
+    user_id,
+    check: AnalysisProseCheck,
+    *,
+    trace,
+    source_type: str,
+    correlation_id: uuid.UUID,
+    metadata: ProviderMetadata | None,
+) -> None:
+    """Record withheld analyser prose: field names and rule codes, never text."""
+    logger.warning(
+        "Analysis prose withheld by %s: fields=%s rules=%s",
+        output_validation.ANALYSIS_VALIDATOR_VERSION,
+        ",".join(check.fields),
+        ",".join(check.violations),
+    )
+    try:
+        audit.log(
+            db,
+            actor_id=user_id,
+            actor_role="system",
+            action=output_validation.AUDIT_ACTION,
+            entity_type="agent2_analysis_trace",
+            entity_id=trace.id,
+            extra={
+                "validator_version": output_validation.ANALYSIS_VALIDATOR_VERSION,
+                "violations": list(check.violations),
+                "fields": list(check.fields),
+                "audience": "analysis",
+                "source_type": source_type,
+                "correlation_id": str(correlation_id),
+                "provider": getattr(metadata, "provider", None),
+                "model": (getattr(metadata, "response_model", None) or getattr(metadata, "requested_model", None)),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        # The prose is still withheld; only the audit row is lost.
+        logger.error("Could not audit withheld analysis prose: %s", type(exc).__name__)
+        db.rollback()
 
 
 def _psychosocial_rows(

@@ -28,6 +28,18 @@ levels and quantities are not blocked there. What stays blocked for every
 audience is what the LLM boundary forbids outright: a "no risk" claim,
 an invented contact number and an excluded technique.
 
+Agent 2, the structured analyser, never talks to anyone, but three of its
+fields are prose that people read later: ``linguistic.short_rationale``
+(clinician trace and copilot dossier) and the profile ``portrait`` and
+``open_threads`` (clinician profile and Agent 1 context).
+``validate_analysis_prose`` checks those. The analyser is not given the
+engine's alert level, so any stated level or "no risk" claim there is the
+model judging risk (``risk_level_claim``); an invented contact and an
+excluded technique are blocked as for every audience. Quantities stay
+allowed because the analyser describes what the person said. Only the prose
+is withheld: the numeric and boolean signals the risk engine reads are
+schema-validated separately and are never changed here.
+
 This does not change the risk engine, alert levels or crisis rules. It
 can only withhold model text; it never lowers or raises an alert.
 """
@@ -41,6 +53,7 @@ from app.content.safety_resources import FORBIDDEN_TECHNIQUES, NATIONAL_CRISIS_R
 
 VALIDATOR_VERSION = "agent1-output-validation-v1"
 COPILOT_VALIDATOR_VERSION = "copilot-output-validation-v1"
+ANALYSIS_VALIDATOR_VERSION = "analysis-output-validation-v1"
 
 AUDIT_ACTION = "llm_output_blocked"
 
@@ -183,3 +196,24 @@ def validate_copilot_output(text: str) -> OutputValidation:
         violations.append("forbidden_technique")
 
     return OutputValidation(violations=violations, validator_version=COPILOT_VALIDATOR_VERSION)
+
+
+def validate_analysis_prose(text: str) -> OutputValidation:
+    """Agent 2 (structured analyser) prose fields: stated risk levels or
+    "no risk" claims, invented contacts and excluded techniques."""
+    norm = _normalise(text)
+    if not norm.strip():
+        return OutputValidation(validator_version=ANALYSIS_VALIDATOR_VERSION)
+
+    violations: list[str] = []
+
+    if any(p.search(norm) for p in _RISK_LEVEL_PATTERNS):
+        violations.append("risk_level_claim")
+
+    if _unapproved_contact(norm):
+        violations.append("unapproved_contact")
+
+    if _forbidden_technique(norm):
+        violations.append("forbidden_technique")
+
+    return OutputValidation(violations=violations, validator_version=ANALYSIS_VALIDATOR_VERSION)

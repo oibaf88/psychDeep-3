@@ -193,10 +193,15 @@ begin
 end
 $$;
 
-create index if not exists ix_patient_clinical_documents_user_uploaded
+
+drop index if exists psychdeep_v12.ix_patient_clinical_documents_user_uploaded;
+create index ix_patient_clinical_documents_user_uploaded
     on psychdeep_v12.patient_clinical_documents(user_id, uploaded_at desc);
-create index if not exists ix_patient_clinical_documents_analysis_queue
+
+drop index if exists psychdeep_v12.ix_patient_clinical_documents_analysis_queue;
+create index ix_patient_clinical_documents_analysis_queue
     on psychdeep_v12.patient_clinical_documents(user_id, analysis_status, uploaded_at);
+
 
 alter table psychdeep_v12.patient_clinical_documents enable row level security;
 alter table psychdeep_v12.patient_clinical_documents force row level security;
@@ -235,7 +240,7 @@ begin
     select array_agg(required.column_name)
       into missing_columns
       from (values ('file_content'), ('file_sha256'), ('extracted_text'),
-                   ('text_truncated'), ('patient_model_version_id'), ('uploaded_at')) required(column_name)
+                   ('text_truncated'), ('uploaded_at')) required(column_name)
      where not exists (
          select 1 from information_schema.columns column_row
           where column_row.table_schema = 'psychdeep_v12'

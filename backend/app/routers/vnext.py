@@ -18,6 +18,7 @@ from app.models_vnext import BaselineVersion, ChangeSignal, InterventionEvent, O
 from app.security import get_current_user, require_patient
 from app.services import conversation, risk_engine
 from app.services.canonical_analytics import run_canonical_analytics
+from app.services.change_signal_embeddings import embed_change_signals
 from app.services.longitudinal_read import (
     baseline_summary as _baseline_summary,
     change_signal_summary as _change_signal_summary,
@@ -124,11 +125,21 @@ def current_state(db: Session = Depends(get_db), user: User = Depends(require_pa
             "alert_level": risk.alert_level if risk else None,
             "assessment_id": str(risk.id) if risk else None,
             "model_version": risk.model_version if risk else None,
+            # Read from the stored decision; assessments written before the
+            # pack was recorded stay null rather than being relabelled.
+            "safety_protocol_version": _recorded_safety_protocol_version(risk),
             "correlation_id": str(risk.correlation_id) if risk and risk.correlation_id else None,
         },
         "longitudinal": _longitudinal_state(db, user.id),
         "limits": ["La ausencia de una señal no demuestra ausencia de riesgo."],
     }
+
+
+def _recorded_safety_protocol_version(assessment) -> str | None:
+    trace = getattr(assessment, "calculation_trace", None) if assessment is not None else None
+    engine = trace.get("engine") if isinstance(trace, dict) else None
+    value = engine.get("safety_protocol_version") if isinstance(engine, dict) else None
+    return value if isinstance(value, str) and value else None
 
 
 @router.get("/baselines/current")
@@ -163,6 +174,7 @@ def run_analytics(db: Session = Depends(get_db), user: User = Depends(require_pa
         raise HTTPException(status_code=403, detail="Account is inactive")
     require_granted(db, user.id, CORE_PROCESSING)
     result = run_canonical_analytics(db, user.id)
+    embed_change_signals(db, user.id, result.change_signals)
     return result.to_response()
 
 
