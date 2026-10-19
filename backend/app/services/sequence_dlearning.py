@@ -91,6 +91,43 @@ def requires_ml() -> bool:
     return _has_ml
 
 
+def requires_consent(
+    db,
+    user_id: str,
+    purpose: str = "linguistic_analysis",
+    *,
+    required_until: str | None = None,
+) -> bool:
+    """Fast-check that a patient granted the exact consent and it is still valid.
+
+    This is the execution-time gate for the optional ML module. In a production
+    deployment it MUST be called before any optional model run. It only reads
+    current consent rows; the deterministic engine remains the sole writer of
+    ``RiskAssessment.alert_level``.
+    """
+    if not requires_ml():
+        return False
+    try:
+        from app.services.consent import is_granted
+
+        granted = is_granted(db, user_id, purpose)
+        if not granted:
+            return False
+        # Check `valid_until` if the consent row exposes that column. If the
+        # schema does not carry `valid_until`, consent is treated as open.
+        try:
+            from app.models import Consent  # type: ignore
+
+            row = db.query(Consent).filter(Consent.user_id == user_id, Consent.consent_type == purpose).first()
+            if row is not None and getattr(row, "valid_until", None) and required_until:
+                return row.valid_until >= required_until
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Proposal: architecture, data contracts, governance and this module's own
 # fallback behaviour. The code below is the deployable part; training/eval
