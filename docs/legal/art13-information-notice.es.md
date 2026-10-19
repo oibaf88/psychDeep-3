@@ -22,6 +22,7 @@ Los datos de salud (diario, check-in, chat, señales, riesgo) son **categoría e
 | Compartir con un profesional vinculado (`professional_sharing`) | sí, al aceptar la vinculación | arts. 6.1.a y 9.2.a; el acceso debe seguir la vinculación activa |
 | SMS de crisis | **no** | no se recaba |
 | Investigación, entrenamiento de modelos, embeddings de memoria | **no** | Ley 14/2007 + art. 9.2.j solo con protocolo futuro |
+| Neuroimagen / fMRI (`neuroimaging_change`) | **no**, hasta ingestión de volumen | arts. 6.1.a y 9.2.a **aparte**. El núcleo del diario no la cubre. |
 
 Sin la casilla del núcleo **no** se crea el tratamiento clínico. Revocar una finalidad detiene **nuevas** operaciones de esa finalidad; el histórico puede conservarse por seguridad, auditoría o deber legal (art. 17.3).
 
