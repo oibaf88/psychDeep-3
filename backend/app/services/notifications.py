@@ -23,6 +23,7 @@ from app.config import get_settings
 from app.content.safety_resources import (
     LEVEL3_PROFESSIONAL_NOTIFICATION_TEMPLATE,
     LEVEL4_PROFESSIONAL_NOTIFICATION_TEMPLATE,
+    SAFETY_PROTOCOL_VERSION,
 )
 from app.models import Notification, PatientProfessionalAssignment, ProfessionalAlert, User
 
@@ -83,6 +84,7 @@ def dispatch_for_alert(db: Session, alert: ProfessionalAlert) -> None:
             title=alert.title,
             body=body,
             related_alert_id=alert.id,
+            safety_protocol_version=SAFETY_PROTOCOL_VERSION,
             related_assessment_id=alert.related_assessment_id,
             status="sent",
         )
@@ -97,6 +99,7 @@ def dispatch_for_alert(db: Session, alert: ProfessionalAlert) -> None:
             title=alert.title,
             body=body,
             related_alert_id=alert.id,
+            safety_protocol_version=SAFETY_PROTOCOL_VERSION,
             related_assessment_id=alert.related_assessment_id,
         )
         sent = _send_email(professional.email, alert.title, body)
@@ -117,6 +120,7 @@ def dispatch_for_alert(db: Session, alert: ProfessionalAlert) -> None:
             else "Hemos registrado esta situación. Revisa tu plan de seguridad si lo necesitas."
         ),
         related_alert_id=alert.id,
+        safety_protocol_version=SAFETY_PROTOCOL_VERSION,
         status="sent",
     )
     db.add(patient_notif)

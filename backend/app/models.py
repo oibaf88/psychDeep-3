@@ -281,6 +281,10 @@ class Notification(Base):
     # pending | sent | delivered | failed | read
     related_alert_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     related_assessment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # Server-owned safety pack (``SAFETY_PROTOCOL_VERSION``) in force when a
+    # LEVEL3/LEVEL4 alert notice was sent. NULL on other notices and on rows
+    # written before this column existed; those are never relabelled.
+    safety_protocol_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -319,6 +323,10 @@ class ChatMessage(Base):
     prompt_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     context_version: Mapped[str | None] = mapped_column(String(96), nullable=True)
     context_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Server-owned safety pack whose fixed LEVEL3/LEVEL4 copy (and, at level
+    # 4, crisis resources) this assistant turn carried. NULL on patient turns,
+    # on level 0-2 replies and on turns written before this column existed.
+    safety_protocol_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
