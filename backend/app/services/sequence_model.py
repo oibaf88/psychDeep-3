@@ -114,7 +114,10 @@ class TimeAwareSequenceModel:
         if not window:
             return []
         drafts: list[ChangeSignalDraft] = []
-        for row in window:
+        # One draft per run: the most recent in-window event is the "now"
+        # point; every earlier event is the person's own line. Scoring every
+        # row compared events against later ones and produced effects > 1.
+        for row in window[-1:]:
             effect, confidence, explanation = self._score(row, rows)
             if effect == 0.0:
                 continue
@@ -140,7 +143,9 @@ class TimeAwareSequenceModel:
     ) -> list[PatientEvent]:
         kept: list[PatientEvent] = []
         for event in events:
-            if "clinical_document:" in (event.source_refs or ()):
+            # Drop the whole event if any ref points at an uploaded external
+            # report; a bare membership test missed "clinical_document:<id>".
+            if any(is_external_clinical_ref(ref) for ref in (event.source_refs or ())):
                 continue
             if not event.happened_at.tzinfo:
                 event_happened = event.happened_at.replace(tzinfo=timezone.utc)
@@ -168,21 +173,27 @@ class TimeAwareSequenceModel:
     def _score(
         self, row: PatientEvent, rows: list[PatientEvent]
     ) -> tuple[float, float, str]:
-        """Return (effect, confidence, explanation) for one recent event."""
-        recent = [r for r in rows if r.happened_at >= row.happened_at - __import__("datetime").timedelta(days=30)]
-        if not recent:
+        """Return (effect, confidence, explanation) for the most recent event.
+
+        Baseline = the person's own typical spacing between earlier events
+        (strictly before ``row``; the recent point is never part of its own
+        baseline). Recent = time from ``row`` to now. ``effect`` is in [0, 1]:
+        1.0 means activity is at least as recent as the person's usual rhythm,
+        0.0 means no change is claimed. Too few earlier events, or no spacing
+        at all, returns 0.0 (insufficient data, not a zero score).
+        """
+        earlier = [r for r in rows if r.happened_at < row.happened_at]
+        if len(earlier) + 1 < self.min_points or len(earlier) < 2:
             return 0.0, 0.0, ""
-        # Change vs the person's own baseline in the last window, not vs other patients.
-        deltas = []
-        for other in rows:
-            if other is row or other.happened_at >= row.happened_at:
-                continue
-            deltas.append((row.happened_at - other.happened_at).total_seconds() / 86400.0)
-        baseline = sum(deltas) / len(deltas) if deltas else 30.0
-        spacing = (row.happening_delta if False else (row.happened_at - rows[-1].happened_at).total_seconds() / 86400.0)
-        effect = 0.0
-        if baseline > 0:
-            effect = 1.0 - min(spacing / baseline, 1.0)
+        gaps = [
+            (b.happened_at - a.happened_at).total_seconds() / 86400.0
+            for a, b in zip(earlier, earlier[1:])
+        ]
+        baseline = sum(gaps) / len(gaps)
+        if baseline <= 0:
+            return 0.0, 0.0, ""
+        recent = max((_now() - row.happened_at).total_seconds() / 86400.0, 0.0)
+        effect = 1.0 - min(recent / baseline, 1.0)
         confidence = min(0.95, 0.4 + 0.4 * (len(rows) / max(self.min_points, 1)))
         tokens = " ".join(sequence_refs(row.source_refs)).lower()
         if any(token in tokens for token in ("check_in", "diary", "chat", "fact")):

@@ -331,8 +331,9 @@ def test_fulltext_retrieval_is_user_scoped_and_returns_source_evidence(monkeypat
     assert telemetry[0]["estimated_tokens"] == result.estimated_tokens
     assert seen_consent_checks == [
         (user_id, consent.LINGUISTIC_ANALYSIS),
-        (user_id, consent.CLINICAL_DOCUMENT_ANALYSIS),
     ]
+    assert all("clinical_document:%" in sql for sql, _params in calls if "memory_items" in sql or "memory_episodes" in sql or "memory_summary_versions" in sql)
+    assert all("clinical_document_analysis_allowed" not in sql for sql, _params in calls)
 
 
 def test_hierarchical_episode_groups_are_bounded_and_lossless():
