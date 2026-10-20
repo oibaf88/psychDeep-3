@@ -48,6 +48,7 @@ from app.content.safety_resources import (
     LEVEL3_PATIENT_MESSAGE,
     LEVEL3_PATIENT_MESSAGE_WITH_PROFESSIONAL,
     LEVEL4_PATIENT_MESSAGE,
+    SAFETY_PROTOCOL_VERSION,
 )
 from app.models import AlfaSignal, ChatMessage, PatientProfessionalAssignment, User
 from app.services import agent1_context, clinical_memory, llm_config, profile as profile_service, psychosocial, risk_engine
@@ -649,6 +650,7 @@ def get_reply(
         reply_text = (prose + "\n\n" if prose else "") + LEVEL4_PATIENT_MESSAGE
         ui_mode = "crisis"
         resources = CRISIS_RESOURCES
+        protocol_version = SAFETY_PROTOCOL_VERSION
         reply_from_model = accompaniment is not None
         reply_metadata = accompaniment.metadata if accompaniment else None
     elif level == 3:
@@ -659,6 +661,7 @@ def get_reply(
         reply_text = (prose + "\n\n" if prose else "") + fixed
         ui_mode = "support"
         resources = None
+        protocol_version = SAFETY_PROTOCOL_VERSION
         reply_from_model = accompaniment is not None
         reply_metadata = accompaniment.metadata if accompaniment else None
     else:
@@ -737,6 +740,8 @@ def get_reply(
                     )
         ui_mode = "normal"
         resources = None
+        # No fixed safety copy at levels 0-2, so no pack to name.
+        protocol_version = None
         reply_from_model = not failed
 
     db.add(
@@ -745,6 +750,9 @@ def get_reply(
             role="assistant",
             content=reply_text,
             ui_mode=ui_mode,
+            # Which server-owned pack supplied the fixed LEVEL3/LEVEL4 copy and
+            # resources in this turn, so it can be reproduced after a pack change.
+            safety_protocol_version=protocol_version,
             **_reply_provenance(
                 db,
                 from_model=reply_from_model,
@@ -770,5 +778,6 @@ def get_reply(
         "reply": reply_text,
         "ui_mode": ui_mode,
         "resources": resources,
+        "safety_protocol_version": protocol_version,
         "correlation_id": correlation_id,
     }

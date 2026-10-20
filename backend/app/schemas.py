@@ -205,6 +205,8 @@ class ChatOut(BaseModel):
     ui_mode: str  # normal | support | crisis
     resources: Optional[list[dict[str, str]]] = None
     correlation_id: Optional[uuid.UUID] = None
+    # Set only when the reply carried the fixed LEVEL3/LEVEL4 safety copy.
+    safety_protocol_version: Optional[str] = None
 
 
 class ChatMessageOut(BaseModel):
@@ -222,6 +224,7 @@ class ChatMessageOut(BaseModel):
     prompt_sha256: Optional[str] = None
     context_version: Optional[str] = None
     context_sha256: Optional[str] = None
+    safety_protocol_version: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -489,6 +492,7 @@ class PatientChatMessageOut(BaseModel):
     prompt_sha256: Optional[str] = None
     context_version: Optional[str] = None
     context_sha256: Optional[str] = None
+    safety_protocol_version: Optional[str] = None
     created_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)

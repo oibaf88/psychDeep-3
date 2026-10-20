@@ -199,6 +199,7 @@ def support_respond(payload: SupportIn, db: Session = Depends(get_db), user: Use
         "mode": result["ui_mode"],
         "summary": result["reply"],
         "resources": result.get("resources"),
+        "safety_protocol_version": result.get("safety_protocol_version"),
         "correlation_id": str(result["correlation_id"]),
         "limits": ["No sustituye una valoración clínica."],
     }

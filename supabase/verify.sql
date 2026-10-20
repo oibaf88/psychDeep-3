@@ -82,6 +82,8 @@ required_columns(table_name, column_name) as (values
     ('chat_messages', 'prompt_sha256'),
     ('chat_messages', 'context_version'),
     ('chat_messages', 'context_sha256'),
+    ('chat_messages', 'safety_protocol_version'),
+    ('notifications', 'safety_protocol_version'),
     ('observations', 'id'),
     ('observations', 'legacy_source_id'),
     ('feature_definitions', 'id'),
