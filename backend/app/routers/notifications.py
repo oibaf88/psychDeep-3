@@ -17,6 +17,7 @@ class NotificationOut(BaseModel):
     title: str | None
     body: str
     alert_level: int | None
+    safety_protocol_version: str | None = None
     status: str
     created_at: datetime
 
