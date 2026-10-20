@@ -300,7 +300,8 @@ def retrieve_longitudinal_context(
     """
     from datetime import datetime, timezone
     from uuid import UUID as UUIDType
-    from app.services.consent import CLINICAL_DOCUMENT_ANALYSIS, LINGUISTIC_ANALYSIS, is_granted
+    from app.services.consent import LINGUISTIC_ANALYSIS, is_granted
+    from app.services.sequence_sources import sequence_refs
 
     started_at = perf_counter()
     if in_crisis or task_type == "crisis" or not query.strip():
@@ -324,13 +325,12 @@ def retrieve_longitudinal_context(
     def _list_refs(value) -> tuple[str, ...]:
         if not isinstance(value, list):
             return ()
-        return tuple(str(ref) for ref in value if ref is not None and str(ref).strip())
+        return tuple(sequence_refs(str(ref) for ref in value if ref is not None and str(ref).strip()))
 
     candidates: list[MemoryEvidence] = []
     query_params = {
         "user_id": str(user_uuid),
         "query": query.strip(),
-        "clinical_document_analysis_allowed": is_granted(db, user_uuid, CLINICAL_DOCUMENT_ANALYSIS),
     }
 
     try:
@@ -347,13 +347,10 @@ def retrieve_longitudinal_context(
                and mi.attribution <> 'PsychDeep whole-person model'
                and mi.status = 'active'
                and (mi.expires_at is null or mi.expires_at > now())
-               and (
-                   :clinical_document_analysis_allowed
-                   or not exists (
-                       select 1
-                         from jsonb_array_elements_text(coalesce(mi.source_refs::jsonb, '[]'::jsonb)) as source_ref(value)
-                        where source_ref.value like 'clinical_document:%'
-                   )
+               and not exists (
+                   select 1
+                     from jsonb_array_elements_text(coalesce(mi.source_refs::jsonb, '[]'::jsonb)) as source_ref(value)
+                    where source_ref.value like 'clinical_document:%'
                )
                and to_tsvector('simple', coalesce(mi.content, '')) @@ q.tsq
              order by relevance desc, mi.created_at desc
@@ -387,13 +384,10 @@ def retrieve_longitudinal_context(
                            ) as document
                       from psychdeep_v12.memory_episodes e
                      where e.user_id = :user_id and e.status = 'active'
-                       and (
-                           :clinical_document_analysis_allowed
-                           or not exists (
-                               select 1
-                                 from jsonb_array_elements_text(coalesce(e.source_refs::jsonb, '[]'::jsonb)) as source_ref(value)
-                                where source_ref.value like 'clinical_document:%'
-                           )
+                       and not exists (
+                           select 1
+                             from jsonb_array_elements_text(coalesce(e.source_refs::jsonb, '[]'::jsonb)) as source_ref(value)
+                            where source_ref.value like 'clinical_document:%'
                        )
                  )
             select e.id, e.title, e.l0, e.l1, e.themes, e.transitions,
@@ -437,13 +431,10 @@ def retrieve_longitudinal_context(
                            ) as document
                       from psychdeep_v12.memory_summary_versions s
                      where s.user_id = :user_id and s.status = 'active'
-                       and (
-                           :clinical_document_analysis_allowed
-                           or not exists (
-                               select 1
-                                 from jsonb_array_elements_text(coalesce(s.source_refs::jsonb, '[]'::jsonb)) as source_ref(value)
-                                where source_ref.value like 'clinical_document:%'
-                           )
+                       and not exists (
+                           select 1
+                             from jsonb_array_elements_text(coalesce(s.source_refs::jsonb, '[]'::jsonb)) as source_ref(value)
+                            where source_ref.value like 'clinical_document:%'
                        )
                        and (
                            (s.scope_type = 'topic' and s.scope_key = 'longitudinal-v1')

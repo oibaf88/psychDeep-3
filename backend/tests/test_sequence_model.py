@@ -44,3 +44,30 @@ def test_does_not_anchor_to_other_patients():
     drafts = model.analyse("p-single", events, "consent", "corr", prompt_text="s", user_id="u-single")
     for d in drafts:
         assert d.patient_id == "p-single"
+
+
+def test_drops_events_with_external_clinical_refs():
+    from dataclasses import replace
+
+    model = TimeAwareSequenceModel(min_points=3)
+    events = [_event(3), _event(2), _event(1)]
+    events.append(replace(_event(0), source_refs=("diary_entry:0", "clinical_document:abc")))
+    drafts = model.analyse("p1", events, "consent", "corr", prompt_text="s", user_id="u1")
+    # The uploaded report is not app input: the latest app event is day 1.
+    assert all(d.event_id != "event-0" for d in drafts)
+
+
+def test_effect_is_bounded_and_one_draft_per_run():
+    model = TimeAwareSequenceModel(min_points=3)
+    events = [_event(day) for day in range(10, -1, -1)]
+    drafts = model.analyse("p1", events, "consent", "corr", prompt_text="s", user_id="u1")
+    assert len(drafts) <= 1
+    for d in drafts:
+        assert 0.0 <= d.effect <= 1.0
+        assert 0.0 <= d.confidence <= 0.95
+
+
+def test_no_signal_without_spacing_in_baseline():
+    model = TimeAwareSequenceModel(min_points=3)
+    events = [_event(1, "diary"), _event(1, "check_in"), _event(0, "chat")]
+    assert model.analyse("p1", events, "consent", "corr", prompt_text="s", user_id="u1") == []
