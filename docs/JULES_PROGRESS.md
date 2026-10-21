@@ -39,6 +39,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Clinical Safety:** Verified the `profile_update` functionality in Agent 2 prompts (`backend/app/content/prompts.py`) properly protects against converting transient emotional states into permanent traits and updated `docs/agentes/hallazgo_profile_update_rasgo_permanente.md` to reflect this compliance and resolve the pending finding.
 - **Clinical Safety:** Updated the AGENT3_SYSTEM_PROMPT and ANALYZER_SYSTEM_PROMPT in `backend/app/content/prompts.py` to prevent LLM hallucination and ensure state-to-trait separation.
 - **Performance:** Fixed N+1 query issue in the professional patient listing endpoint (`backend/app/routers/professional.py`) by utilizing batched DB queries for assessments, alerts and checkins.
+- **A11y Review:** Added context-specific ARIA labels to repetitive action buttons (e.g., 'Marcar como visto') in lists within `ClinicalMemoryPanel.tsx` to ensure screen-reader users have sufficient context.
 - **A11y Review:** Added accessibility enhancements (ARIA roles, live regions, labels) to both Patient and Professional Dashboards.
 - Implemented frontend manual chunk splitting in `vite.config.ts` to solve large Vite bundle sizes (>500kB) and improve application initial load times.
 - Created this documentation (`docs/JULES_PROGRESS.md`) to adhere to the spec requirements.
