@@ -35,7 +35,8 @@ class _Clock(datetime):
 class DailyStatisticsIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        for model in (User, PatientProfessionalAssignment, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact):
+        from app.models import Consent
+        for model in (User, PatientProfessionalAssignment, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact, Consent):
             model.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         self.db: Session = self.sessions()
@@ -43,6 +44,9 @@ class DailyStatisticsIntegrationTests(unittest.TestCase):
         self.other_patient = self.user("patient")
         self.therapist = self.user("therapist")
         self.admin = self.user("admin_clinical")
+        from app.models import Consent
+        self.db.add(Consent(user_id=self.patient.id, consent_type="professional_sharing", granted=True))
+        self.db.add(Consent(user_id=self.other_patient.id, consent_type="professional_sharing", granted=True))
         self.db.add(PatientProfessionalAssignment(patient_id=self.patient.id, professional_id=self.therapist.id, status="active"))
         self.db.add_all([
             CheckIn(user_id=self.patient.id, mood=0, craving=0, sleep_hours=4, self_efficacy=2, created_at=SOURCE_AT),
