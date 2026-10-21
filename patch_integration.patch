@@ -1,0 +1,25 @@
+--- backend/tests/test_daily_statistics_integration.py
++++ backend/tests/test_daily_statistics_integration.py
+@@ -10,7 +10,7 @@
+     Agent2AnalysisTrace, AlfaSignal, Baseline, ChatMessage, CheckIn,
+     ConfirmedFact, DiaryEntry, PatientProfessionalAssignment, ProfessionalAlert,
+-    PsychosocialObservation, RiskAssessment, User,
++    PsychosocialObservation, RiskAssessment, User, Consent,
+ )
+ from app.routers import professional, timeline as timeline_router
+@@ -32,7 +32,7 @@
+ class DailyStatisticsIntegrationTests(unittest.TestCase):
+     def setUp(self):
+         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+-        for model in (User, PatientProfessionalAssignment, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact):
++        for model in (User, PatientProfessionalAssignment, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact, Consent):
+             model.__table__.create(self.engine)
+         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
+         self.db: Session = self.sessions()
+@@ -40,6 +40,7 @@
+         self.therapist = self.user("therapist")
+         self.admin = self.user("admin_clinical")
+         self.db.add(PatientProfessionalAssignment(patient_id=self.patient.id, professional_id=self.therapist.id, status="active"))
++        self.db.add(Consent(user_id=self.patient.id, consent_type="professional_sharing", granted=True))
+         self.db.add_all([
+             CheckIn(user_id=self.patient.id, mood=0, craving=0, sleep_hours=4, self_efficacy=2, created_at=SOURCE_AT),
