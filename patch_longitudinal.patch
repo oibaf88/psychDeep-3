@@ -1,0 +1,17 @@
+--- backend/tests/test_professional_longitudinal.py
++++ backend/tests/test_professional_longitudinal.py
+@@ -10,7 +10,7 @@
+ import app.models_vnext  # noqa: F401
+ from app.database import Base, get_db
+-from app.models import PatientProfessionalAssignment, RiskAssessment, User
++from app.models import PatientProfessionalAssignment, RiskAssessment, User, Consent
+ from app.models_vnext import BaselineVersion, ChangeSignal
+ from app.routers import professional
+@@ -37,6 +37,8 @@
+         self.other_therapist = self.user("therapist", "Terapeuta Ajeno")
+         self.supervisor = self.user("supervisor", "Supervisor")
+         self.admin = self.user("admin_clinical", "Admin")
++        self.db.add(Consent(user_id=self.patient.id, consent_type="professional_sharing", granted=True))
++        self.db.add(Consent(user_id=self.empty.id, consent_type="professional_sharing", granted=True))
+         self.db.add_all(
+             [
