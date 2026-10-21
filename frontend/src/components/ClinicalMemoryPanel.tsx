@@ -277,7 +277,7 @@ export default function ClinicalMemoryPanel({
         {notices.length === 0 ? <p className="meta">No hay avisos.</p> : <ul>{notices.map((notice) => <li key={notice.id}>
           <strong>{REASONS[notice.reason] || notice.reason}</strong>
           <span className="meta"> · {notice.status === "open" ? "abierto" : "visto"}{notice.created_at ? ` · ${formatDateTime(notice.created_at)}` : ""}</span>
-          {canAnnotate && notice.status === "open" && <div><button type="button" disabled={busy} onClick={() => acknowledge(notice.id)}>Marcar como visto</button></div>}
+          {canAnnotate && notice.status === "open" && <div><button type="button" aria-label={"Marcar como visto: " + (REASONS[notice.reason] || notice.reason)} disabled={busy} onClick={() => acknowledge(notice.id)}>Marcar como visto</button></div>}
         </li>)}</ul>}
       </section>
 
