@@ -150,6 +150,11 @@ class InterventionEvent(Base):
     proposed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     acted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # The patient's own ChangeSignal that triggered the suggested action, when
+    # one did. A link for longitudinal learning only; never a risk input.
+    change_signal_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("change_signals.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
