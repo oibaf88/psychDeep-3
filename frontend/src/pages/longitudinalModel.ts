@@ -159,6 +159,8 @@ export function deriveSummary(state: LongitudinalStateOut | null | undefined): C
 }
 
 export interface ComparisonRow {
+  /** The persisted ChangeSignal id this row reads; null when the payload had none. */
+  signalId: string | null;
   feature: string;
   label: string;
   calculated: boolean;
@@ -197,6 +199,8 @@ export interface ComparisonReading {
   windowsLine: string | null;
   versionLine: string | null;
   limit: string;
+  /** The calculated structural-composite ChangeSignal id, when there is one. */
+  compositeSignalId: string | null;
 }
 
 const STATUS_LABELS: Record<ComparisonStatus, string> = {
@@ -267,6 +271,7 @@ function rowFor(signal: LongitudinalChangeOut, pending: PendingFeatureOut | unde
   }
 
   return {
+    signalId: signal.signal_id ?? null,
     feature: signal.feature,
     label: featureLabel(signal.feature),
     calculated,
@@ -387,6 +392,7 @@ export function readComparison(
     windowsLine,
     versionLine: audience === "professional" && summary.algorithm_version ? `Algoritmo: ${summary.algorithm_version}` : null,
     limit: CHANGE_IS_NOT_RISK,
+    compositeSignalId: composite && isCalculated(composite) ? composite.signal_id ?? null : null,
   };
 }
 

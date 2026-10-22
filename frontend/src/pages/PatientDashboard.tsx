@@ -73,11 +73,13 @@ export default function PatientDashboard() {
         actionId: suggestedAction.actionId,
         state: "accepted",
         driver: suggestedAction.driver,
+        changeSignalId: suggestedAction.changeSignalId,
       });
       stashPendingUsefulness({
         actionId: suggestedAction.actionId,
         driver: suggestedAction.driver,
         title: suggestedAction.title,
+        changeSignalId: suggestedAction.changeSignalId,
       });
       navigate(suggestedAction.route);
     } finally {
@@ -94,6 +96,7 @@ export default function PatientDashboard() {
         actionId: suggestedAction.actionId,
         state: "postponed",
         driver: suggestedAction.driver,
+        changeSignalId: suggestedAction.changeSignalId,
       });
       setShowSuggestedAction(false);
     } finally {
@@ -110,6 +113,7 @@ export default function PatientDashboard() {
         state: "completed",
         driver: pendingUsefulness.driver,
         usefulness: usefulnessFromChoice(choice),
+        changeSignalId: pendingUsefulness.changeSignalId ?? null,
       });
       clearPendingUsefulness();
       setPendingUsefulness(null);
