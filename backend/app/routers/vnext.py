@@ -5,6 +5,7 @@ frontend migrates, so no historical data is reinterpreted or made unreadable.
 """
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -53,6 +54,8 @@ class FeedbackIn(BaseModel):
     state: str = Field(pattern="^(accepted|rejected|postponed|completed)$")
     usefulness: int | None = Field(default=None, ge=1, le=5)
     reason: str | None = Field(default=None, max_length=2000)
+    # Optional: the patient's own ChangeSignal that triggered the suggestion.
+    change_signal_id: uuid.UUID | None = None
 
 
 @router.post("/observations", status_code=201)
@@ -249,6 +252,16 @@ def model_status(user: User = Depends(get_current_user)):
 
 @router.post("/feedback", status_code=201)
 def feedback(payload: FeedbackIn, db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    if payload.change_signal_id is not None:
+        # Only the caller's own signal can be cited. Another user's id and an
+        # unknown id get the same answer, so existence is not disclosed.
+        owned = (
+            db.query(ChangeSignal.id)
+            .filter(ChangeSignal.id == payload.change_signal_id, ChangeSignal.user_id == user.id)
+            .first()
+        )
+        if owned is None:
+            raise HTTPException(status_code=422, detail="change_signal_id is not one of your change signals")
     row = InterventionEvent(
         user_id=user.id,
         action_id=payload.action_id,
@@ -258,8 +271,14 @@ def feedback(payload: FeedbackIn, db: Session = Depends(get_db), user: User = De
         usefulness=payload.usefulness,
         source="patient",
         acted_at=datetime.now(timezone.utc),
+        change_signal_id=payload.change_signal_id,
     )
     db.add(row)
     db.commit()
     db.refresh(row)
-    return {"id": str(row.id), "state": row.state, "usefulness": row.usefulness}
+    return {
+        "id": str(row.id),
+        "state": row.state,
+        "usefulness": row.usefulness,
+        "change_signal_id": str(row.change_signal_id) if row.change_signal_id else None,
+    }

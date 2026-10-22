@@ -8,6 +8,9 @@
  *
  * Each action carries a stable actionId so accept / postpone / usefulness
  * feedback can be recorded on InterventionEvent without inventing clinical meaning.
+ * When a persisted ChangeSignal drove the suggestion, `changeSignalId` names it so
+ * that feedback is linked to the change that prompted it. Acute form overrides and
+ * an insufficient comparison are not driven by a signal and stay null.
  */
 import type { CheckInIn } from "../api";
 import type { ComparisonReading } from "./longitudinalModel";
@@ -31,6 +34,8 @@ export type SuggestedAction = {
   body: string;
   button: string;
   route: string;
+  /** The ChangeSignal that triggered this suggestion, or null when none did. */
+  changeSignalId: string | null;
 };
 
 const ADVERSE_BANDS = new Set(["transition", "unstable"]);
@@ -60,6 +65,14 @@ function rowShowsAdverseForRegular(row: ComparisonReading["rows"][number]): bool
   return false;
 }
 
+/** The first calculated feature row showing adverse change, if any. */
+export function firstAdverseRow(
+  reading: ComparisonReading | null | undefined,
+): ComparisonReading["rows"][number] | null {
+  if (!reading) return null;
+  return reading.rows.find(rowShowsAdverseForRegular) ?? null;
+}
+
 /** True when a calculated feature row shows adverse change suitable for Regular. */
 export function readingShowsAdverseForRegular(reading: ComparisonReading | null | undefined): boolean {
   if (!reading) return false;
@@ -83,6 +96,7 @@ export function suggestedActionFromReading(
       body: "Tienes una urgencia alta en este momento. Puedes probar la práctica de la ola sin necesidad de resolver nada más ahora.",
       button: "Ir a Regular",
       route: "/wave",
+      changeSignalId: null,
     };
   }
 
@@ -94,10 +108,12 @@ export function suggestedActionFromReading(
       body: "Cuando la confianza está baja, una práctica breve puede ayudarte a recuperar espacio antes de decidir el siguiente paso.",
       button: "Ir a Regular",
       route: "/wave",
+      changeSignalId: null,
     };
   }
 
-  if (readingShowsAdverseForRegular(reading)) {
+  const adverseRow = firstAdverseRow(reading);
+  if (adverseRow) {
     return {
       actionId: "hoy.suggest.regular_wave",
       driver: "longitudinal_adverse",
@@ -105,6 +121,7 @@ export function suggestedActionFromReading(
       body: "Tu comparación reciente muestra un cambio respecto a lo habitual en ti. Puedes probar la práctica de la ola como un siguiente paso breve, sin necesidad de resolver nada más ahora.",
       button: "Ir a Regular",
       route: "/wave",
+      changeSignalId: adverseRow.signalId,
     };
   }
 
@@ -116,6 +133,7 @@ export function suggestedActionFromReading(
       body: "Hay una comparación con tu referencia. En Tendencias puedes ver qué se está moviendo y con qué valores, sin interpretarlo como un nivel de alerta.",
       button: "Ver Tendencias",
       route: "/trends",
+      changeSignalId: reading.compositeSignalId,
     };
   }
 
@@ -126,5 +144,6 @@ export function suggestedActionFromReading(
     body: "Aún no hay una comparación suficiente con tu referencia. Puedes registrar y observar tu trayectoria en Tendencias. Eso no significa que todo vaya bien ni que no haya riesgo.",
     button: "Ver Tendencias",
     route: "/trends",
+    changeSignalId: null,
   };
 }

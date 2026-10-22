@@ -44,7 +44,36 @@ describe("hoyActionFeedback", () => {
       state: "accepted",
       usefulness: null,
       reason: "longitudinal_adverse",
+      change_signal_id: null,
     });
+  });
+
+  it("sends the triggering ChangeSignal id when the suggestion had one", async () => {
+    vi.mocked(api.post).mockResolvedValue({ id: "evt-2", state: "completed", usefulness: 3 });
+    await recordHoyActionFeedback({
+      actionId: "hoy.suggest.regular_wave",
+      state: "completed",
+      driver: "longitudinal_adverse",
+      usefulness: 3,
+      changeSignalId: "craving-id",
+    });
+    expect(api.post).toHaveBeenCalledWith("/api/v1/feedback", {
+      action_id: "hoy.suggest.regular_wave",
+      state: "completed",
+      usefulness: 3,
+      reason: "longitudinal_adverse",
+      change_signal_id: "craving-id",
+    });
+  });
+
+  it("keeps the triggering ChangeSignal id across the usefulness round-trip", () => {
+    stashPendingUsefulness({
+      actionId: "hoy.suggest.regular_wave",
+      driver: "longitudinal_adverse",
+      title: "Regular una ola",
+      changeSignalId: "mood-id",
+    });
+    expect(readPendingUsefulness()?.changeSignalId).toBe("mood-id");
   });
 
   it("returns false without throwing when the feedback API fails", async () => {

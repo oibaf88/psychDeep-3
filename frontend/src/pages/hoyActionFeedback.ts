@@ -13,6 +13,8 @@ export type PendingUsefulness = {
   actionId: HoyActionId;
   driver: HoyActionDriver;
   title: string;
+  /** ChangeSignal that triggered the accepted action; absent/null when none did. */
+  changeSignalId?: string | null;
   recordedAt: string;
 };
 
@@ -23,6 +25,7 @@ export async function recordHoyActionFeedback(input: {
   state: FeedbackState;
   driver: HoyActionDriver;
   usefulness?: 1 | 2 | 3 | 4 | 5;
+  changeSignalId?: string | null;
 }): Promise<boolean> {
   try {
     await api.post("/api/v1/feedback", {
@@ -30,6 +33,7 @@ export async function recordHoyActionFeedback(input: {
       state: input.state,
       usefulness: input.usefulness ?? null,
       reason: input.driver,
+      change_signal_id: input.changeSignalId ?? null,
     });
     return true;
   } catch {
@@ -55,7 +59,8 @@ export function readPendingUsefulness(): PendingUsefulness | null {
       !parsed ||
       typeof parsed.actionId !== "string" ||
       typeof parsed.driver !== "string" ||
-      typeof parsed.title !== "string"
+      typeof parsed.title !== "string" ||
+      (parsed.changeSignalId != null && typeof parsed.changeSignalId !== "string")
     ) {
       return null;
     }

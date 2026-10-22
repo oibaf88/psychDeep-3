@@ -202,6 +202,7 @@ describe("PatientDashboard longitudinal change", () => {
         state: "postponed",
         usefulness: null,
         reason: "insufficient_observe",
+        change_signal_id: null,
       });
     });
     expect(screen.getByRole("heading", { name: "Puedes dejarlo aquí" })).toBeInTheDocument();
@@ -214,6 +215,7 @@ describe("PatientDashboard longitudinal change", () => {
         actionId: "hoy.suggest.regular_wave",
         driver: "longitudinal_adverse",
         title: "Regular una ola",
+        changeSignalId: "mood-id",
         recordedAt: "2026-10-14T08:00:00.000Z",
       }),
     );
@@ -235,6 +237,7 @@ describe("PatientDashboard longitudinal change", () => {
         state: "completed",
         usefulness: 5,
         reason: "longitudinal_adverse",
+        change_signal_id: "mood-id",
       });
     });
     expect(sessionStorage.getItem("psychdeep.hoy.pendingUsefulness")).toBeNull();

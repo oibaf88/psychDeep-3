@@ -14,7 +14,7 @@ import app.models  # noqa: F401
 import app.models_vnext  # noqa: F401
 from app.database import Base, get_db
 from app.models import User
-from app.models_vnext import InterventionEvent
+from app.models_vnext import ChangeSignal, InterventionEvent
 from app.routers import vnext
 from app.security import create_access_token
 
@@ -65,6 +65,21 @@ class InterventionFeedbackTests(unittest.TestCase):
         )
         self.db.add(row)
         self.db.flush()
+        return row
+
+    def signal(self, user, feature="craving", band="transition"):
+        row = ChangeSignal(
+            user_id=user.id,
+            feature=feature,
+            change_value=1.4,
+            band=band,
+            uncertainty={"baseline_n": 20, "recent_n": 5},
+            evidence_refs=[],
+            contradictions=[],
+            algorithm_version="canonical-structural-v3",
+        )
+        self.db.add(row)
+        self.db.commit()
         return row
 
     def headers(self, user):
@@ -162,6 +177,111 @@ class InterventionFeedbackTests(unittest.TestCase):
             },
         )
         self.assertEqual(bad_score.status_code, 422)
+
+    def test_feedback_links_the_patients_own_triggering_change_signal(self):
+        signal = self.signal(self.patient)
+        accepted = self.client.post(
+            "/api/v1/feedback",
+            headers=self.headers(self.patient),
+            json={
+                "action_id": "hoy.suggest.regular_wave",
+                "state": "accepted",
+                "reason": "longitudinal_adverse",
+                "change_signal_id": str(signal.id),
+            },
+        )
+        self.assertEqual(accepted.status_code, 201, accepted.text)
+        self.assertEqual(accepted.json()["change_signal_id"], str(signal.id))
+
+        completed = self.client.post(
+            "/api/v1/feedback",
+            headers=self.headers(self.patient),
+            json={
+                "action_id": "hoy.suggest.regular_wave",
+                "state": "completed",
+                "usefulness": 3,
+                "reason": "longitudinal_adverse",
+                "change_signal_id": str(signal.id),
+            },
+        )
+        self.assertEqual(completed.status_code, 201, completed.text)
+
+        db = self.sessions()
+        try:
+            rows = db.query(InterventionEvent).filter(InterventionEvent.change_signal_id == signal.id).all()
+            self.assertEqual(len(rows), 2)
+            self.assertEqual({r.state for r in rows}, {"accepted", "completed"})
+            self.assertEqual([r.usefulness for r in rows if r.state == "completed"], [3])
+            # The cited signal is read, never rewritten.
+            stored = db.get(ChangeSignal, signal.id)
+            self.assertEqual(stored.band, "transition")
+            self.assertEqual(stored.change_value, 1.4)
+        finally:
+            db.close()
+
+    def test_feedback_without_signal_stays_unlinked(self):
+        res = self.client.post(
+            "/api/v1/feedback",
+            headers=self.headers(self.patient),
+            json={"action_id": "hoy.suggest.register_observe", "state": "postponed", "reason": "insufficient_observe"},
+        )
+        self.assertEqual(res.status_code, 201, res.text)
+        self.assertIsNone(res.json()["change_signal_id"])
+        db = self.sessions()
+        try:
+            self.assertIsNone(db.query(InterventionEvent).one().change_signal_id)
+        finally:
+            db.close()
+
+    def test_cannot_cite_another_patients_signal_or_unknown_id(self):
+        other = self.user("patient", "Otra Paciente")
+        self.db.commit()
+        foreign = self.signal(other)
+        for cited in (str(foreign.id), str(uuid.uuid4())):
+            res = self.client.post(
+                "/api/v1/feedback",
+                headers=self.headers(self.patient),
+                json={
+                    "action_id": "hoy.suggest.regular_wave",
+                    "state": "accepted",
+                    "change_signal_id": cited,
+                },
+            )
+            self.assertEqual(res.status_code, 422, res.text)
+            # Same answer for foreign and unknown ids: existence is not disclosed.
+            self.assertEqual(res.json()["detail"], "change_signal_id is not one of your change signals")
+        db = self.sessions()
+        try:
+            self.assertEqual(db.query(InterventionEvent).count(), 0)
+        finally:
+            db.close()
+
+    def test_rejects_malformed_change_signal_id(self):
+        res = self.client.post(
+            "/api/v1/feedback",
+            headers=self.headers(self.patient),
+            json={"action_id": "hoy.suggest.regular_wave", "state": "accepted", "change_signal_id": "not-a-uuid"},
+        )
+        self.assertEqual(res.status_code, 422)
+
+    def test_deleting_the_signal_keeps_the_feedback(self):
+        signal = self.signal(self.patient)
+        res = self.client.post(
+            "/api/v1/feedback",
+            headers=self.headers(self.patient),
+            json={"action_id": "hoy.suggest.trends_explain", "state": "accepted", "change_signal_id": str(signal.id)},
+        )
+        self.assertEqual(res.status_code, 201, res.text)
+        db = self.sessions()
+        try:
+            db.delete(db.get(ChangeSignal, signal.id))
+            db.commit()
+            row = db.query(InterventionEvent).one()
+            db.refresh(row)
+            self.assertIsNone(row.change_signal_id)
+            self.assertEqual(row.state, "accepted")
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":
