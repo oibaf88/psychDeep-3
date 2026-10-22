@@ -44,6 +44,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Created this documentation (`docs/JULES_PROGRESS.md`) to adhere to the spec requirements.
 - Fixed an absolute path bug in `backend/tests/test_llm_endpoint.py` so tests can be run regardless of the directory they're executed from.
 - Refactored `aggregate_daily_statistics` function in `backend/app/services/daily_statistics.py` by extracting logic into smaller helpers for improved readability and maintainability.
+- **A11y Review:** Implemented accessibility improvements in `frontend/src/components/PatientProfilePanel.tsx` by adding `aria-label` to the portrait `textarea`, the "Descargar original" `button`, the "Cerrar" `button`, and the thread draft `input`.
 - **Testing:** Expanded frontend component testing by adding test suites for the ConsentsPage and SharingPage components.
 - **RAG foundation:** Registro versionado con aprobación administrativa, fuente, nivel de evidencia, fecha de revisión y contraindicaciones. Los ítems `active` con `review_due` nulo o vigente se copian al contexto de Agent 1. Ese camino no recupera por turno, no aplica contraindicaciones y no guarda `content_version` en `ModelRun`.
 - **Clinical/Scientific Review:** Drafted `docs/agentes/04_informe_revision_cientifica_n3_adverse_z.md` evaluating the memory state vs. trait separation in `profile_update` and the statistical bounds validation of `adverse_composite_z` > 2.4 (N3_convergencia_critica_extrema) against NG225 and clinical standards.
