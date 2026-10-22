@@ -73,4 +73,34 @@ describe("suggestedActionFromReading", () => {
     expect(action.button).toBe("Ver Tendencias");
     expect(JSON.stringify(action)).not.toMatch(/alert|Nivel|risk/i);
   });
+
+  describe("triggering ChangeSignal link", () => {
+    it("names the first adverse feature signal for a longitudinal Regular suggestion", () => {
+      const action = suggestedActionFromReading(readComparison(calculatedLongitudinal, "patient"), formDefaults);
+      expect(action.driver).toBe("longitudinal_adverse");
+      // FEATURE_ORDER reads mood first; mood is lower with an adverse band.
+      expect(action.changeSignalId).toBe("mood-id");
+    });
+
+    it("names the calculated composite signal for the Tendencias explanation", () => {
+      const action = suggestedActionFromReading(readComparison(stableLongitudinal, "patient"), formDefaults);
+      expect(action.driver).toBe("calculated_explain");
+      expect(action.changeSignalId).toBe("structural_composite-id");
+    });
+
+    it("stays null when no signal drove the suggestion", () => {
+      expect(
+        suggestedActionFromReading(readComparison(insufficientLongitudinal, "patient"), formDefaults).changeSignalId,
+      ).toBeNull();
+      expect(
+        suggestedActionFromReading(readComparison(stableLongitudinal, "patient"), { craving: 8, self_efficacy: 5 })
+          .changeSignalId,
+      ).toBeNull();
+      expect(
+        suggestedActionFromReading(readComparison(stableLongitudinal, "patient"), { craving: 3, self_efficacy: 2 })
+          .changeSignalId,
+      ).toBeNull();
+      expect(suggestedActionFromReading(null, formDefaults).changeSignalId).toBeNull();
+    });
+  });
 });
