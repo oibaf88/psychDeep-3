@@ -242,10 +242,13 @@ begin
       from (values ('file_content'), ('file_sha256'), ('extracted_text'),
                    ('text_truncated'), ('uploaded_at')) required(column_name)
      where not exists (
-         select 1 from information_schema.columns column_row
-          where column_row.table_schema = 'psychdeep_v12'
-            and column_row.table_name = 'patient_clinical_documents'
-            and column_row.column_name = required.column_name
+         select 1 from pg_attribute a
+          join pg_class c on c.oid = a.attrelid
+          join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'psychdeep_v12'
+            and c.relname = 'patient_clinical_documents'
+            and a.attname = required.column_name
+            and a.attisdropped = false
      );
 
     if owner_name is distinct from 'psychdeep_backend'

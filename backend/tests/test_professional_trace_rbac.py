@@ -14,6 +14,9 @@ class _Query:
     def filter(self, *_args):
         return self
 
+    def order_by(self, *_args):
+        return self
+
     def first(self):
         return self.result
 

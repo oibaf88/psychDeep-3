@@ -52,3 +52,4 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 
 ## Recommended next work
 1. **Eval (Epic E11)**: Establish the evaluation architecture, test cases, and metric gathering for continuous improvement of model prompts.
+- **Clinical/Scientific Review:** Finalized and synthesized `docs/agentes/07_informe_revision_clinica_general_psychdeep.md` detailing the comprehensive alignment of the PsychDeep 3 codebase against clinical boundaries (state vs. trait, explicit N4 vs. convergence N3, TRIPOD-LLM guidelines, and human-in-the-loop prioritization).
