@@ -770,6 +770,16 @@ class SignalRefutationIn(BaseModel):
     reason: str = Field(min_length=3, max_length=1000)
 
 
+class BaselineFreezeIn(BaseModel):
+    """A professional holding the personal reference (vNext spec 8.2).
+
+    The note is mandatory: it is kept on the frozen BaselineVersion so a
+    later reader can see why the comparison stopped absorbing new data.
+    """
+
+    reason: str = Field(min_length=3, max_length=1000)
+
+
 class SignalRefutationOut(BaseModel):
     signal_id: uuid.UUID
     is_active: bool

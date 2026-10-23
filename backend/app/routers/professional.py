@@ -62,6 +62,8 @@ from app.schemas import (
     PsychosocialExplanationOut,
     PsychosocialObservationOut,
     AssignmentLinkOut,
+    BaselineFreezeIn,
+    LongitudinalBaselineOut,
     PatientSummaryOut,
     RiskAssessmentOut,
     SafetyPlanOut,
@@ -72,10 +74,11 @@ from app.schemas import (
 )
 from app.security import require_professional
 from app.services import agent2_trace, audit, clinical_copilot, clinical_view, psychosocial, risk_engine
+from app.services import baseline_freeze
 from app.services import profile as profile_service
 from app.services import signals as signals_service
 from app.services.assignment_visibility import AssignmentLink, links_by_patient, summary_status
-from app.services.longitudinal_read import for_clinical_reader, longitudinal_state, longitudinal_states
+from app.services.longitudinal_read import baseline_summary, for_clinical_reader, longitudinal_state, longitudinal_states
 from app.services.consent import sharing_allowed
 from app.services.timeline import build_timeline
 
@@ -874,6 +877,62 @@ def refute_linguistic_signal(
         alert_level_before=level_before,
         alert_level_after=assessment.alert_level,
     )
+
+
+_FREEZE_CONFLICTS = {
+    "no_canonical_baseline": "Todavía no hay una referencia personal calculada que conservar",
+    "already_frozen": "La referencia personal ya está conservada",
+    "insufficient_data": "La referencia personal no tiene datos suficientes para conservarla",
+    "not_frozen": "La referencia personal no está conservada",
+}
+
+
+@router.post("/patients/{patient_id}/baseline/freeze", response_model=LongitudinalBaselineOut)
+def freeze_patient_baseline(
+    patient_id: uuid.UUID,
+    payload: BaselineFreezeIn,
+    db: Session = Depends(get_db),
+    professional: User = Depends(require_professional),
+):
+    """Hold the canonical personal reference so new data is compared, not absorbed.
+
+    Same access as correcting the profile: the assigned therapist with
+    current sharing consent. This changes only the reference of the
+    canonical ChangeSignal comparison; the risk engine, alert levels and
+    thresholds are untouched, so no re-evaluation runs.
+    """
+    _require_fact_access(professional, db, patient_id)
+    try:
+        row = baseline_freeze.freeze_baseline(
+            db,
+            patient_id,
+            actor_id=professional.id,
+            actor_role=professional.role,
+            reason=payload.reason,
+        )
+    except baseline_freeze.BaselineFreezeError as exc:
+        raise HTTPException(status_code=409, detail=_FREEZE_CONFLICTS.get(str(exc), str(exc))) from None
+    return LongitudinalBaselineOut.model_validate(baseline_summary(row))
+
+
+@router.post("/patients/{patient_id}/baseline/release", response_model=LongitudinalBaselineOut)
+def release_patient_baseline(
+    patient_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    professional: User = Depends(require_professional),
+):
+    """Release a held reference and recalibrate it from the normal windows."""
+    _require_fact_access(professional, db, patient_id)
+    try:
+        row = baseline_freeze.release_baseline(
+            db,
+            patient_id,
+            actor_id=professional.id,
+            actor_role=professional.role,
+        )
+    except baseline_freeze.BaselineFreezeError as exc:
+        raise HTTPException(status_code=409, detail=_FREEZE_CONFLICTS.get(str(exc), str(exc))) from None
+    return LongitudinalBaselineOut.model_validate(baseline_summary(row))
 
 
 @router.get("/patients/{patient_id}/agent2-analyses", response_model=list[Agent2AnalysisTraceOut])

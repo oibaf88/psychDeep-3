@@ -278,58 +278,82 @@ def run_canonical_analytics(
     )
     recent_obs = _load_typed_observations(db, user_id, recent_start, current)
 
-    # The comparison window is recorded as an exclusion so a reader can see
-    # which observations the reference deliberately left out, and why.
-    exclusions: list[dict[str, Any]] = [
-        {
-            "kind": "comparison_window",
-            "reason": "recent_window_is_compared_not_absorbed",
-            "window": {"start": recent_start.isoformat(), "end": current.isoformat()},
-            "observation_counts": {
-                obs_type: len(recent_obs.get(obs_type, [])) for obs_type in OBSERVATION_TYPES
-            },
-        }
-    ]
-
-    baseline_stats = _axis_stats_from_obs(baseline_obs)
-    eligible_axes = [
-        axis
-        for axis in AXES
-        if axis in baseline_stats and baseline_stats[axis]["n"] >= MIN_OBS_FOR_BASELINE
-    ]
-    coverage = len(eligible_axes) / float(len(AXES))
-
-    if len(eligible_axes) == len(AXES):
-        baseline_status = "active"
-        stability = "eligible"
-    elif eligible_axes:
-        baseline_status = "provisional"
-        stability = "partial"
-    else:
-        baseline_status = "provisional"
-        stability = "insufficient_data"
-
-    # Supersede prior active/provisional rows for this user (append-only history).
-    db.query(BaselineVersion).filter(
-        BaselineVersion.user_id == user_id,
-        BaselineVersion.status.in_(["active", "provisional"]),
-        BaselineVersion.algorithm_version.in_(SUPERSEDED_ALGORITHM_VERSIONS),
-    ).update({"status": "superseded"}, synchronize_session=False)
-
-    baseline_row = BaselineVersion(
-        user_id=user_id,
-        feature_key=None,
-        window_start=baseline_start,
-        window_end=baseline_end,
-        stats=baseline_stats,
-        exclusions=exclusions,
-        stability=stability,
-        data_coverage=round(coverage, 4),
-        status=baseline_status,
-        algorithm_version=ALGORITHM_VERSION,
+    # A supervised freeze holds the reference: new observations are compared
+    # against it, never absorbed into a new one, until a professional
+    # releases it (``baseline_freeze``). It does not change the risk engine.
+    frozen_row = (
+        db.query(BaselineVersion)
+        .filter(
+            BaselineVersion.user_id == user_id,
+            BaselineVersion.status == "frozen",
+            BaselineVersion.algorithm_version == ALGORITHM_VERSION,
+        )
+        .order_by(BaselineVersion.created_at.desc())
+        .first()
     )
-    db.add(baseline_row)
-    db.flush()
+
+    if frozen_row is not None:
+        baseline_row = frozen_row
+        baseline_stats = dict(frozen_row.stats or {})
+        exclusions = list(frozen_row.exclusions or [])
+        eligible_axes = [
+            axis
+            for axis in AXES
+            if axis in baseline_stats and baseline_stats[axis].get("n", 0) >= MIN_OBS_FOR_BASELINE
+        ]
+    else:
+        # The comparison window is recorded as an exclusion so a reader can see
+        # which observations the reference deliberately left out, and why.
+        exclusions: list[dict[str, Any]] = [
+            {
+                "kind": "comparison_window",
+                "reason": "recent_window_is_compared_not_absorbed",
+                "window": {"start": recent_start.isoformat(), "end": current.isoformat()},
+                "observation_counts": {
+                    obs_type: len(recent_obs.get(obs_type, [])) for obs_type in OBSERVATION_TYPES
+                },
+            }
+        ]
+
+        baseline_stats = _axis_stats_from_obs(baseline_obs)
+        eligible_axes = [
+            axis
+            for axis in AXES
+            if axis in baseline_stats and baseline_stats[axis]["n"] >= MIN_OBS_FOR_BASELINE
+        ]
+        coverage = len(eligible_axes) / float(len(AXES))
+
+        if len(eligible_axes) == len(AXES):
+            baseline_status = "active"
+            stability = "eligible"
+        elif eligible_axes:
+            baseline_status = "provisional"
+            stability = "partial"
+        else:
+            baseline_status = "provisional"
+            stability = "insufficient_data"
+
+        # Supersede prior active/provisional rows for this user (append-only history).
+        db.query(BaselineVersion).filter(
+            BaselineVersion.user_id == user_id,
+            BaselineVersion.status.in_(["active", "provisional"]),
+            BaselineVersion.algorithm_version.in_(SUPERSEDED_ALGORITHM_VERSIONS),
+        ).update({"status": "superseded"}, synchronize_session=False)
+
+        baseline_row = BaselineVersion(
+            user_id=user_id,
+            feature_key=None,
+            window_start=baseline_start,
+            window_end=baseline_end,
+            stats=baseline_stats,
+            exclusions=exclusions,
+            stability=stability,
+            data_coverage=round(coverage, 4),
+            status=baseline_status,
+            algorithm_version=ALGORITHM_VERSION,
+        )
+        db.add(baseline_row)
+        db.flush()
 
     feature_values: list[FeatureValue] = []
     feature_keys: list[str] = []
@@ -418,6 +442,8 @@ def run_canonical_analytics(
                 "config_version": change_config.CONFIG_VERSION,
                 "calibration_status": change_config.CALIBRATION_STATUS,
             }
+            if frozen_row is not None:
+                uncertainty["baseline_frozen"] = True
         else:
             uncertainty = {
                 "reason": "insufficient_baseline_or_recent",
@@ -504,6 +530,7 @@ def run_canonical_analytics(
         detail={
             "baseline_eligible_axes": eligible_axes,
             "baseline_exclusions": exclusions,
+            "baseline_frozen": frozen_row is not None,
             "composite_band": composite_band,
             "z_scores": z_scores,
             "correlation_id": str(corr),
@@ -545,9 +572,20 @@ def refresh_stale_trajectories(db: Session) -> dict[str, int]:
             .order_by(BaselineVersion.created_at.desc())
             .first()
         )
-        if latest_baseline is not None and latest_baseline.created_at is not None:
+        last_computed = latest_baseline.created_at if latest_baseline is not None else None
+        if latest_baseline is not None and latest_baseline.status == "frozen":
+            # A held reference is not rebuilt, so its own timestamp never
+            # advances; the last comparison against it is what can be stale.
+            last_signal_at = (
+                db.query(func.max(ChangeSignal.created_at))
+                .filter(ChangeSignal.baseline_version_id == latest_baseline.id)
+                .scalar()
+            )
+            if last_signal_at is not None:
+                last_computed = last_signal_at
+        if latest_baseline is not None and last_computed is not None:
             try:
-                if _utc(latest_baseline.created_at) >= _utc(latest_at):
+                if _utc(last_computed) >= _utc(latest_at):
                     continue
             except (TypeError, ValueError):
                 # Unknown timestamp comparison means stale; better to recompute
@@ -569,14 +607,14 @@ def refresh_stale_trajectories(db: Session) -> dict[str, int]:
     return {"checked": checked, "refreshed": refreshed, "failed": failed}
 
 
-def refresh_trajectory(db: Session, user_id) -> bool:
+def refresh_trajectory(db: Session, user_id, *, now: datetime | None = None) -> bool:
     """Recompute this person's canonical baseline and change signals.
 
     A failure here must not discard the self-report or skip deterministic
     safety. ChangeSignal stays a longitudinal comparison, not a risk level.
     """
     try:
-        run_canonical_analytics(db, user_id)
+        run_canonical_analytics(db, user_id, now=now)
         return True
     except Exception as exc:  # noqa: BLE001
         # Keep the self-report and deterministic safety independent, but expose
