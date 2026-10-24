@@ -1,0 +1,10 @@
+--- supabase/verify.sql
++++ supabase/verify.sql
+@@ -51,6 +51,7 @@
+     ('model_deployments', 'alias'),
+     ('patient_clinical_documents', 'file_content'),
+     ('patient_clinical_documents', 'extracted_text'),
++    ('patient_clinical_documents', 'text_truncated'),
+     ('patient_clinical_documents', 'patient_model_version_id'),
+     ('llm_user_preferences', 'user_id'),
+     ('mobile_inference_events', 'id'),

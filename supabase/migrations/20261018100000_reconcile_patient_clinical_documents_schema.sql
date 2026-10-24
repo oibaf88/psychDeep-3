@@ -59,7 +59,8 @@ end
 $$;
 
 alter table psychdeep_v12.patient_clinical_documents
-    add column if not exists text_truncated boolean;
+    add column if not exists text_truncated boolean,
+    add column if not exists patient_model_version_id uuid;
 alter table psychdeep_v12.patient_clinical_documents
     add column if not exists patient_model_version_id uuid;
 alter table psychdeep_v12.patient_clinical_documents
@@ -239,8 +240,7 @@ begin
 
     select array_agg(required.column_name)
       into missing_columns
-      from (values ('file_content'), ('file_sha256'), ('extracted_text'),
-                   ('text_truncated'), ('uploaded_at')) required(column_name)
+      from (values ('file_content'), ('file_sha256'), ('extracted_text'), ('text_truncated'), ('uploaded_at')) required(column_name)
      where not exists (
          select 1 from information_schema.columns column_row
           where column_row.table_schema = 'psychdeep_v12'
