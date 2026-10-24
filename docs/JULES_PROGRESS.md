@@ -49,6 +49,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Clinical/Scientific Review:** Drafted `docs/agentes/04_informe_revision_cientifica_n3_adverse_z.md` evaluating the memory state vs. trait separation in `profile_update` and the statistical bounds validation of `adverse_composite_z` > 2.4 (N3_convergencia_critica_extrema) against NG225 and clinical standards.
 - **Clinical/Scientific Review:** Drafted `docs/agentes/05_informe_revision_clinica_general.md` to confirm the deterministic rule engine safely isolates statistical divergence to N3 alerts, reserving N4 exclusively for explicit ideation or direct crisis declarations.
 - **Selective Sharing (Epic E10):** Added professional workflow functionality for therapists to cancel pending assignment requests via the `AssignmentsPage` and `ProfessionalDashboard` UI, closing Epic E10 implementation.
+- **Eval (Epic E11):** Implemented initial evaluation architecture with synthetic adversarial cases in `backend/tests/run_clinical_eval.py` and drafted clinical review report in `docs/agentes/07_informe_revision_clinica_evaluacion.md`.
 
 ## Recommended next work
 1. **Eval (Epic E11)**: Establish the evaluation architecture, test cases, and metric gathering for continuous improvement of model prompts.
