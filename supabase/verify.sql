@@ -102,6 +102,7 @@ required_columns(table_name, column_name) as (values
     ('model_deployments', 'alias'),
     ('patient_clinical_documents', 'file_content'),
     ('patient_clinical_documents', 'extracted_text'),
+    ('patient_clinical_documents', 'text_truncated'),
     ('patient_clinical_documents', 'patient_model_version_id'),
     ('llm_user_preferences', 'user_id'),
     ('mobile_inference_events', 'id'),

@@ -14,6 +14,8 @@ create table if not exists psychdeep_v12.patient_clinical_documents (
     file_sha256 varchar(64) not null,
     file_content bytea not null,
     extracted_text text not null default '',
+    text_truncated boolean not null default false,
+    uploaded_at timestamptz not null default now(),
     extraction_status varchar(24) not null default 'text_extracted',
     analysis_status varchar(24) not null default 'queued',
     error_category varchar(64),

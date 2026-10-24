@@ -73,6 +73,7 @@ class ClinicalMemoryTests(unittest.TestCase):
                 patient_id=self.patient.id, professional_id=self.therapist.id, status="active"
             )
         )
+        self.db.add(Consent(user_id=self.patient.id, consent_type="professional_sharing", version="1.0", granted=True))
         self.db.commit()
         self.current = self.patient
 
