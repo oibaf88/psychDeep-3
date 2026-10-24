@@ -137,9 +137,9 @@ export default function DailyStatisticsPanel({
               <>
                 <div className="statistics-date-controls">
                   <button type="button" className="secondary" disabled={selectedIndex <= 0} onClick={() => setDate(rows[selectedIndex - 1].date)} aria-label="Fecha anterior">←</button>
-                  <label>
+                  <label htmlFor={`${id}-date`}>
                     Fecha de observación
-                    <select value={selectedDay.date} onChange={(event) => setDate(event.target.value)}>
+                    <select id={`${id}-date`} value={selectedDay.date} onChange={(event) => setDate(event.target.value)}>
                       {rows.map((row) => <option key={row.date} value={row.date}>{formatDay(row.date)}</option>)}
                     </select>
                   </label>
@@ -180,8 +180,8 @@ export default function DailyStatisticsPanel({
               <summary>Correlaciones entre variables</summary>
               <p className="meta">Pearson sobre fechas con ambos datos, sin rellenar ausencias. Los indicios se codifican como 1 (presente) o 0 (no marcado). Se necesitan al menos tres pares y variación en ambas series. No se calculan probabilidades clínicas ni significación estadística.</p>
               <div className="statistics-pair-controls">
-                <label>Variable X<select value={xVariable.key} onChange={(event) => setXKey(event.target.value)}>{numeric.map((variable) => <option key={variable.key} value={variable.key}>{variable.label}</option>)}</select></label>
-                <label>Variable Y<select value={yVariable.key} onChange={(event) => setYKey(event.target.value)}>{numeric.map((variable) => <option key={variable.key} value={variable.key}>{variable.label}</option>)}</select></label>
+                <label htmlFor={`${id}-x`}>Variable X<select id={`${id}-x`} value={xVariable.key} onChange={(event) => setXKey(event.target.value)}>{numeric.map((variable) => <option key={variable.key} value={variable.key}>{variable.label}</option>)}</select></label>
+                <label htmlFor={`${id}-y`}>Variable Y<select id={`${id}-y`} value={yVariable.key} onChange={(event) => setYKey(event.target.value)}>{numeric.map((variable) => <option key={variable.key} value={variable.key}>{variable.label}</option>)}</select></label>
               </div>
               <p className="statistics-pair-result" role="status">
                 {xVariable.key === yVariable.key ? "Selecciona dos variables diferentes." : !correlation || correlation.status === "insufficient_pairs" ? `No calculable: se necesitan al menos 3 fechas con ambos datos (${correlation?.n ?? pairs.length} disponibles).` : correlation.status === "constant_series" ? `No calculable: al menos una serie es constante (${correlation.n} pares).` : `r = ${formatNumber(correlation.r, 3)} · ${correlation.n} fechas con ambos datos.`}
