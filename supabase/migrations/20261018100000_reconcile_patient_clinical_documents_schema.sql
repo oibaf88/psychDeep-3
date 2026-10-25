@@ -222,6 +222,7 @@ declare
     rls_forced boolean;
     policy_exists boolean;
     missing_columns text[];
+    missing_col text;
 begin
     select owner_role.rolname, relation.relrowsecurity, relation.relforcerowsecurity
       into owner_name, rls_enabled, rls_forced

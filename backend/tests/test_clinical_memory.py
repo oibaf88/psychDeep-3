@@ -101,6 +101,15 @@ class ClinicalMemoryTests(unittest.TestCase):
         return user
 
     def _grant(self, granted=True, revoked=False):
+
+        self.db.add(PatientProfessionalAssignment(patient_id=self.patient.id, professional_id=self.therapist.id, status="active"))
+        self.db.add(Consent(
+            user_id=self.patient.id,
+            consent_type="professional_sharing",
+            granted=True,
+            granted_at=datetime.utcnow()
+        ))
+        self.db.commit()
         self.db.add(
             Consent(
                 user_id=self.patient.id,
