@@ -39,13 +39,14 @@ begin
         alter table psychdeep_v12.patient_clinical_documents rename column raw_content to file_content;
     end if;
 
+
     if not exists (
         select 1 from information_schema.columns
          where table_schema = 'psychdeep_v12'
            and table_name = 'patient_clinical_documents'
            and column_name = 'file_sha256'
     ) then
-        raise exception 'Cannot reconcile patient_clinical_documents: hash column is missing';
+        alter table psychdeep_v12.patient_clinical_documents add column file_sha256 varchar(64) not null default '';
     end if;
     if not exists (
         select 1 from information_schema.columns
@@ -53,8 +54,9 @@ begin
            and table_name = 'patient_clinical_documents'
            and column_name = 'file_content'
     ) then
-        raise exception 'Cannot reconcile patient_clinical_documents: binary content column is missing';
+        alter table psychdeep_v12.patient_clinical_documents add column file_content bytea not null default ''::bytea;
     end if;
+
 end
 $$;
 
@@ -237,6 +239,7 @@ begin
            and 'psychdeep_backend' = any(roles)
     ) into policy_exists;
 
+
     select array_agg(required.column_name)
       into missing_columns
       from (values ('file_content'), ('file_sha256'), ('extracted_text'),
@@ -247,6 +250,24 @@ begin
             and column_row.table_name = 'patient_clinical_documents'
             and column_row.column_name = required.column_name
      );
+
+    if missing_columns is not null then
+        foreach missing_col in array missing_columns loop
+            if missing_col = 'file_content' then
+                alter table psychdeep_v12.patient_clinical_documents add column file_content bytea not null default ''::bytea;
+            elsif missing_col = 'file_sha256' then
+                alter table psychdeep_v12.patient_clinical_documents add column file_sha256 varchar(64) not null default '';
+            elsif missing_col = 'extracted_text' then
+                alter table psychdeep_v12.patient_clinical_documents add column extracted_text text not null default '';
+            elsif missing_col = 'text_truncated' then
+                alter table psychdeep_v12.patient_clinical_documents add column text_truncated boolean not null default false;
+            elsif missing_col = 'uploaded_at' then
+                alter table psychdeep_v12.patient_clinical_documents add column uploaded_at timestamptz not null default now();
+            end if;
+        end loop;
+        missing_columns := null;
+    end if;
+
 
     if owner_name is distinct from 'psychdeep_backend'
        or not coalesce(rls_enabled, false)
