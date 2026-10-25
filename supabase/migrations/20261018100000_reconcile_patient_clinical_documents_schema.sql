@@ -39,14 +39,13 @@ begin
         alter table psychdeep_v12.patient_clinical_documents rename column raw_content to file_content;
     end if;
 
-
     if not exists (
         select 1 from information_schema.columns
          where table_schema = 'psychdeep_v12'
            and table_name = 'patient_clinical_documents'
            and column_name = 'file_sha256'
     ) then
-        alter table psychdeep_v12.patient_clinical_documents add column file_sha256 varchar(64) not null default '';
+        raise exception 'Cannot reconcile patient_clinical_documents: hash column is missing';
     end if;
     if not exists (
         select 1 from information_schema.columns
@@ -54,9 +53,8 @@ begin
            and table_name = 'patient_clinical_documents'
            and column_name = 'file_content'
     ) then
-        alter table psychdeep_v12.patient_clinical_documents add column file_content bytea not null default ''::bytea;
+        raise exception 'Cannot reconcile patient_clinical_documents: binary content column is missing';
     end if;
-
 end
 $$;
 
@@ -224,6 +222,7 @@ declare
     missing_columns text[];
     missing_col text;
 begin
+
     select owner_role.rolname, relation.relrowsecurity, relation.relforcerowsecurity
       into owner_name, rls_enabled, rls_forced
       from pg_class relation
@@ -255,26 +254,29 @@ begin
     if missing_columns is not null then
         foreach missing_col in array missing_columns loop
             if missing_col = 'file_content' then
-                alter table psychdeep_v12.patient_clinical_documents add column file_content bytea not null default ''::bytea;
+                execute 'alter table psychdeep_v12.patient_clinical_documents add column if not exists file_content bytea not null default ''\x''::bytea';
             elsif missing_col = 'file_sha256' then
-                alter table psychdeep_v12.patient_clinical_documents add column file_sha256 varchar(64) not null default '';
+                execute 'alter table psychdeep_v12.patient_clinical_documents add column if not exists file_sha256 varchar(64) not null default ''''';
             elsif missing_col = 'extracted_text' then
-                alter table psychdeep_v12.patient_clinical_documents add column extracted_text text not null default '';
+                execute 'alter table psychdeep_v12.patient_clinical_documents add column if not exists extracted_text text not null default ''''';
             elsif missing_col = 'text_truncated' then
-                alter table psychdeep_v12.patient_clinical_documents add column text_truncated boolean not null default false;
+                execute 'alter table psychdeep_v12.patient_clinical_documents add column if not exists text_truncated boolean not null default false';
             elsif missing_col = 'uploaded_at' then
-                alter table psychdeep_v12.patient_clinical_documents add column uploaded_at timestamptz not null default now();
+                execute 'alter table psychdeep_v12.patient_clinical_documents add column if not exists uploaded_at timestamptz not null default now()';
             end if;
         end loop;
         missing_columns := null;
     end if;
 
 
+
+
     if owner_name is distinct from 'psychdeep_backend'
        or not coalesce(rls_enabled, false)
        or not coalesce(rls_forced, false)
-       or not policy_exists
-       or missing_columns is not null then
+       or not policy_exists then
+
+
         raise exception 'patient_clinical_documents schema or RLS verification failed; owner=%, rls=%, forced=%, policy=%, missing=%',
             owner_name, rls_enabled, rls_forced, policy_exists, missing_columns;
     end if;

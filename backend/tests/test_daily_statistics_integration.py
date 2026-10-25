@@ -13,7 +13,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
 from app.models import (
-    Consent,
     Agent2AnalysisTrace, AlfaSignal, Baseline, ChatMessage, CheckIn,
     ConfirmedFact, DiaryEntry, PatientProfessionalAssignment, ProfessionalAlert,
     PsychosocialObservation, RiskAssessment, User,
@@ -36,7 +35,7 @@ class _Clock(datetime):
 class DailyStatisticsIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        for model in (User, Consent, PatientProfessionalAssignment, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact):
+        for model in (User, PatientProfessionalAssignment, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact):
             model.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         self.db: Session = self.sessions()
@@ -45,12 +44,6 @@ class DailyStatisticsIntegrationTests(unittest.TestCase):
         self.therapist = self.user("therapist")
         self.admin = self.user("admin_clinical")
         self.db.add(PatientProfessionalAssignment(patient_id=self.patient.id, professional_id=self.therapist.id, status="active"))
-        self.db.add(Consent(
-            user_id=self.patient.id,
-            consent_type="professional_sharing",
-            granted=True,
-            granted_at=NOW
-        ))
         self.db.add_all([
             CheckIn(user_id=self.patient.id, mood=0, craving=0, sleep_hours=4, self_efficacy=2, created_at=SOURCE_AT),
             CheckIn(user_id=self.patient.id, mood=10, craving=2, sleep_hours=8, self_efficacy=8, created_at=SOURCE_AT + timedelta(minutes=15)),

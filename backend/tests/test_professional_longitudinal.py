@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401
 import app.models_vnext  # noqa: F401
 from app.database import Base, get_db
-from app.models import Consent, PatientProfessionalAssignment, RiskAssessment, User
+from app.models import PatientProfessionalAssignment, RiskAssessment, User
 from app.models_vnext import BaselineVersion, ChangeSignal
 from app.routers import professional
 from app.security import create_access_token
@@ -66,18 +66,6 @@ class ProfessionalLongitudinalTests(unittest.TestCase):
             calculated_at=NOW,
         )
         self.db.add(self.assessment)
-        self.db.add(Consent(
-            user_id=self.patient.id,
-            consent_type="professional_sharing",
-            granted=True,
-            granted_at=NOW
-        ))
-        self.db.add(Consent(
-            user_id=self.empty.id,
-            consent_type="professional_sharing",
-            granted=True,
-            granted_at=NOW
-        ))
         self.current, self.mood, self.sleep, self.composite = self.trajectory(self.patient)
         self.other_signal = self.trajectory(self.other)[1]
         self.db.commit()

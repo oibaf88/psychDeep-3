@@ -14,7 +14,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Seguridad (E8):** DONE
 - **RAG de contenidos (E9):** DONE
 - **Panel profesional (E10):** DONE
-- **Evaluación (E11):** DONE
+- **Evaluación (E11):** PARTIAL
 - **Operaciones (E12):** PARTIAL
 
 ## Current technical debt
@@ -49,7 +49,6 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Clinical/Scientific Review:** Drafted `docs/agentes/04_informe_revision_cientifica_n3_adverse_z.md` evaluating the memory state vs. trait separation in `profile_update` and the statistical bounds validation of `adverse_composite_z` > 2.4 (N3_convergencia_critica_extrema) against NG225 and clinical standards.
 - **Clinical/Scientific Review:** Drafted `docs/agentes/05_informe_revision_clinica_general.md` to confirm the deterministic rule engine safely isolates statistical divergence to N3 alerts, reserving N4 exclusively for explicit ideation or direct crisis declarations.
 - **Selective Sharing (Epic E10):** Added professional workflow functionality for therapists to cancel pending assignment requests via the `AssignmentsPage` and `ProfessionalDashboard` UI, closing Epic E10 implementation.
-- **Evaluation Architecture (Epic E11):** Created `backend/tests/run_clinical_eval.py` to establish the testing framework for synthetic adversarial cases (e.g., preventing autonomous prescriptions, state-vs-trait conversion, hallucination). Evaluated models against these cases with metrics and CI support, closing Epic E11 implementation.
 
 ## Recommended next work
-1. **Operations (Epic E12)**: Implement observability, incident tracking, and version management as specified for production deployments.
+1. **Eval (Epic E11)**: Establish the evaluation architecture, test cases, and metric gathering for continuous improvement of model prompts.
