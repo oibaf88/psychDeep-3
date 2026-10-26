@@ -109,6 +109,14 @@ class ClinicalMemoryTests(unittest.TestCase):
                 revoked_at=datetime.now(timezone.utc) if revoked else None,
             )
         )
+        self.db.add(
+            Consent(
+                user_id=self.patient.id,
+                consent_type="professional_sharing",
+                granted=True,
+                revoked_at=None,
+            )
+        )
         self.db.commit()
 
     def _commit(self, text, **kwargs):
