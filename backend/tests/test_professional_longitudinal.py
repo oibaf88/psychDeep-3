@@ -46,7 +46,13 @@ class ProfessionalLongitudinalTests(unittest.TestCase):
         self.other_therapist = self.user("therapist", "Terapeuta Ajeno")
         self.supervisor = self.user("supervisor", "Supervisor")
         self.admin = self.user("admin_clinical", "Admin")
+
+        from app.models import Consent
+
         self.db.add_all([
+            Consent(user_id=self.patient.id, consent_type="professional_sharing", granted=True),
+            Consent(user_id=self.other.id, consent_type="professional_sharing", granted=True),
+            Consent(user_id=self.empty.id, consent_type="professional_sharing", granted=True),
             PatientProfessionalAssignment(
                 patient_id=self.patient.id, professional_id=self.therapist.id, status="active"
             ),
