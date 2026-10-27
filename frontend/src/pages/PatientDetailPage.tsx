@@ -34,6 +34,7 @@ import PsychosocialPanel from "../components/PsychosocialPanel";
 import DailyStatisticsPanel from "../components/DailyStatisticsPanel";
 import PsychDeepLoader from "../components/PsychDeepLoader";
 import LongitudinalChangePanel from "../components/LongitudinalChangePanel";
+import BaselineFreezeControl from "../components/BaselineFreezeControl";
 import ClinicalMemoryPanel from "../components/ClinicalMemoryPanel";
 
 type Tab =
@@ -250,6 +251,14 @@ export default function PatientDetailPage() {
         }
       />
       <LongitudinalChangePanel longitudinal={p.longitudinal} />
+      {patientId && (
+        <BaselineFreezeControl
+          patientId={patientId}
+          baseline={p.longitudinal?.baseline}
+          canAct={isTherapist}
+          onChanged={load}
+        />
+      )}
       {message && <p className="info">{message}</p>}
       {error && <p className="error">{error}</p>}
 
