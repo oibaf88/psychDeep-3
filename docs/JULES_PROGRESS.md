@@ -14,7 +14,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Seguridad (E8):** DONE
 - **RAG de contenidos (E9):** DONE
 - **Panel profesional (E10):** DONE
-- **Evaluación (E11):** PARTIAL
+- **Evaluación (E11):** DONE
 - **Operaciones (E12):** PARTIAL
 
 ## Current technical debt
@@ -22,6 +22,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed work
+- **Evaluation (Epic E11):** Established the evaluation architecture by adding adversarial test cases and evaluation scripts in `backend/tests/eval/test_clinical_eval.py` and `eval_cases.json`, testing system prompts against hallucination and state-to-trait conversion, ensuring alignment with TRIPOD-LLM guidelines.
 - **Consent:** Ensured granular revocation flows (E1) are fully robust and visible in the UI by verifying the `ConsentsPage`, `AssignmentsPage` and creating `test_assignments.py`.
 - **Clinical/Scientific Review:** Modificadas las instrucciones de sistema de los Agentes 1 y 3 en `backend/app/content/prompts.py` para prevenir la iatrogenia digital promoviendo la autonomía del paciente, obligar a expresar incertidumbre y prohibir expresamente la invención de antecedentes. Creado informe de revisión clínica en `docs/agentes/06_informe_revision_clinica_llms.md`.
 - **Clinical/Scientific Review:** Integrated the scientific and clinical evaluation for the N3 vs N4 risk engine stratification, verified the prevention of state-to-trait conversion in `profile_update`, and documented the TRIPOD-LLM guidelines in the clinical safety basis documentation.
@@ -51,4 +52,4 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Selective Sharing (Epic E10):** Added professional workflow functionality for therapists to cancel pending assignment requests via the `AssignmentsPage` and `ProfessionalDashboard` UI, closing Epic E10 implementation.
 
 ## Recommended next work
-1. **Eval (Epic E11)**: Establish the evaluation architecture, test cases, and metric gathering for continuous improvement of model prompts.
+1. **Operations (Epic E12)**: Expand observability, establish CI/CD practices, and refine incident response and metrics.
