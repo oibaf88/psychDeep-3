@@ -101,6 +101,7 @@ required_columns(table_name, column_name) as (values
     ('fine_tune_runs', 'id'),
     ('model_deployments', 'alias'),
     ('patient_clinical_documents', 'file_content'),
+    ('patient_clinical_documents', 'file_sha256'),
     ('patient_clinical_documents', 'extracted_text'),
     ('patient_clinical_documents', 'patient_model_version_id'),
     ('llm_user_preferences', 'user_id'),

@@ -35,7 +35,8 @@ class _Clock(datetime):
 class DailyStatisticsIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        for model in (User, PatientProfessionalAssignment, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact):
+        from app.services.consent import Consent
+        for model in (User, PatientProfessionalAssignment, Consent, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact):
             model.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         self.db: Session = self.sessions()
@@ -167,6 +168,11 @@ class DailyStatisticsIntegrationTests(unittest.TestCase):
         self.assertEqual(response.json()["points"], [{"date": "2026-08-30", "mood": 0, "craving": 0, "sleep_hours": 0, "self_efficacy": 0}])
 
     def test_professional_timeline_keeps_statistics_and_patient_cannot_access_it(self):
+        from app.services.consent import Consent
+        db = self.sessions()
+        db.add(Consent(user_id=self.patient.id, consent_type='professional_sharing', granted=True))
+        db.commit()
+        db.close()
         url = f"/api/v1/professional/patients/{self.patient.id}/timeline?window_days=7"
         response = self.client.get(url, headers=self.headers(self.therapist))
         self.assertEqual(response.status_code, 200, response.text)
@@ -178,6 +184,11 @@ class DailyStatisticsIntegrationTests(unittest.TestCase):
         self.assertEqual(self.client.get(url, headers=self.headers(self.patient)).status_code, 403)
 
     def test_professional_metrics_preserve_assignment_and_role_gates(self):
+        from app.services.consent import Consent
+        db = self.sessions()
+        db.add(Consent(user_id=self.patient.id, consent_type='professional_sharing', granted=True))
+        db.commit()
+        db.close()
         own_url = f"/api/v1/professional/patients/{self.patient.id}/metrics?window_days=7"
         response = self.client.get(own_url, headers=self.headers(self.therapist))
         self.assertEqual(response.status_code, 200, response.text)
