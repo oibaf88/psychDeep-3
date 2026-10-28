@@ -33,8 +33,7 @@ begin
     ) then
         alter table psychdeep_v12.patient_clinical_documents add column file_sha256 text;
     end if;
-    update psychdeep_v12.patient_clinical_documents set file_sha256 = '' where file_sha256 is null;
-
+    update psychdeep_v12.patient_clinical_documents set file_sha256 = '0000000000000000000000000000000000000000000000000000000000000000' where file_sha256 is null;
     if exists (
         select 1 from information_schema.columns
          where table_schema = 'psychdeep_v12'
@@ -58,7 +57,6 @@ begin
         alter table psychdeep_v12.patient_clinical_documents add column file_content bytea;
     end if;
     update psychdeep_v12.patient_clinical_documents set file_content = ''::bytea where file_content is null;
-
     if not exists (
         select 1 from information_schema.columns
          where table_schema = 'psychdeep_v12'
@@ -113,6 +111,10 @@ update psychdeep_v12.patient_clinical_documents
 
 do $$
 begin
+
+
+
+
     if exists (
         select 1 from psychdeep_v12.patient_clinical_documents
          where uploaded_by is null
@@ -165,7 +167,9 @@ alter table psychdeep_v12.patient_clinical_documents
     alter column text_truncated set not null,
     alter column uploaded_at set default now(),
     alter column uploaded_at set not null,
+    alter column file_sha256 set default '0000000000000000000000000000000000000000000000000000000000000000',
     alter column file_sha256 set not null,
+    alter column file_content set default ''::bytea,
     alter column file_content set not null;
 
 -- Match ORM deletion semantics: uploader audit attribution must not be silently nulled.
