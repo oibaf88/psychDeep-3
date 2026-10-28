@@ -201,7 +201,7 @@ class ProfessionalLongitudinalTests(unittest.TestCase):
         self.assertNotIn("limits", single)
 
     def test_assigned_professional_sees_change_apart_from_alert_level(self):
-        from app.models import Consent
+        from app.services.consent import Consent
         db = self.sessions()
         db.add(Consent(user_id=self.patient.id, consent_type='professional_sharing', granted=True))
         db.commit()

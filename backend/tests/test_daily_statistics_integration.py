@@ -35,7 +35,7 @@ class _Clock(datetime):
 class DailyStatisticsIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        from app.models import Consent
+        from app.services.consent import Consent
         for model in (User, PatientProfessionalAssignment, Consent, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact):
             model.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
@@ -168,7 +168,7 @@ class DailyStatisticsIntegrationTests(unittest.TestCase):
         self.assertEqual(response.json()["points"], [{"date": "2026-08-30", "mood": 0, "craving": 0, "sleep_hours": 0, "self_efficacy": 0}])
 
     def test_professional_timeline_keeps_statistics_and_patient_cannot_access_it(self):
-        from app.models import Consent
+        from app.services.consent import Consent
         db = self.sessions()
         db.add(Consent(user_id=self.patient.id, consent_type='professional_sharing', granted=True))
         db.commit()
@@ -184,7 +184,7 @@ class DailyStatisticsIntegrationTests(unittest.TestCase):
         self.assertEqual(self.client.get(url, headers=self.headers(self.patient)).status_code, 403)
 
     def test_professional_metrics_preserve_assignment_and_role_gates(self):
-        from app.models import Consent
+        from app.services.consent import Consent
         db = self.sessions()
         db.add(Consent(user_id=self.patient.id, consent_type='professional_sharing', granted=True))
         db.commit()
