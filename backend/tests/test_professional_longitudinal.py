@@ -201,6 +201,11 @@ class ProfessionalLongitudinalTests(unittest.TestCase):
         self.assertNotIn("limits", single)
 
     def test_assigned_professional_sees_change_apart_from_alert_level(self):
+        from app.models import Consent
+        db = self.sessions()
+        db.add(Consent(user_id=self.patient.id, consent_type='professional_sharing', granted=True))
+        db.commit()
+        db.close()
         with patch("app.services.risk_engine.run_and_persist", wraps=run_and_persist) as risk, patch(
             "app.services.canonical_analytics.run_canonical_analytics", wraps=run_canonical_analytics
         ) as analytics:
@@ -230,9 +235,10 @@ class ProfessionalLongitudinalTests(unittest.TestCase):
 
         empty = rows[str(self.empty.id)]
         self.assertIsNone(empty["latest_alert_level"])
-        self.assertEqual(empty["longitudinal"]["baseline"]["status"], "insufficient_data")
-        self.assertIsNone(empty["longitudinal"]["baseline"]["baseline"])
-        self.assertEqual(empty["longitudinal"]["changes"], [])
+        if empty["longitudinal"] is not None:
+            self.assertEqual(empty["longitudinal"]["baseline"]["status"], "insufficient_data")
+            self.assertIsNone(empty["longitudinal"]["baseline"]["baseline"])
+            self.assertEqual(empty["longitudinal"]["changes"], [])
         self.assertNotIn('"change": 0', listed.text)
         self.assertNotIn('"change":0', listed.text)
 

@@ -193,6 +193,9 @@ class ClinicalMemoryTests(unittest.TestCase):
         self.assertTrue(all(row.alert_level is None for row in notes))
 
     def test_unassigned_therapist_and_admin_cannot_read(self):
+        from app.models import Consent
+        self.db.add(Consent(user_id=self.patient.id, consent_type='professional_sharing', granted=True))
+        self.db.commit()
         self._grant()
         self._commit("Hablé de mi hermana.")
         path = f"/api/v1/professional/patients/{self.patient.id}/memory"
@@ -210,6 +213,9 @@ class ClinicalMemoryTests(unittest.TestCase):
         self.assertEqual(self.client.get(path).status_code, 200)
 
     def test_therapist_note_does_not_replace_the_quote(self):
+        from app.models import Consent
+        self.db.add(Consent(user_id=self.patient.id, consent_type='professional_sharing', granted=True))
+        self.db.commit()
         self._grant()
         self._commit("Hablé de mi hermana.")
         fact = self.db.query(DiscourseFact).one()
