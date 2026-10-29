@@ -98,6 +98,9 @@ class ClinicalMemoryTests(unittest.TestCase):
         )
         self.db.add(user)
         self.db.commit()
+        if role == "patient":
+            self.db.add(Consent(user_id=user.id, consent_type="professional_sharing", granted=True, granted_at=datetime(2026, 10, 2, 12, tzinfo=timezone.utc)))
+            self.db.commit()
         return user
 
     def _grant(self, granted=True, revoked=False):

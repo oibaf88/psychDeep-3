@@ -11,6 +11,9 @@ class _Query:
     def __init__(self, result):
         self.result = result
 
+    def order_by(self, *_args):
+        return self
+
     def filter(self, *_args):
         return self
 
