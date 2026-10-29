@@ -487,6 +487,7 @@ export default function PatientProfilePanel({
         <div className="alert-actions">
           <input
             type="text"
+            aria-label="Qué te gustaría que explorase"
             value={threadDraft}
             placeholder="Qué te gustaría que explorase"
             onChange={(e) => setThreadDraft(e.target.value)}

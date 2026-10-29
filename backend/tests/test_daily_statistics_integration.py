@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.models import (
     Agent2AnalysisTrace, AlfaSignal, Baseline, ChatMessage, CheckIn,
-    ConfirmedFact, DiaryEntry, PatientProfessionalAssignment, ProfessionalAlert,
+    ConfirmedFact, Consent, DiaryEntry, PatientProfessionalAssignment, ProfessionalAlert,
     PsychosocialObservation, RiskAssessment, User,
 )
 from app.routers import professional, timeline as timeline_router
@@ -35,7 +35,7 @@ class _Clock(datetime):
 class DailyStatisticsIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        for model in (User, PatientProfessionalAssignment, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact):
+        for model in (User, PatientProfessionalAssignment, CheckIn, Baseline, AlfaSignal, Agent2AnalysisTrace, ChatMessage, DiaryEntry, PsychosocialObservation, RiskAssessment, ProfessionalAlert, ConfirmedFact, Consent):
             model.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         self.db: Session = self.sessions()
@@ -81,6 +81,9 @@ class DailyStatisticsIntegrationTests(unittest.TestCase):
         user = User(email=f"{uuid.uuid4()}@example.test", display_name="Synthetic", hashed_password="not-used", role=role)
         self.db.add(user)
         self.db.commit()
+        if role == "patient":
+            self.db.add(Consent(user_id=user.id, consent_type="professional_sharing", granted=True, granted_at=NOW))
+            self.db.commit()
         return user
 
     def message(self, patient, *, role="user"):

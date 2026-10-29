@@ -15,6 +15,7 @@ import app.models_vnext  # noqa: F401
 from app.database import Base, get_db
 from app.models import PatientProfessionalAssignment, RiskAssessment, User
 from app.models_vnext import BaselineVersion, ChangeSignal
+from app.models import Consent
 from app.routers import professional
 from app.security import create_access_token
 from app.services.canonical_analytics import run_canonical_analytics
@@ -96,7 +97,10 @@ class ProfessionalLongitudinalTests(unittest.TestCase):
             role=role,
         )
         self.db.add(row)
-        self.db.flush()
+        self.db.commit()
+        if role == "patient":
+            self.db.add(Consent(user_id=row.id, consent_type="professional_sharing", granted=True, granted_at=NOW))
+            self.db.commit()
         return row
 
     def trajectory(self, patient):
