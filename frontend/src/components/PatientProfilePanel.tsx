@@ -451,7 +451,7 @@ export default function PatientProfilePanel({
                 {item.patient_model_version_id && <span className="meta"> · versión {item.patient_model_version_id.slice(0, 8)}</span>}
                 {item.text_truncated && <span className="meta"> · texto limitado por tamaño</span>}
                 {item.error_category === "no_extractable_text" && <span className="meta"> · puede ser un escaneo que requiera OCR</span>}
-                <button type="button" className="btn-secondary" aria-label={`Descargar original: ${item.original_filename}`} onClick={() => void downloadDocument(item)}>
+                <button type="button" className="btn-secondary" onClick={() => void downloadDocument(item)}>
                   Descargar original
                 </button>
               </li>
@@ -475,7 +475,7 @@ export default function PatientProfilePanel({
               {t.note && <span className="meta"> — {t.note}</span>}
               {t.source === "clinician" && <span className="meta"> · añadido por un profesional</span>}
               {canEdit && (
-                <button type="button" className="btn-secondary" aria-label={`Cerrar tema: ${t.topic}`} onClick={() => removeThread(t.topic)}>
+                <button type="button" className="btn-secondary" onClick={() => removeThread(t.topic)}>
                   Cerrar
                 </button>
               )}
@@ -487,7 +487,6 @@ export default function PatientProfilePanel({
         <div className="alert-actions">
           <input
             type="text"
-            aria-label="Nuevo tema a explorar"
             value={threadDraft}
             placeholder="Qué te gustaría que explorase"
             onChange={(e) => setThreadDraft(e.target.value)}

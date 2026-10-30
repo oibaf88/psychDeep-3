@@ -15,6 +15,3 @@
 ## 2023-10-25 - Missing explicit label associations in inline inputs
 **Learning:** Found an instance in `CopilotPanel.tsx` where a `<select>` input was nested inside a `<label>` but lacked explicit `id` and `htmlFor` attributes. While implicit wrapping is supported by some screen readers, relying solely on it can cause accessibility failures across different assistive technologies and devices.
 **Action:** Always ensure that inline inputs (like `<select>` or `<input>`) have a unique `id` and are explicitly associated with their wrapping `<label>` using the `htmlFor` attribute.
-## 2024-10-30 - Contextual Labels for Repetitive and Standalone Elements
-**Learning:** Repetitive action buttons within lists (like "Cerrar" for topics or "Descargar original" for files) and standalone input fields relying solely on placeholders lack sufficient context for screen-reader users, creating ambiguity about what item the action applies to or what the input expects.
-**Action:** Always append the specific item's title or context to the `aria-label` of repetitive action buttons using template literals (e.g., `aria-label={\`Cerrar tema: ${t.topic}\`}`). For standalone inputs without visible `<label>` elements, provide a descriptive `aria-label` (e.g., `aria-label="Nuevo tema a explorar"`).
