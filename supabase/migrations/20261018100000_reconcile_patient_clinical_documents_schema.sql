@@ -248,6 +248,10 @@ begin
             and column_row.column_name = required.column_name
      );
 
+    if array_length(missing_columns, 1) = 0 then
+        missing_columns := null;
+    end if;
+
     if owner_name is distinct from 'psychdeep_backend'
        or not coalesce(rls_enabled, false)
        or not coalesce(rls_forced, false)
