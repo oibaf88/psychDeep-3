@@ -275,6 +275,8 @@ export interface LongitudinalStateOut {
       stability?: string;
       data_coverage?: number | null;
       algorithm_version?: string;
+      /** Periods the reference left out, e.g. the recent window or a `supervised_freeze`. */
+      exclusions?: unknown[];
     };
   };
   changes: LongitudinalChangeOut[];
