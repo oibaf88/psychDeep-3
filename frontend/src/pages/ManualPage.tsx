@@ -119,7 +119,7 @@ export default function ManualPage() {
                     </tr>
                     <tr>
                       <td>Score estructural</td>
-                      <td>Compara los últimos 7 días de check-ins con la línea base de 21 días.</td>
+                      <td>Compara las medias diarias de los últimos 7 días con los 28 días anteriores a esa semana.</td>
                       <td>Estadística local, sin IA</td>
                     </tr>
                     <tr className="row-highlight">
@@ -396,15 +396,18 @@ export default function ManualPage() {
               <h3>Cómo se calcula</h3>
               <ol>
                 <li>
-                  <strong>Línea base</strong>: todos los check-ins de los últimos <strong>21 días</strong>. Con
-                  menos de <strong>5</strong>, no hay línea base y la banda es <code>insufficient_data</code>.
+                  <strong>Referencia</strong> (<code>structural-v3</code>, ADR 0003): medias por día de los{" "}
+                  <strong>28 días anteriores</strong> a la semana reciente. Ningún día está en las dos ventanas.
+                  Con menos de <strong>5 días</strong> con valor en un eje, no hay referencia y la banda es{" "}
+                  <code>insufficient_data</code>.
                 </li>
                 <li>
-                  Media y desviación típica poblacional por variable. El craving se invierte antes (
+                  Desviación de esas medias por variable. El denominador es el máximo entre esa desviación y un
+                  suelo a priori: 1 punto en escalas 0–10 y 0,5 h en sueño. El craving se invierte antes (
                   <code>craving_inv = 10 − craving</code>) para que menos craving sea favorable. El sueño se interpreta en ambas direcciones: más horas no implica siempre mejora.
                 </li>
                 <li>
-                  <strong>Ventana reciente</strong>: media de los últimos <strong>7 días</strong>.
+                  <strong>Ventana reciente</strong>: media por día de los últimos <strong>7 días</strong>.
                 </li>
                 <li>
                   <strong>z por variable</strong>:{" "}
@@ -434,29 +437,29 @@ export default function ManualPage() {
                       <td>
                         <code>stable</code>
                       </td>
-                      <td>≥ 1/2,2 (≈ 0,455)</td>
-                      <td>Los últimos 7 días se parecen a su línea base.</td>
+                      <td>media de |z| &lt; 1,0 (score &gt; 1/2)</td>
+                      <td>Los últimos 7 días se parecen a la referencia, o el cambio bruto no llega al mínimo.</td>
                     </tr>
                     <tr>
                       <td>
                         <code>transition</code>
                       </td>
-                      <td>≥ 1/2,95 y &lt; 1/2,2</td>
-                      <td>Desviación moderada.</td>
+                      <td>1,0 ≤ media de |z| &lt; 1,3</td>
+                      <td>Desviación moderada, y al menos un eje se movió ≥ 1 punto (0,5 h en sueño).</td>
                     </tr>
                     <tr>
                       <td>
                         <code>unstable</code>
                       </td>
-                      <td>&lt; 1/2,95 (≈ 0,339)</td>
-                      <td>Se alejan claramente de su línea base.</td>
+                      <td>media de |z| ≥ 1,3 (score ≤ 1/2,3)</td>
+                      <td>Se alejan de la referencia. En un eje 0–10 la banda inestable de ese eje pide además 2 puntos.</td>
                     </tr>
                     <tr>
                       <td>
                         <code>insufficient_data</code>
                       </td>
                       <td>—</td>
-                      <td>Menos de 5 check-ins en 21 días, o ninguno en los últimos 7.</td>
+                      <td>Menos de 5 días con valor en la referencia de 28 días, o ninguno en los últimos 7.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -464,8 +467,8 @@ export default function ManualPage() {
 
               <h3>Ejemplo numérico</h3>
               <p className="meta">
-                Base: ánimo 6.0 (σ 1.0) · craving_inv 5.0 (σ 1.5) · sueño 7.0 (σ 1.0) · autoeficacia 6.0 (σ 1.0).
-                Últimos 7 días: 4.0 / 3.5 / 5.5 / 5.0.
+                Medias de referencia: ánimo 6.0 (σ 1.0) · craving_inv 5.0 (σ 1.5) · sueño 7.0 (σ 1.0) · autoeficacia 6.0 (σ 1.0).
+                Medias de los últimos 7 días: 4.0 / 3.5 / 5.5 / 5.0.
               </p>
               <pre className="protocol-box">{`z_ánimo        = (4.0 − 6.0) / 1.0 = −2.00
 z_craving_inv  = (3.5 − 5.0) / 1.5 = −1.00
@@ -473,7 +476,8 @@ z_sueño        = (5.5 − 7.0) / 1.0 = −1.50
 z_autoeficacia = (5.0 − 6.0) / 1.0 = −1.00
 
 z_compuesto = (2.00 + 1.00 + 1.50 + 1.00) / 4 = 1.375
-score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
+score       = 1 / (1 + 1.375) = 0.421
+banda       = "unstable"  (|z| ≥ 1,3 y el cambio bruto supera 1 punto)`}</pre>
               <p>Los cuatro z son negativos: la desviación es adversa.</p>
 
               <h3>La trampa importante: el score es ciego a la dirección</h3>
@@ -1001,7 +1005,7 @@ score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
               <dl className="plan-dl">
                 {(
                   [
-                    ["Línea base", "Media y desviación típica de las cuatro variables en los últimos 21 días del propio paciente."],
+                    ["Línea base", "Medias y desviación por día de las cuatro variables en los 28 días anteriores a la semana reciente (structural-v3). Las filas structural-v2 conservan su ventana de 21 días."],
                     ["z-score", "Cuántas desviaciones típicas se separa la media reciente de la media base. Negativo = por debajo."],
                     ["z compuesto", "Media de los cuatro |z|."],
                     ["Banda de confianza", "stable / transition / unstable / insufficient_data."],

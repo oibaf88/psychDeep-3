@@ -8,7 +8,7 @@
 
 **Incertidumbre abierta:** identidad jurídica del responsable; DPD; contratos de encargado (Supabase, Render, Anthropic u otros LLM); si el tratamiento es «asistencia sanitaria» art. 9.2.h (profesional con secreto) o producto digital con 9.2.a; si el diario constituye historia clínica Ley 41/2002 art. 17.
 
-Objetos de producción descritos por Advisor (`memory_event_ledger`, `memory_jobs`, embeddings, contradicciones) **no** están en migraciones ni en `expected_tables`. Hasta inventario vivo (Anni) + gates: **tratamiento no versionado → congelar**. No reintentar jobs.
+Inventario de esquema el 2026-11-02, proyecto Supabase `psychdeep`: `memory_event_ledger`, `memory_jobs`, `memory_embeddings`, `change_signal_embeddings`, el modelo de paciente y `patient_clinical_documents` **existen**. El worker `psychdeep-memory-worker` está en `render.yaml` y **no** está entre los servicios Render en marcha, así que un job encolado no tiene consumidor desplegado. No reintentar jobs en masa. Esto no afirma base jurídica ni conformidad.
 
 ## Cómo leer la tabla
 
@@ -19,13 +19,13 @@ Objetos de producción descritos por Advisor (`memory_event_ledger`, `memory_job
 | Finalidad (código) | Datos | Art. 6 (hipótesis) | Art. 9.2 (hipótesis) | Gate en código (hoy) | Retención (propuesta, no fijada) | Encargados (a verificar) | Decisión |
 |---|---|---|---|---|---|---|---|
 | Cuenta / autenticación | email, password hash, nombre | 6.1.b contrato de cuenta | no es salud por sí | alta | vida de la cuenta | hosting auth/DB | Permitido. Informar art. 13 en el registro. |
-| `data_processing` — núcleo (check-in, diario, trayectoria, baseline, riesgo **determinista**, plan de seguridad) | salud, a menudo chemsex/LGBTQ+/trauma | 6.1.a **o** 6.1.b si hay contrato de servicio de autorregulación (elegir y documentar; no ambos como si fueran lo mismo) | **9.2.a** explícito mientras no haya asistencia con secreto (9.2.h). 9.2.c solo crisis vital puntual, no el núcleo. | `require_granted` / `is_granted` en chat, diario, check-in, vNext observations. **Alta auto-grantía el 9.2.a → corregido: flag explícito.** | Mientras la cuenta esté activa y el grant vigente. Si un día es historia clínica: Ley 41/2002 art. 17 (mín. 5 años desde última atención) **solo si** el responsable es prestador sanitario — no está acreditado. Art. 17.3.b RGPD puede oponerse al olvido. | Supabase (BD), Render (API/front). LLM **no** es necesario para esta fila. | **Ofrecida.** Revocar bloquea **nuevas** escrituras clínicas; no borra histórico (hay que diseñar art. 17). |
-| `linguistic_analysis` — análisis de texto (agentes 1/2/4, analyzer_merged, psicosocial) | texto de chat/diario = categoría especial | 6.1.a | 9.2.a (opt-in **aparte** del núcleo) | `agent2_trace.start` fail-closed. **Agente 4 debe estar en el mismo gate.** | Trazas sin duplicar el texto; se conservan por auditoría/seguridad. Revocar **para** nuevos envíos a modelo. | Proveedor LLM (Anthropic u endpoint aprobado), backend | **Ofrecida**, opt-in. Fail-closed. |
-| `professional_sharing` | acceso del profesional al seguimiento | 6.1.a y/o 6.1.b según modelo de vinculación | 9.2.a y, si hay acto sanitario, 9.2.h **además** del secreto | Se **escribe** al aceptar assignment. **No se comprueba en lecturas.** Grant global, no por profesional (`scope` existe en SQL). | Duración de la assignment `active` | mismos + cuenta profesional | **Ofrecida en UI.** Hasta que lecturas comprueben assignment **y** grant por `scope.professional_id`, el revocar no cumple art. 7.3. Roberto: cablear o quitar toggle. |
+| `data_processing` — núcleo (check-in, diario, trayectoria, baseline, riesgo **determinista**, plan de seguridad) | salud, a menudo chemsex/LGBTQ+/trauma | 6.1.a **o** 6.1.b si hay contrato de servicio de autorregulación (elegir y documentar; no ambos como si fueran lo mismo) | **9.2.a** explícito mientras no haya asistencia con secreto (9.2.h). 9.2.c solo crisis vital puntual, no el núcleo. | `require_granted` / `is_granted` en chat, diario, check-in, vNext observations. **Alta auto-grantía el 9.2.a → corregido: flag explícito.** | Mientras la cuenta esté activa y el grant vigente. Si un día es historia clínica: Ley 41/2002 art. 17 (mín. 5 años desde última atención) **solo si** el responsable es prestador sanitario — no está acreditado. Art. 17.3.b RGPD puede oponerse al olvido. | Supabase (BD), Render (API/front). LLM **no** es necesario para esta fila. | **Ofrecida.** Revocar bloquea **nuevas** escrituras clínicas. `POST /api/v1/me/erasure-request` cierra la cuenta y revoca grants; no borra el histórico. |
+| `linguistic_analysis` — análisis de texto (agentes 1/2/4, analyzer_merged, psicosocial) | texto de chat/diario = categoría especial | 6.1.a | 9.2.a (opt-in **aparte** del núcleo) | `agent2_trace.start` fail-closed para `analyzer_merged`, `agent2_linguistic` y `agent4_psychosocial`. | Trazas sin duplicar el texto; se conservan por auditoría/seguridad. Revocar **para** nuevos envíos a modelo. | Proveedor LLM (Anthropic u endpoint aprobado), backend | **Ofrecida**, opt-in. Fail-closed. |
+| `professional_sharing` | acceso del profesional al seguimiento | 6.1.a y/o 6.1.b según modelo de vinculación | 9.2.a y, si hay acto sanitario, 9.2.h **además** del secreto | Se escribe al aceptar la assignment. Las lecturas clínicas del terapeuta pasan por `sharing_allowed`: assignment vigente y grant global `professional_sharing`. El grant no va por `scope.professional_id`. | Duración de la assignment `active` (algunas lecturas admiten también `paused`) | mismos + cuenta profesional | **Ofrecida en UI.** Revocar el grant corta esas lecturas de terapeuta. No afirmar por ello que el art. 7.3 queda cerrado: el consentimiento sigue sin ser por profesional. |
 | `crisis_sms` | teléfono + salud + contexto de crisis | 6.1.a o 6.1.d (vital, excepcional) | 9.2.a u 9.2.c | **Ningún** sender en código | n/a | n/a | **No ofrecer.** No recabar. La ayuda de crisis del producto debe existir **sin** SMS. |
 | `research` / I+D / fine-tune / embeddings de memoria | reutilización secundaria | 6.1.a o 6.1.e/c con norma | **9.2.j** + Ley 14/2007 + garantías LOPDGDD; CEI si aplica | Solo tests. `fine_tune_runs` en esquema **sin** processor | n/a hasta protocolo | n/a | **No ofrecer.** Cero diario/chat/jobs/embeddings hacia I+D. |
-| Memoria longitudinal no versionada (Advisor) | perfilado sobre categoría especial | **ninguna en el producto versionado** | **ninguna** | no está en el repo | n/a | desconocido | **Congelar.** Art. 5.1.a–b, 6, 9, 32. Posible empuje MDR art. 2.1 (predicción/pronóstico) — no afirmar clase ni autorización. |
-| vNext `observations` → features → baselines → ChangeSignal | derivados de autoinforme | misma que `data_processing` | 9.2.a (o 9.2.h si se acredita) | grant núcleo; `consent_id` **no se rellenaba** | alineada al núcleo | Supabase | Permitido como expand-only. Rellenar `consent_id`. No es el pipeline de contradicciones/embeddings. |
+| Memoria longitudinal y documentos clínicos | perfilado sobre categoría especial, más texto de informe | 6.1.a donde hay grant (`linguistic_analysis`, `clinical_document_analysis`) | 9.2.a en esos grants. No afirmar otra base. | Tablas presentes en producción. Subida de PDF/DOCX/TXT con los dos grants. Worker de memoria no desplegado. | no fijada | Supabase, Render | **No afirmar conformidad.** No reintentar jobs. Posible empuje MDR art. 2.1 — no afirmar clase ni autorización. |
+| vNext `observations` → features → baselines → ChangeSignal | derivados de autoinforme | misma que `data_processing` | 9.2.a (o 9.2.h si se acredita) | grant núcleo. `consent_id` de la observación sigue sin rellenarse en el cálculo canónico. Tras el cálculo, `embed_change_signals` escribe una huella en `change_signal_embeddings` solo con cuenta activa y `linguistic_analysis`; no lee ni escribe `alert_level`. | alineada al núcleo | Supabase | Permitido como expand-only. La huella no es I+D ni art. 9.2.j. Rellenar `consent_id` en la observación sigue pendiente. |
 | Telemetría `biometric_data` / `app_usage_data` | si quedaron filas | 6.1.a | biométricos: 9.2.a estricto | drop condicional en migraciones | borrar si existen | ? | Anni: confirmar vacío. No reactivar. |
 
 ## Destinatarios (art. 13.1.e) — lista de trabajo
@@ -60,13 +60,13 @@ La capa time-aware (FeatureValue + BaselineVersion + Δt → **ChangeSignal**) e
 
 **Gates del siguiente PR (Roberto), vinculantes para no capar sino gobernar:**
 1. Solo cuentas `is_active=true` y grants vigentes.
-2. Texto/embeddings solo con `linguistic_analysis`.
-3. `consent_id` en cada Observation/commit.
-4. Crisis/chemsex **fuera** del update de baseline (Asis).
+2. Texto/embeddings solo con `linguistic_analysis`. Hecho en `embed_change_signals`.
+3. `consent_id` en cada Observation/commit. Sigue sin rellenarse en el cálculo canónico.
+4. Crisis/chemsex **fuera** del update de baseline (Asis). Sigue abierto en el ledger de `AGENTS.md`.
 5. Explicabilidad: evidencia, missingness, incertidumbre — no SHAP de teatro.
-6. Lecturas de `routers/memory.py` con `sharing_allowed` (art. 7.3).
+6. Lecturas de `routers/memory.py` con `sharing_allowed` (art. 7.3). Hecho, junto con las lecturas clínicas del terapeuta en `professional.py`.
 
-Jobs Advisor `memory_*` siguen **congelados**. El hogar lícito es el camino canónico versionado.
+No hay consumidor Render para `memory_jobs`. No reintentar esos jobs ni publicar un modelo de paciente desde un lote a medias. El camino canónico versionado sigue siendo el hogar de la señal de cambio.
 
 ## MDR
 
@@ -75,7 +75,7 @@ Calificación **en juego** si el software se destina a diagnóstico, predicción
 ## Acciones por dueño
 
 1. **Legal (este doc):** mantener la matriz; no afirmar bases no elegidas; EIPD abierta en `dpia-art35-open-items.md`.
-2. **Ingeniería:** gates listados; no `memory_*`; `consent_id`; `valid_until`/`scope` en ORM; sharing en lecturas; agente 4 en el mismo fail-closed; alta con flag explícito; no ofrecer research/crisis.
+2. **Ingeniería:** gates listados; no reintentar `memory_jobs` (el worker no está desplegado); `consent_id` en la observación; `valid_until`/`scope` en ORM; alta con flag explícito; no ofrecer research/crisis.
 3. **Datos:** `verify.sql` relaciones extra; Data API; owner/FORCE RLS; telemetría residual.
 4. **Clínico:** sign-off G3; protocolo crisis sin SMS; no I+D.
 5. **Responsable (organización):** identidad, DPD si aplica (art. 37; salud a gran escala), DPAs, región, EIPD firmada.

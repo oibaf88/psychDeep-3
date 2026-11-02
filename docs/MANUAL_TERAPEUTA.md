@@ -2,8 +2,11 @@
 
 > **Documento histórico (motor anterior a v1.4).** Las fórmulas y la tabla de
 > reglas siguientes se conservan para interpretar evaluaciones antiguas, no
-> describen el motor actual. Para el funcionamiento vigente consulta el manual
-> dentro de la aplicación y [Fundamentos y límites clínicos](CLINICAL_RISK_BASIS.md).
+> describen el motor actual. El motor en producción desde el 2026-10-10 es
+> `structural-v3` / `canonical-structural-v3` (ADR 0003): referencia de 28 días
+> anteriores a la semana reciente, medias por día, y bandas |z| 1,0 / 1,3.
+> Para el funcionamiento vigente consulta el manual dentro de la aplicación y
+> [Fundamentos y límites clínicos](CLINICAL_RISK_BASIS.md).
 > Desde v1.4, el score usa `1 / (1 + media(|z|))`, las reglas distinguen deterioro
 > de cambio favorable y una señal vigente no refutada de ideación indirecta
 > exige al menos N3 (valoración prioritaria). Ninguno de estos índices es una
