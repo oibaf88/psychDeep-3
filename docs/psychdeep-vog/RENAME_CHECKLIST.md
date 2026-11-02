@@ -1,5 +1,7 @@
 # psychDeep-vOG repository and deployment rename checklist
 
+**Status, 2026-11-02:** not done. GitHub is still `oibaf88/psychDeep-3`. Render `psychdeep-api` and `psychdeep-web` still auto-deploy that repository on `master`. Do not rename the services, the Supabase project or `psychdeep_v12` from this checklist.
+
 ## GitHub repository
 The connected GitHub actions can create branches, files and pull requests, but do not expose the repository-administration rename operation. A repository administrator must perform this step in GitHub.
 

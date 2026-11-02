@@ -2,6 +2,19 @@
 
 This runbook deploys the hybrid-inference vNext architecture without adding paid infrastructure during the prototype stage.
 
+## Live check, 2026-11-02
+
+Checked against the services that are actually running.
+
+| Surface | Running state |
+|---|---|
+| Public site | `https://psychdeep.bfab.io` returned HTTP 200 |
+| API | Render `psychdeep-api`, auto-deploy `master`. Live deploy commit `87f7601173066ca86eeded455a52f537ad59b00f` (2026-10-20, PR #234). `GET /api/v1/health` returned `status: ok`, `release` equal to that commit, `risk_engine_version: risk-engine-v1.6`, `clinical_storage: cloud`, deployment alias `local-tunnel` |
+| Web | Render `psychdeep-web`. Live deploy commit `ca4447b1bad4b94fc482df6c6e97b3900cfadf58` (PR #231). Master commits after that, through `87f7601`, do not change `frontend/` |
+| Database | Existing Supabase project `psychdeep` (`ifwexmoltnybvmrsuwtu`), schema `psychdeep_v12`, eu-north-1, Postgres 17 |
+
+`psychdeep-memory-worker` is declared in `render.yaml` and is not a live Render service. Do not start it from this runbook.
+
 ## Target
 
 | Plane | Prototype deployment | Rule |
@@ -13,7 +26,7 @@ This runbook deploys the hybrid-inference vNext architecture without adding paid
 | Model profile B | Anthropic / optional approved managed compatible endpoint | explicit admin selection only; no automatic fallback |
 | CI/CD | GitHub Actions + Render auto-deploy | migrations/tests before merge |
 
-No Render Postgres, paid worker, paid cron, managed GPU or additional Supabase project is required.
+The running prototype is still the two free services. No Render Postgres, paid cron, managed GPU or second Supabase project is required. `render.yaml` also declares a paid `psychdeep-memory-worker`. It is not provisioned.
 
 ## 0. Release gates before touching production
 
@@ -43,7 +56,10 @@ Apply the vNext foundation migration before the application release. It is expan
 
 Later expand-only migrations follow the same rule. The live `psychdeep` project already has clinical memory (`supabase/migrations/20261005120000_add_clinical_memory.sql`, recorded in Supabase as `20261005140916`). That migration creates `memory_commits`, `discourse_facts`, `psych_readings`, `formulation_versions`, `memory_annotations`, `clinical_attention_notices` and `memory_embeddings`, then revokes `psychdeep_backend` from `postgres` at the end of its transaction.
 
-Two later grants exist on that project and are not files under `supabase/migrations`:
+Two later grants are recorded on that project and are not files under `supabase/migrations`:
+
+- `20261005182838` `grant_psychdeep_backend_to_authenticator`
+- `20261005183425` `let_postgres_assume_psychdeep_backend`
 
 ```sql
 GRANT psychdeep_backend TO authenticator WITH SET TRUE, INHERIT FALSE;
@@ -51,6 +67,19 @@ GRANT psychdeep_backend TO postgres WITH SET TRUE;
 ```
 
 They restore `SET ROLE psychdeep_backend` for the API connection after the memory migration. Do not drop them as cleanup.
+
+Migrations recorded on the project after clinical memory, as of 2026-11-02:
+
+- `20261015005858` `allow_superseded_baseline_status`
+- `20261015011116` `seed_canonical_feature_definitions_v2`
+- `20261015111810` `add_memory_pipeline_foundation`
+- `20261015111831` `add_whole_person_patient_model`
+- `20261015111846` `add_longitudinal_fulltext_indexes`
+- `20261015111859` `add_patient_clinical_documents`
+- `20261018080200` `reconcile_patient_clinical_documents_schema`
+- `20261020085134` `safety_protocol_on_crisis_turns` (repo file `supabase/migrations/20261020090000_safety_protocol_on_crisis_turns.sql`)
+
+Two repo migrations are already visible in the live schema and are not rows in `supabase_migrations.schema_migrations`: `20261017090000_model_run_output_withheld_status.sql` (`model_runs.output_validator_version`, `output_violation_codes`, and `output_withheld` on `ck_model_run_status`) and `20261018220000_add_change_signal_embeddings.sql` (table `change_signal_embeddings`). Do not re-apply them as if the objects were missing, and do not treat the migration ledger as the only description of the schema.
 
 Before and after migration record row counts for historical tables and verify representative UUIDs/read paths. Any loss or reinterpretation is a rollback blocker.
 

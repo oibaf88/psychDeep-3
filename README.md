@@ -7,7 +7,7 @@ PsychDeep is a cloud-first longitudinal self-regulation platform. Its purpose is
 
 The master product/engineering specification is the release authority. Approved ADRs/change requests may refine its implementation contract when product requirements are clarified.
 
-The latest version now implements Epic E10: it incorporates a robust Professional Dashboard and selective sharing linkage management where patients and professionals can securely request, pause, resume, cancel, and end sharing assignments directly via UI.
+Professional sharing is in the running app: patients and assigned professionals can request, pause, resume, cancel and end sharing assignments in the UI. The same release also runs evidence-based change bands (`structural-v3` / `canonical-structural-v3`, ADR 0003), safety-protocol labels on crisis decisions, deterministic output checks for Agents 1–3, and, on Cuenta, a JSON data export plus a non-destructive account-closure request. This remains a vNext transition release. The gate ledger is `AGENTS.md`.
 
 ## Non-negotiable architecture
 
@@ -41,6 +41,7 @@ Only the LLM inference server may be local. There is **no supported local clinic
 - Confirmed facts, observations, derived features, inferences and actions remain distinct.
 - Missing data is missing data; it is never silently converted to zero or normality.
 - Active curated knowledge can be copied into Agent 1's read-only context as psychoeducational reference. That text does not calculate risk, confirm facts, or replace deterministic safety, and it is not turn-targeted retrieval. See [Curated knowledge](#curated-knowledge).
+- Prose from Agent 1, stored Agent 2 fields (`short_rationale`, portrait, open threads) and Agent 3 is checked by deterministic output validation before it is shown or kept. A failing reply is replaced by server-owned copy and audited by rule code. The check does not calculate the alert level.
 
 
 ## Model selection
@@ -69,6 +70,8 @@ vNext uses expand-and-migrate. Existing `psychdeep_v12` records are never rebuil
 
 Clinical memory (ADR-0002) adds `memory_commits`, `discourse_facts`, `psych_readings`, `formulation_versions`, `memory_annotations`, `clinical_attention_notices` and `memory_embeddings`. A chat or diary turn can append a discourse fact, a provisional reading and a formulation version when linguistic-analysis consent is current. The patient cannot edit or delete those rows. Assigned therapists and supervisors read them on the chart under **Memoria y lectura**. An attention notice is not a risk alert and is not shown to `admin_clinical`. See [ADR-0002](docs/adr/0002-model-memory.md).
 
+The live database also has `patient_clinical_documents` and the memory-pipeline tables. An assigned therapist can upload a PDF, DOCX or TXT report when the patient has current `linguistic_analysis` and `clinical_document_analysis` consent. `render.yaml` declares `psychdeep-memory-worker`, and that worker is not a live Render service, so queued document analysis has no deployed consumer. Scanned-PDF OCR is not included.
+
 The migration backfills canonical compatibility rows with references to legacy sources; original clinical rows remain untouched.
 
 ## Check-in trajectory
@@ -85,16 +88,18 @@ The migration backfills canonical compatibility rows with references to legacy s
 | Input | Rule |
 | --- | --- |
 | Recent window | the last 7 days |
-| Baseline window | the 21 days before the recent window; the recent window is never part of its own reference |
-| Axis eligibility | at least 5 observations |
-| Craving | scored as `10 - reported craving` (`craving_inv`) |
-| Band | absolute z ≤ 1.2 `stable`; ≤ 1.95 `transition`; otherwise `unstable` |
-| Missing recent or baseline values | `band=insufficient_data` and `change_value` null |
-| Composite | `structural_composite` is another `ChangeSignal`, not a risk level |
+| Reference window | the 28 days before the recent window. No day belongs to both. Config `change-bands-v1-population-prior` (ADR 0003) |
+| Unit | mean per local day (`Europe/Madrid`). Several check-ins on one day count once |
+| Axis eligibility | at least 5 days with a value. Fewer than that is `insufficient_data`, never zero |
+| Craving in the calculation | scored as `10 - reported craving` (`craving_inv`). Patient-facing readings show the declared craving scale |
+| SD | `max(personal SD of those day means, prior floor)`: 1 point on 0–10 axes, 0.5 h of sleep |
+| Band | mean \|z\| ≥ 1.3 `unstable`; ≥ 1.0 `transition`; otherwise `stable`. Leaving `stable` also needs a raw change of at least 1 point (0.5 h of sleep). On one 0–10 axis, `unstable` also needs 2 points. These are a provisional population prior, not a clinically signed threshold |
+| Missing recent or reference values | `band=insufficient_data` and `change_value` null |
+| Composite | `structural_composite` is another `ChangeSignal`, not a risk level. The risk engine uses the same windows and bands as its structural input (`structural-v3`, `risk-engine-v1.6`) and still writes a separate `RiskAssessment` |
 
 A failed refresh logs the exception type and, when available, the PostgreSQL constraint name, then rolls back the analytics transaction. The check-in and observation dual-write stay, because they were already committed. On production startup, a deterministic catch-up pass recomputes the canonical trajectory only for users whose latest numeric observation is newer than their latest `canonical-structural-v3` baseline (or who have no v3 baseline). This repairs missed refreshes without invoking an LLM or recalculating clinical risk; repeat startups skip users whose baseline already includes their latest observation. Previous canonical baseline rows (`canonical-structural-v1` and `-v2`) are marked `superseded` rather than deleted. Each `BaselineVersion` records the comparison window it left out in `exclusions`, with per-type observation counts, and `GET /api/v1/baselines/current`, `GET /api/v1/state` and the professional reads return that list. Observations from only the last week therefore give `insufficient_data` rather than a self-comparison that reads as `stable`.
 
-Hoy reads `longitudinal` from that state payload: change versus the personal baseline, with a missing comparison described as missing data, kept apart from `safety.alert_level`. Hoy also charts the 30-day self-report series. That chart shows observations and does not calculate the change. Tendencias reads `/api/v1/timeline`, `/api/v1/baselines/current` and `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
+Hoy reads `longitudinal` from that state payload: change versus the personal baseline, with a missing comparison described as missing data, kept apart from `safety.alert_level`. The first view offers one next action taken from that reading. Accepting it, choosing “No ahora”, or later answering whether it helped records an `InterventionEvent` through `POST /api/v1/feedback` and does not delete the signal or change `RiskAssessment`. Hoy also charts the 30-day self-report series. That chart shows observations and does not calculate the change. Tendencias reads the same `GET /api/v1/state` payload plus `GET /api/v1/timeline?window_days=30`. A calculated band is explained in Spanish, with the recent mean, the reference mean and the difference on the declared scale. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
 
 ## Curated knowledge
 
@@ -125,13 +130,13 @@ Agent 1 reads the table directly. `agent1_context._knowledge_block` loads every 
 
 ## Patient information architecture
 
-- **Hoy** — low-burden check-in, change versus the personal baseline (separate from the alert level), and a 30-day chart of recorded values.
-- **Tendencias** — personal baseline, missingness, and a plain-language reading of change signals. An uncalculated comparison is described as missing data.
+- **Hoy** — low-burden check-in, change versus the personal baseline (separate from the alert level), one default next action with accept / “No ahora” / usefulness, and a 30-day chart of recorded values.
+- **Tendencias** — the same longitudinal reading as Hoy, plus the 30-day timeline. An uncalculated comparison is described as missing data.
 - **Regular** — urge-surfing wave, guided breathing, STOP and non-harmful grounding.
 - **Diario** — free/structured entries; linguistic analysis requires separate consent.
-- **Plan** — editable safety/prevention plan.
+- **Plan** — editable safety/prevention plan. National lines 024 and 112 stay visible if the resources request fails.
 - **Compartir** — professional links, consent and consultation preparation.
-- **Cuenta** — account/security.
+- **Cuenta** — account and security. A patient can download a JSON copy of their data and request account closure. Closure revokes consents and stops future processing. It does not delete the clinical history.
 
 The crisis control remains persistent for patients and does not depend on the LLM.
 

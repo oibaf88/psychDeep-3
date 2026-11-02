@@ -26,22 +26,26 @@ No deben decidir por sí solos alta, acceso a tratamiento o intervención de eme
 
 ## Corrección del score estructural
 
-La versión anterior calculaba `max(0, 1 - mean(abs(z))/3)`: todo cambio grande terminaba en cero, incluidas mejoras, y una variabilidad casi nula magnificaba las desviaciones.
+`structural-v1` calculaba `max(0, 1 - mean(abs(z))/3)`: todo cambio grande terminaba en cero, incluidas mejoras, y una variabilidad casi nula magnificaba las desviaciones.
 
-`structural-v2` conserva la similitud descriptiva, pero usa `1/(1+mean(abs(z)))`, sin recorte a cero. El denominador de cada z es `max(DE poblacional basal, mínimo técnico)`: 1 punto para ánimo, craving invertido y autoeficacia; 0,5 horas para sueño. Son estabilizadores técnicos, no umbrales clínicos.
+`structural-v2` pasó a `1/(1+mean(abs(z)))`, sin recorte a cero, con suelos técnicos (1 punto en escalas 0–10 y 0,5 h de sueño) y bandas descriptivas de |z| 1,2 / 1,95. Su referencia eran 21 días e incluía la semana con la que se comparaba. Esas filas se conservan con su versión.
 
-Se calcula aparte el componente para revisión: `mean(max(-z,0))` en ánimo, craving invertido y autoeficacia; sueño aporta `abs(z)` porque aumentar horas no siempre implica mejora. Las cuatro variables participan en el denominador, incluidos ceros. No hay compensación entre mejoras y cambios adversos.
+El motor en producción, confirmado en `GET /api/v1/health` como `risk-engine-v1.6`, es `structural-v3`. La señal de cambio canónica usa los mismos parámetros (`canonical-structural-v3`, config `change-bands-v1-population-prior`, ADR 0003, 2026-10-10):
 
-Las bandas usan límites de desviación 1,2 y 1,95; se documentan como operativas. La persistencia del motor lee la banda del componente de revisión y no reutiliza puntuaciones antiguas que confundían mejoras con deterioro. Faltan datos o alguna variable necesaria: resultado no evaluable (`null`), nunca cero imputado. Una base antigua conservada por escasez de datos queda marcada.
+- La referencia son las medias por día de los 28 días anteriores a la ventana reciente de 7 días. Ningún día está en las dos ventanas.
+- Hacen falta al menos 5 días con valor en un eje. Por debajo de eso el resultado es no evaluable, nunca cero.
+- `z = (media reciente − media de referencia) / max(DE de esas medias, suelo a priori)`. El suelo es 1 punto en ánimo, craving invertido y autoeficacia, y 0,5 h en sueño.
+- Transición si la media de |z| ≥ 1,0; inestable si ≥ 1,3. Salir de estable también exige un cambio bruto de al menos 1 punto (0,5 h en sueño). En un eje 0–10, la banda inestable exige además 2 puntos.
+- El score sigue siendo `1/(1+media de |z|)`.
+- El componente para revisión se calcula aparte: `mean(max(-z,0))` en ánimo, craving invertido y autoeficacia; sueño aporta `abs(z)`. No hay compensación entre mejoras y cambios adversos.
+- Una referencia que supera 21 días sin poder recalcularse queda marcada. Esos 21 días son antigüedad de la fila, no la longitud de la ventana.
+- Los valores son un prior poblacional provisional. No son umbrales clínicamente firmados.
 
-El historial previo se conserva con su fórmula y versión. Las nuevas evaluaciones no reescriben decisiones históricas. La similitud estructural deja de rellenar el campo de confianza clínica.
+La persistencia del motor lee la banda del componente de revisión y no reutiliza puntuaciones antiguas que confundían mejoras con deterioro. Las nuevas evaluaciones no reescriben decisiones históricas. La similitud estructural no es el nivel de alerta ni la señal de cambio canónica.
 
 ## Estadística diaria
 
-El panel completo de estadísticas, score e inferencias corresponde exclusivamente
-al profesional autorizado. El paciente sólo ve una gráfica sencilla de ánimo,
-craving, autoeficacia y sueño con las respuestas de su último check-in de cada
-día. Su endpoint de historial no carga ni devuelve análisis o estadísticas.
+El panel completo de estadísticas, el score estructural y las inferencias del expediente corresponden al profesional autorizado. En Hoy y Tendencias la persona ve la comparación con su referencia personal y la gráfica de 30 días, aparte del nivel de alerta. No ve el desglose profesional del score estructural.
 
 Fechas en `Europe/Madrid`, con cambio horario; timestamps antiguos sin zona se interpretan como UTC según el contrato de la aplicación. Se promedian observaciones dentro de cada fecha antes del resumen y las correlaciones, de forma que un día con muchos registros no pese más.
 

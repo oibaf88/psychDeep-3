@@ -320,8 +320,9 @@ RULE_CATALOG: dict[str, dict[str, Any]] = {
         "level": 1,
         "title": "Datos insuficientes para calcular desviación",
         "plain": (
-            "No hay suficientes check-ins (mínimo 5 en 21 días) para construir una línea base "
-            "personal, así que el score estructural no existe todavía."
+            "No hay suficientes observaciones para la referencia personal "
+            "(en structural-v3: mínimo 5 días en los 28 anteriores a la semana reciente), "
+            "así que el score estructural no existe todavía."
         ),
         "what_now": (
             "El nivel 1 aquí significa «no lo sé», no «bajo riesgo». Anima al paciente a hacer " "check-ins diarios."
@@ -490,11 +491,19 @@ def level_explanation(
             )
         elif code == "N0_estable":
             info["title"] = "Sin criterios superiores de revisión en las entradas disponibles"
-            info["plain"] = (
-                "No se alcanza un umbral operativo de deterioro ni una regla superior. La "
-                "similitud estructural puede ser baja si hubo mejoras. Esto no confirma seguridad "
-                "ni sustituye una evaluación clínica."
-            )
+            if signals.get("structural_calculation_version") == "structural-v3":
+                info["plain"] = (
+                    "No se alcanza un umbral operativo de deterioro ni una regla superior. "
+                    "La referencia vigente son los 28 días anteriores a la semana reciente, en medias por día. "
+                    "La similitud estructural puede ser baja si hubo mejoras. Esto no confirma seguridad "
+                    "ni sustituye una evaluación clínica."
+                )
+            else:
+                info["plain"] = (
+                    "No se alcanza un umbral operativo de deterioro ni una regla superior. La "
+                    "similitud estructural puede ser baja si hubo mejoras. Esto no confirma seguridad "
+                    "ni sustituye una evaluación clínica."
+                )
 
     if family == FAMILY_CONFIRMED_FACT:
         headline = f"Nivel {level} por un HECHO declarado, no por una inferencia del sistema."
@@ -546,7 +555,8 @@ def level_explanation(
     elif score is None:
         reconciliation = (
             "No hay score estructural en esta evaluación: el paciente aún no tiene línea base "
-            "(mínimo 5 check-ins en 21 días) o no ha hecho check-ins en los últimos 7 días."
+            "(en structural-v3, mínimo 5 días en los 28 anteriores a la semana reciente; "
+            "las versiones anteriores usan su propia ventana) o no ha hecho check-ins en los últimos 7 días."
         )
 
     if reconciliation:
@@ -748,6 +758,11 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         default=None,
     )
 
+    reference_phrase = (
+        "la referencia de 28 días anteriores a esa semana"
+        if is_v3
+        else "la ventana de 21 días que usa el motor de riesgo"
+    )
     if score is None or band in (None, "insufficient_data"):
         summary = (
             "No hay una similitud calculable en esta evaluación del motor. "
@@ -755,8 +770,8 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         )
     elif band == "stable":
         summary = (
-            f"{score:.2f} · estable. Sus check-ins de los últimos 7 días se parecen a la ventana de 21 días "
-            "que usa el motor de riesgo. Esto describe continuidad de esa entrada, no la señal de cambio ni bienestar."
+            f"{score:.2f} · estable. Sus check-ins de los últimos 7 días se parecen a {reference_phrase}. "
+            "Esto describe continuidad de esa entrada, no la señal de cambio ni bienestar."
         )
     elif band == "transition":
         summary = (
@@ -765,7 +780,7 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         )
     else:
         summary = (
-            f"{score:.2f} · inestable. La similitud del motor se aleja de su ventana de 21 días. "
+            f"{score:.2f} · inestable. La similitud del motor se aleja de {reference_phrase}. "
             "No es la señal de cambio ni un nivel de alerta."
         )
 

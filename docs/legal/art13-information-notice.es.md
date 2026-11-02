@@ -42,7 +42,7 @@ Mientras la cuenta y el consentimiento de esa finalidad estén vigentes, salvo p
 
 ## 6. Derechos
 
-Acceso, rectificación, supresión, limitación, portabilidad, oposición, retirar el consentimiento (art. 7.3) y reclamación ante la AEPD (https://www.aepd.es). Hoy la app cubre de forma incompleta exportación y supresión: hay que ejercerlos también ante el responsable.
+Acceso, rectificación, supresión, limitación, portabilidad, oposición, retirar el consentimiento (art. 7.3) y reclamación ante la AEPD (https://www.aepd.es). En Cuenta, la persona puede descargar un JSON (`GET /api/v1/me/data-export`) y pedir el cierre de la cuenta (`POST /api/v1/me/erasure-request`). El cierre revoca consentimientos y detiene el tratamiento futuro; no borra el histórico clínico. La limitación del tratamiento (art. 18) no está en la app. Esos caminos no agotan los derechos: también pueden ejercerse ante el responsable.
 
 ## 7. Decisiones y perfiles
 
