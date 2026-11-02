@@ -73,28 +73,56 @@ The migration backfills canonical compatibility rows with references to legacy s
 
 ## Check-in trajectory
 
-`POST /api/v1/checkins` requires the patient role and granted `core_processing` consent. It then:
+`POST /api/v1/checkins` requires the patient role and a current grant of `data_processing` (`CORE_PROCESSING` in `backend/app/services/consent.py`). A missing grant is HTTP 403 with `Consent required for purpose: data_processing`. The handler then:
 
 1. Stores the check-in and commits it.
-2. Dual-writes `mood`, `craving`, `sleep_hours` and `self_efficacy` into `observations`. Notes become a `checkin_context` observation. That write commits separately.
+2. Dual-writes `mood`, `craving`, `sleep_hours` and `self_efficacy` into `observations`. Notes become a `checkin_context` observation. That write commits separately (`record_checkin`).
 3. Recomputes the canonical trajectory (`refresh_trajectory` → `run_canonical_analytics`, algorithm `canonical-structural-v3`).
 4. Runs the deterministic risk engine. This step still runs when step 3 fails.
 
-`POST /api/v1/observations` stores an observation and does not recompute the trajectory. `POST /api/v1/analytics/run` recomputes it and does not calculate risk. `GET /api/v1/state` only reads stored rows: `safety` is the latest `RiskAssessment`; `longitudinal` is the current `BaselineVersion` plus the newest `ChangeSignal` for each feature on that baseline. Neither read calls a model.
+`POST /api/v1/observations` stores an observation and does not recompute the trajectory. `POST /api/v1/analytics/run` requires the same `data_processing` grant, recomputes the trajectory, and does not calculate risk. After that commit it calls `embed_change_signals` (see below). `GET /api/v1/state` only reads stored rows: `safety` is the latest `RiskAssessment`; `longitudinal` is the current `BaselineVersion` plus the newest `ChangeSignal` for each feature on that baseline. Neither read calls a model.
+
+Parameters live in `backend/app/services/change_config.py` (`change-bands-v1-population-prior`). The same module feeds the risk engine's structural input (`structural-v3`). Stored rows keep `calibration_status = provisional_population_prior`. These bands are not a clinical sign-off; see [ADR 0003](docs/adr/0003-evidence-based-change-bands.md).
 
 | Input | Rule |
 | --- | --- |
-| Recent window | the last 7 days |
-| Baseline window | the 21 days before the recent window; the recent window is never part of its own reference |
-| Axis eligibility | at least 5 observations |
-| Craving | scored as `10 - reported craving` (`craving_inv`) |
-| Band | absolute z ≤ 1.2 `stable`; ≤ 1.95 `transition`; otherwise `unstable` |
-| Missing recent or baseline values | `band=insufficient_data` and `change_value` null |
+| Recent window | the last 7 days, ending at now |
+| Reference window | the 28 days immediately before the recent window; no timestamp is in both |
+| Unit | mean per Europe/Madrid calendar day; several check-ins on one day count once |
+| Axis eligibility | at least 5 distinct reference days with a value; otherwise `insufficient_data` |
+| Craving axis | z uses `craving_inv = 10 - reported craving` (higher means less craving). `longitudinal` `display` puts craving back on the 0–10 scale the person reported |
+| SD | max(personal SD of those day means, floor): 1 point for mood, `craving_inv` and self-efficacy; 0.5 h for sleep |
+| Statistical band | \|z\| ≥ 1.3 `unstable`; ≥ 1.0 `transition`; otherwise `stable`. `change_value` is that z, or null when the band is `insufficient_data` |
+| Raw guard | a band above `stable` also needs a raw axis change of at least 1 point (2 points to stay `unstable`) or 0.5 h of sleep. A smaller move is downgraded. The composite leaves `stable` only when at least one axis meets its transition guard |
 | Composite | `structural_composite` is another `ChangeSignal`, not a risk level |
 
 A failed refresh logs the exception type and, when available, the PostgreSQL constraint name, then rolls back the analytics transaction. The check-in and observation dual-write stay, because they were already committed. On production startup, a deterministic catch-up pass recomputes the canonical trajectory only for users whose latest numeric observation is newer than their latest `canonical-structural-v3` baseline (or who have no v3 baseline). This repairs missed refreshes without invoking an LLM or recalculating clinical risk; repeat startups skip users whose baseline already includes their latest observation. Previous canonical baseline rows (`canonical-structural-v1` and `-v2`) are marked `superseded` rather than deleted. Each `BaselineVersion` records the comparison window it left out in `exclusions`, with per-type observation counts, and `GET /api/v1/baselines/current`, `GET /api/v1/state` and the professional reads return that list. Observations from only the last week therefore give `insufficient_data` rather than a self-comparison that reads as `stable`.
 
-Hoy reads `longitudinal` from that state payload: change versus the personal baseline, with a missing comparison described as missing data, kept apart from `safety.alert_level`. Hoy also charts the 30-day self-report series. That chart shows observations and does not calculate the change. Tendencias reads `/api/v1/timeline`, `/api/v1/baselines/current` and `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
+Hoy reads `longitudinal` from `GET /api/v1/state` and charts the 30-day series from `GET /api/v1/timeline?window_days=30`. The chart shows observations and does not calculate the change. Tendencias uses those same two reads: the comparison comes from `state.longitudinal`, and the chart from the timeline. It does not call `/api/v1/baselines/current` or `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page. Change stays apart from `safety.alert_level`.
+
+`embed_change_signals` (`backend/app/services/change_signal_embeddings.py`) runs only from `POST /api/v1/analytics/run`, after the trajectory commit. A check-in refresh does not write these rows. The writer returns 0 unless the user is active and `linguistic_analysis` is currently granted. It skips a signal whose feature name contains `crisis`, `chemsex`, `ghb`, `gbl`, `restraint`, `suicid`, `self_harm` or `self-harm`, and it skips a signal that already has a row. The stored vector is 16 floats from SHA-256 of `feature|change_value|band|algorithm_version` (`provider=local_deterministic`, `embedding_model=change-signal-fingerprint-v1`). It does not call an embedding model and it does not read or write `alert_level`.
+
+## Single-patient sequence layer
+
+This layer is not the canonical trajectory above and it is not on the check-in or `/api/v1/state` path. `TimeAwareSequenceModel` (`backend/app/services/sequence_model.py`, `patient-sequence-v1`) is a pure-Python helper used by tests. It does not insert `ChangeSignal` rows and it does not write `RiskAssessment.alert_level`.
+
+Allowed input is app chronology the caller already built: check-ins, diary, chat and confirmed facts. Any event whose `source_refs` include a value starting with `clinical_document:` is dropped before scoring. `clinical_document_analysis` does not make that prefix eligible. Naive timestamps are treated as UTC. Fewer than `min_points` events after that filter (default 3) returns an empty list. If none of the remaining events fall inside `window_days` of now (default 365), the result is also empty. Older events stay in the spacing baseline; they are not scored as the current point.
+
+The model does not read the database and does not filter events by `patient_id`. The caller supplies one patient's events; `patient_id` is copied onto the draft.
+
+One run emits at most one `ChangeSignalDraft`, for the newest in-window event. The score compares that event's age with the mean gap, in days, between strictly earlier events, including events outside the window. `effect = 1 - min(age / mean gap, 1)`, kept only when it is greater than 0: `1` means the newest event is dated now, and an age at least as long as the mean gap produces no draft. No earlier spacing, or fewer than two earlier events, also yields no draft. That `effect` is not a z-score and not a `stable` / `transition` / `unstable` band. `confidence` starts at `0.4 + 0.4 * (count of events that passed the document filter / min_points)`, gains `0.05` when the scored event's remaining `source_refs` contain `check_in`, `diary`, `chat` or `fact`, and is capped at `0.95`. The `source` field is not part of that bump. The explanation string is fixed: `cambio respecto a la línea propia del paciente`.
+
+`backend/app/services/sequence_dlearning.py` is the optional ML proposal (`patient-sequence-dl-v1`). The module enables ML only when `torch`, `tensorflow` and `sklearn` all import. `backend/requirements-ml.txt` lists `torch` and `scikit-learn` and is not part of the API image; it does not list `tensorflow`, so installing that file leaves `requires_ml()` false and the deterministic helper in place. `requires_consent` returns false when ML is unavailable, when `linguistic_analysis` is not granted, or when the consent read fails. It does not raise, and it does not run a training loop. `SEQUENCE_DLEARNING_CONFIG` may point at a JSON file; a missing or unreadable file keeps `DEFAULT_CONFIG`.
+
+`sequence_refs` in `backend/app/services/sequence_sources.py` is the part that does run in product code. It strips `clinical_document:` refs. Memory retrieval uses it when copying list-shaped source refs (`retrieve_longitudinal_context`). The patient-understanding chronology drops professional-document rows and the same prefix before consolidation (`is_external_clinical_doc`).
+
+## Patient export and erasure
+
+Both routes require a signed-in patient.
+
+`GET /api/v1/me/data-export` returns `schema=psychdeep-data-export-v1`: account, consents, check-ins, diary entries, confirmed facts and the safety plan (portability), plus risk assessments and assignment ids (access copy). It does not include chat text, observations, ChangeSignals or memory rows.
+
+`POST /api/v1/me/erasure-request` does not delete those rows. It revokes the offered purposes (`data_processing`, `linguistic_analysis`, `clinical_document_analysis`, `professional_sharing`), writes a `granted=false` consent row for each, ends pending, active and paused assignments, deactivates the account and increments `auth_version`. The response is `status=processing_stopped`, `hard_delete=false`. Audit action: `erasure_request`.
 
 ## Curated knowledge
 
