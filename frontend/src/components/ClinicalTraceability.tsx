@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type {
   Agent2TraceOut,
   RiskAssessmentOut,
@@ -712,6 +712,7 @@ export function Agent2TraceList({
 }) {
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
+  const id = useId();
 
   const statuses = useMemo(() => Array.from(new Set(traces.map((trace) => trace.status))).sort(), [traces]);
   const filtered = useMemo(() => {
@@ -734,18 +735,19 @@ export function Agent2TraceList({
   return (
     <>
       <div className="trace-filters" role="search" aria-label="Filtros de trazas de Agent 2">
-        <label>
+        <label htmlFor={`${id}-search`}>
           Buscar trazas
           <input
+            id={`${id}-search`}
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Correlación, modelo o texto…"
           />
         </label>
-        <label>
+        <label htmlFor={`${id}-status`}>
           Estado
-          <select value={status} onChange={(event) => setStatus(event.target.value)}>
+          <select id={`${id}-status`} value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="all">Todos</option>
             {statuses.map((item) => (
               <option value={item} key={item}>{STATUS_LABELS[item] || item}</option>
