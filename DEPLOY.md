@@ -1,6 +1,6 @@
 # psychDeep-vOG deployment runbook
 
-This runbook deploys the hybrid-inference vNext architecture without adding paid infrastructure during the prototype stage.
+This runbook deploys the hybrid-inference vNext architecture. The running prototype does not add a paid database. The blueprint lists a memory worker that is not provisioned.
 
 ## Target
 
@@ -12,8 +12,23 @@ This runbook deploys the hybrid-inference vNext architecture without adding paid
 | Model profile A | existing local OpenAI-compatible server via authenticated HTTPS tunnel | desktop inference endpoint; mobile-local uses on-device inference and outbound synchronization |
 | Model profile B | Anthropic / optional approved managed compatible endpoint | explicit admin selection only; no automatic fallback |
 | CI/CD | GitHub Actions + Render auto-deploy | migrations/tests before merge |
+| Public web | `https://psychdeep.bfab.io` and `https://psychdeep-web.onrender.com` | static site; API CORS already lists both |
+| Public API | `https://psychdeep-api.onrender.com` | health: `GET /api/v1/health` |
 
-No Render Postgres, paid worker, paid cron, managed GPU or additional Supabase project is required.
+No Render Postgres, paid cron, managed GPU or additional Supabase project is required for check-in, deterministic safety and chat. `render.yaml` also declares `psychdeep-memory-worker` on plan `0.5c-512mb`. That worker is not a live Render service. The API process does not drain its queue.
+
+## Last confirmed production (2026-11-06)
+
+Checked against the Render workspace that owns these services and Supabase project `psychdeep`. This is an observation, not a claim that the product is pilot-ready.
+
+| Service | Render id | Live commit | Deploy |
+|---|---|---|---|
+| `psychdeep-api` | `srv-d9s0p0navr4c73a7tcfg` | `87f7601173066ca86eeded455a52f537ad59b00f` | `dep-dbbj7167bikc73aokv4g`, status live |
+| `psychdeep-web` | `srv-d9s0p0navr4c73a7tcf0` | `ca4447b1bad4b94fc482df6c6e97b3900cfadf58` | `dep-dbbioh0m7kps73f4js50`, status live |
+
+The web service uses `rootDir: frontend`, so a backend-only commit does not rebuild it. No file under `frontend/` changed between those two commits, so the live site still shows the older manual wording (a 21-day baseline). The calculation on the live API is already the 28-day `structural-v3` reference. The manual, dashboard label and therapist explanation copy in this change reach production only after this commit deploys. `psychdeep-memory-worker` is absent from the service list.
+
+Supabase project `ifwexmoltnybvmrsuwtu` was `ACTIVE_HEALTHY` (Postgres 17, eu-north-1). The newest recorded migration is `safety_protocol_on_crisis_turns` (`20261020085134`). `psychdeep_v12` also contains `patient_clinical_documents`, `change_signal_embeddings`, `model_runs.output_validator_version`, `model_runs.output_violation_codes`, and `safety_protocol_version` on `chat_messages` and `notifications`. `ck_model_run_status` allows `output_withheld`. The repository files `20261017090000_model_run_output_withheld_status.sql` and `20261018220000_add_change_signal_embeddings.sql` are not separate rows in `supabase_migrations.schema_migrations`; the columns and table are present anyway. Do not re-apply them blindly.
 
 ## 0. Release gates before touching production
 
@@ -42,6 +57,8 @@ Apply the vNext foundation migration before the application release. It is expan
 - does not grant the old sync role access to new canonical data.
 
 Later expand-only migrations follow the same rule. The live `psychdeep` project already has clinical memory (`supabase/migrations/20261005120000_add_clinical_memory.sql`, recorded in Supabase as `20261005140916`). That migration creates `memory_commits`, `discourse_facts`, `psych_readings`, `formulation_versions`, `memory_annotations`, `clinical_attention_notices` and `memory_embeddings`, then revokes `psychdeep_backend` from `postgres` at the end of its transaction.
+
+Clinical-document storage is also applied (`add_patient_clinical_documents` as `20261015111859`, `reconcile_patient_clinical_documents_schema` as `20261018080200`). Crisis chat turns and alert notices record `safety_protocol_version` (`20261020085134`). See the production observation above before applying any migration whose objects already exist.
 
 Two later grants exist on that project and are not files under `supabase/migrations`:
 

@@ -1,13 +1,14 @@
 # Manual del terapeuta — PsychDeep / PsychApp 1.2
 
-> **Documento histórico (motor anterior a v1.4).** Las fórmulas y la tabla de
-> reglas siguientes se conservan para interpretar evaluaciones antiguas, no
-> describen el motor actual. Para el funcionamiento vigente consulta el manual
-> dentro de la aplicación y [Fundamentos y límites clínicos](CLINICAL_RISK_BASIS.md).
-> Desde v1.4, el score usa `1 / (1 + media(|z|))`, las reglas distinguen deterioro
-> de cambio favorable y una señal vigente no refutada de ideación indirecta
-> exige al menos N3 (valoración prioritaria). Ninguno de estos índices es una
-> escala clínica validada ni una probabilidad de suicidio o recaída.
+> El score estructural vigente es `structural-v3` (`risk-engine-v1.6`,
+> `change-bands-v1-population-prior`). La sección 5 describe ese cálculo.
+> Las filas guardadas como `structural-v1` o `structural-v2` conservan su
+> fórmula; el panel lo dice en la traza. El detalle está en
+> [Fundamentos y límites clínicos](CLINICAL_RISK_BASIS.md) y en
+> [ADR 0003](adr/0003-evidence-based-change-bands.md). Ninguno de estos
+> índices es una escala clínica validada ni una probabilidad de suicidio o
+> recaída. La calibración con los datos de la propia persona sigue pendiente
+> de revisión clínica.
 
 Este manual explica **todo** lo que un profesional necesita saber para usar
 el panel: de dónde salen los datos, cómo se genera cada alerta, qué es
@@ -32,7 +33,7 @@ y cómo auditar cualquier decisión del sistema hasta la frase que la produjo.
 | **Chat** | Conversación del paciente con el Agente 1. | Paciente |
 | **Agente 1** | Responde al paciente. Nunca calcula riesgo. | LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio) |
 | **Agente 2** | Lee cada texto (diario y chat) y devuelve señales estructuradas. | LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio) |
-| **Score estructural** | Compara los últimos 7 días de check-ins con la línea base de 21 días del propio paciente. | Estadística local, sin IA |
+| **Score estructural** | Compara las medias diarias de los últimos 7 días con las de los 28 días anteriores (`structural-v3`). | Estadística local, sin IA |
 | **Motor de riesgo** | Decide el nivel 0–4 aplicando reglas fijas en orden. | **Código determinista, sin IA** |
 | **Alertas** | Se crean automáticamente en niveles 3 y 4. | Motor determinista |
 | **Agente 3 (copiloto)** | Te resume y responde preguntas sobre un paciente. Solo lectura. | LLM (Anthropic, Codex / ChatGPT o el modelo cargado en LM Studio) |
@@ -163,32 +164,42 @@ bienestar.
 
 ### 5.2 Cómo se calcula
 
-1. **Línea base**: se toman todos los check-ins de los últimos **21 días**.
-   Si hay menos de **5**, no hay línea base y la banda es
-   `insufficient_data`.
-2. Para cada una de las cuatro variables se calcula media y desviación
-   típica poblacional. El craving se invierte antes (`craving_inv = 10 −
-   craving`) para que en las cuatro «más alto sea mejor».
-3. **Ventana reciente**: media de los check-ins de los últimos **7 días**.
-4. **z-score por variable**:
-   `z = (media_reciente − media_base) / desviación_base`
-   (si la desviación base es 0, se fija `z = 0`).
+1. **Referencia**: medias diarias de los check-ins de los **28 días anteriores**
+   a la semana reciente. Esa semana no entra en su propia referencia. Si un
+   eje tiene menos de **5 días** con valor, no hay comparación y la banda es
+   `insufficient_data`. No se rellena con cero.
+2. El craving se invierte antes (`craving_inv = 10 − craving`). La desviación
+   que entra en el z es `máx(DE de esas medias diarias, suelo)`: 1 punto en
+   las escalas 0–10 y 0,5 h en sueño. Es un suelo técnico, no un corte clínico.
+3. **Ventana reciente**: media diaria de los últimos **7 días**.
+4. **z por variable**:
+   `z = (media_reciente − media_referencia) / desviación_efectiva`.
+   Si falta uno de los cuatro ejes, no hay compuesto.
 5. **z compuesto**: media de los **valores absolutos** de los cuatro z.
-6. **Score**: `score = máx(0, mín(1, 1 − z_compuesto / 3))`
+6. **Banda**: la fija el |z| compuesto y un cambio bruto mínimo, no el score.
+   Transición desde |z| ≥ 1,0; inestable desde |z| ≥ 1,3. Para salir de
+   `stable` al menos un eje tiene que haberse movido ≥ 1 punto (0,5 h en sueño).
+7. **Score que se muestra**: `score = 1 / (1 + z_compuesto)`. Describe
+   similitud. No elige la banda. Una mejora grande también lo baja.
 
-### 5.3 Bandas
+`structural-v2` usaba otra ventana (21 días, y en el motor de riesgo esa
+ventana incluía la semana reciente) y cortes |z| 1,2 / 1,95. `structural-v1`
+usaba `máx(0, 1 − z_compuesto / 3)`. Esas filas se leen con la fórmula
+guardada.
 
-| Banda | Score | Lectura |
+### 5.3 Bandas (`structural-v3`)
+
+| Banda | Criterio | Lectura |
 |---|---|---|
-| `stable` | ≥ 0.60 | Los últimos 7 días se parecen a su línea base. |
-| `transition` | 0.35 – 0.60 | Desviación moderada. |
-| `unstable` | < 0.35 | Se alejan claramente de su línea base. |
-| `insufficient_data` | — | Menos de 5 check-ins en 21 días, o ninguno en los últimos 7. |
+| `stable` | media de \|z\| < 1,0, o ningún eje con el cambio bruto mínimo | Los últimos 7 días se parecen a la referencia de 28 días. |
+| `transition` | 1,0 ≤ media de \|z\| < 1,3, con al menos un eje por encima del cambio bruto mínimo | Desviación moderada. |
+| `unstable` | media de \|z\| ≥ 1,3, con al menos un eje por encima del cambio bruto mínimo | Se alejan de su referencia. |
+| `insufficient_data` | — | Menos de 5 días con valor en la referencia, ningún dato en los últimos 7, o falta un eje. |
 
 ### 5.4 Ejemplo numérico
 
-Base (21 días): ánimo 6.0 (σ 1.0), craving_inv 5.0 (σ 1.5), sueño 7.0
-(σ 1.0), autoeficacia 6.0 (σ 1.0).
+Referencia: ánimo 6.0 (σ 1.0), craving_inv 5.0 (σ 1.5), sueño 7.0
+(σ 1.0), autoeficacia 6.0 (σ 1.0). Los suelos no cambian estas σ.
 Últimos 7 días: ánimo 4.0, craving_inv 3.5, sueño 5.5, autoeficacia 5.0.
 
 ```
@@ -198,11 +209,14 @@ z_sueño        = (5.5 − 7.0) / 1.0 = −1.50
 z_autoeficacia = (5.0 − 6.0) / 1.0 = −1.00
 
 z_compuesto = (2.00 + 1.00 + 1.50 + 1.00) / 4 = 1.375
-score       = 1 − 1.375 / 3 = 0.54  →  banda "transition"
+score       = 1 / (1 + 1.375) = 0.421
+banda       = unstable   (|z| medio ≥ 1,3 y los cambios brutos superan el mínimo)
 ```
 
-Los cuatro z son negativos: la desviación es **adversa**. Eso es lo que te
-dice la tabla «Score estructural, explicado» y la gráfica de z-scores.
+Con los cortes de `structural-v2` (1,2 / 1,95) este mismo |z| era
+`transition`. Una fila ya guardada no se reetiqueta. Los cuatro z son
+negativos: la desviación es **adversa**. Eso es lo que te dice la tabla
+«Score estructural, explicado» y la gráfica de z-scores.
 
 ### 5.5 La trampa importante: el score es ciego a la dirección
 
@@ -548,8 +562,9 @@ como no verificada.** Es un modelo de lenguaje: puede equivocarse al leer.
 
 ## 13. Glosario
 
-- **Línea base**: media y desviación típica de las cuatro variables en los
-  últimos 21 días del propio paciente.
+- **Línea base**: medias diarias de las cuatro variables en los 28 días
+  anteriores a la semana reciente (`structural-v3`). Las evaluaciones
+  antiguas conservan la ventana con la que se calcularon.
 - **z-score**: cuántas desviaciones típicas se separa la media reciente de
   la media base. Negativo = por debajo.
 - **z compuesto**: media de los cuatro |z|.

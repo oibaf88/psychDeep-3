@@ -24,7 +24,13 @@ No deben decidir por sí solos alta, acceso a tratamiento o intervención de eme
 5. Las señales caducadas no se convierten en emergencia actual por su sola existencia. Las alertas abiertas se mantienen en el flujo de adjudicación humana. Refutar una inferencia excluye esa señal, sin borrar el historial.
 6. Los protectores y las mejoras no rebajan las reglas de ideación ni cancelan declaraciones críticas.
 
-## Corrección del score estructural
+## Score estructural vigente (`structural-v3`)
+
+Desde el 2026-10-10 el motor que corre en producción es `risk-engine-v1.6`. Su entrada estructural es `structural-v3`, la misma configuración que la trayectoria canónica `canonical-structural-v3`: `backend/app/services/change_config.py`, versión `change-bands-v1-population-prior`. La referencia son las medias diarias de los **28 días anteriores** a la semana reciente; ningún día entra en las dos ventanas. Hacen falta al menos 5 días con valor en cada eje. El z usa `max(DE personal, suelo)`: 1 punto en escalas 0–10 y 0,5 h de sueño. La banda sale de la media de |z| (transición ≥ 1,0; inestable ≥ 1,3) y de un cambio bruto mínimo (1 punto, o 0,5 h de sueño). El score que se muestra, `1 / (1 + media de |z|)`, no elige la banda. Es un prior poblacional provisional. La calibración con los datos de la propia persona y la firma clínica formal siguen abiertas. El detalle, la sensibilidad y los límites están en [ADR 0003](adr/0003-evidence-based-change-bands.md).
+
+Las filas guardadas como `structural-v1` o `structural-v2` no se recalculan. La sección siguiente describe esa corrección anterior, para leerlas.
+
+## Corrección del score estructural (histórico, hasta `structural-v2`)
 
 La versión anterior calculaba `max(0, 1 - mean(abs(z))/3)`: todo cambio grande terminaba en cero, incluidas mejoras, y una variabilidad casi nula magnificaba las desviaciones.
 

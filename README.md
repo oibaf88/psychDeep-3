@@ -7,7 +7,7 @@ PsychDeep is a cloud-first longitudinal self-regulation platform. Its purpose is
 
 The master product/engineering specification is the release authority. Approved ADRs/change requests may refine its implementation contract when product requirements are clarified.
 
-The latest version now implements Epic E10: it incorporates a robust Professional Dashboard and selective sharing linkage management where patients and professionals can securely request, pause, resume, cancel, and end sharing assignments directly via UI.
+Patients and professionals can request, pause, resume, cancel and end sharing assignments in the UI. The running API also refreshes the canonical trajectory on check-in (`canonical-structural-v3`) and scores the risk engine's structural input as `structural-v3` / `risk-engine-v1.6`. Cuenta can download a personal data export and request erasure. An assigned therapist can upload a PDF, DOCX or TXT report when linguistic-analysis and clinical-document-analysis consent are current; extraction happens in that request and the follow-up analysis job is queued. `render.yaml` declares `psychdeep-memory-worker`, and that worker is not a live Render service, so the queue is not drained by `psychdeep-api`. The public site is [https://psychdeep.bfab.io](https://psychdeep.bfab.io). The last confirmed deploy is in [DEPLOY.md](DEPLOY.md).
 
 ## Non-negotiable architecture
 
@@ -82,19 +82,25 @@ The migration backfills canonical compatibility rows with references to legacy s
 
 `POST /api/v1/observations` stores an observation and does not recompute the trajectory. `POST /api/v1/analytics/run` recomputes it and does not calculate risk. `GET /api/v1/state` only reads stored rows: `safety` is the latest `RiskAssessment`; `longitudinal` is the current `BaselineVersion` plus the newest `ChangeSignal` for each feature on that baseline. Neither read calls a model.
 
+Both the canonical path and the risk engine's structural input read `backend/app/services/change_config.py` (`change-bands-v1-population-prior`). The values are a provisional population prior. Personal calibration and formal clinical sign-off are still open (ADR 0003).
+
 | Input | Rule |
 | --- | --- |
 | Recent window | the last 7 days |
-| Baseline window | the 21 days before the recent window; the recent window is never part of its own reference |
-| Axis eligibility | at least 5 observations |
-| Craving | scored as `10 - reported craving` (`craving_inv`) |
-| Band | absolute z ≤ 1.2 `stable`; ≤ 1.95 `transition`; otherwise `unstable` |
-| Missing recent or baseline values | `band=insufficient_data` and `change_value` null |
+| Reference window | the 28 days before the recent window; no day is in both |
+| Unit | mean per local day; several check-ins on one day count once |
+| Axis eligibility | at least 5 days with a value; fewer is `insufficient_data`, never zero |
+| Craving | scored as `10 - reported craving` (`craving_inv`) before the comparison |
+| SD | max(personal SD of those day means, floor): 1 point on 0–10 axes, 0.5 h of sleep |
+| Band | mean \|z\| < 1.0 `stable`; ≥ 1.0 `transition`; ≥ 1.3 `unstable`. A band above `stable` also needs a raw change of at least 1 point (0.5 h of sleep) |
+| Missing recent or reference values | `band=insufficient_data` and `change_value` null |
 | Composite | `structural_composite` is another `ChangeSignal`, not a risk level |
+
+The professional structural score is still the risk engine's similarity input (`score = 1 / (1 + mean \|z\|)`), shown apart from `ChangeSignal`. That score does not choose the band. Rows stored as `structural-v1`, `structural-v2` or `canonical-structural-v2` keep the windows and cut-offs they were calculated with.
 
 A failed refresh logs the exception type and, when available, the PostgreSQL constraint name, then rolls back the analytics transaction. The check-in and observation dual-write stay, because they were already committed. On production startup, a deterministic catch-up pass recomputes the canonical trajectory only for users whose latest numeric observation is newer than their latest `canonical-structural-v3` baseline (or who have no v3 baseline). This repairs missed refreshes without invoking an LLM or recalculating clinical risk; repeat startups skip users whose baseline already includes their latest observation. Previous canonical baseline rows (`canonical-structural-v1` and `-v2`) are marked `superseded` rather than deleted. Each `BaselineVersion` records the comparison window it left out in `exclusions`, with per-type observation counts, and `GET /api/v1/baselines/current`, `GET /api/v1/state` and the professional reads return that list. Observations from only the last week therefore give `insufficient_data` rather than a self-comparison that reads as `stable`.
 
-Hoy reads `longitudinal` from that state payload: change versus the personal baseline, with a missing comparison described as missing data, kept apart from `safety.alert_level`. Hoy also charts the 30-day self-report series. That chart shows observations and does not calculate the change. Tendencias reads `/api/v1/timeline`, `/api/v1/baselines/current` and `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
+Hoy reads `longitudinal` from that state payload: change versus the personal baseline, with a missing comparison described as missing data, kept apart from `safety.alert_level`. Hoy also charts the 30-day self-report series from `GET /api/v1/timeline`. That chart shows observations and does not calculate the change. Tendencias reads the same `GET /api/v1/state` longitudinal payload for the comparison, and the same 30-day timeline for its chart. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
 
 ## Curated knowledge
 
@@ -131,7 +137,7 @@ Agent 1 reads the table directly. `agent1_context._knowledge_block` loads every 
 - **Diario** — free/structured entries; linguistic analysis requires separate consent.
 - **Plan** — editable safety/prevention plan.
 - **Compartir** — professional links, consent and consultation preparation.
-- **Cuenta** — account/security.
+- **Cuenta** — account/security, a personal data export (`GET /api/v1/me/data-export`) and an erasure request (`POST /api/v1/me/erasure-request`).
 
 The crisis control remains persistent for patients and does not depend on the LLM.
 
@@ -143,7 +149,8 @@ Current prototype keeps the already-provisioned free components:
 - Existing Supabase `psychdeep` project as the only clinical database.
 - Local inference through the existing Cloudflare Tunnel when selected.
 - Anthropic remains an explicitly selectable approved provider when its server-side key is configured; its usage is not part of the zero-cost guarantee.
-- No new paid database, worker, queue or managed GPU is required for this stage.
+- No new paid database, queue service or managed GPU is required for check-in, deterministic safety and chat.
+- `render.yaml` declares a paid `psychdeep-memory-worker`. It is not a live Render service. Queued longitudinal jobs wait until a worker process runs.
 
 See [DEPLOY.md](DEPLOY.md) for the deployment sequence and `docs/` for ADRs, runbooks and release gates.
 

@@ -119,7 +119,7 @@ export default function ManualPage() {
                     </tr>
                     <tr>
                       <td>Score estructural</td>
-                      <td>Compara los últimos 7 días de check-ins con la línea base de 21 días.</td>
+                      <td>Compara las medias diarias de los últimos 7 días con las de los 28 días anteriores (structural-v3).</td>
                       <td>Estadística local, sin IA</td>
                     </tr>
                     <tr className="row-highlight">
@@ -396,26 +396,30 @@ export default function ManualPage() {
               <h3>Cómo se calcula</h3>
               <ol>
                 <li>
-                  <strong>Línea base</strong>: todos los check-ins de los últimos <strong>21 días</strong>. Con
-                  menos de <strong>5</strong>, no hay línea base y la banda es <code>insufficient_data</code>.
+                  <strong>Referencia</strong>: medias diarias de los <strong>28 días anteriores</strong> a la
+                  semana reciente. Esa semana no entra en su propia referencia. Con menos de <strong>5 días</strong>{" "}
+                  en un eje, la banda es <code>insufficient_data</code>. No se rellena con cero.
                 </li>
                 <li>
-                  Media y desviación típica poblacional por variable. El craving se invierte antes (
-                  <code>craving_inv = 10 − craving</code>) para que menos craving sea favorable. El sueño se interpreta en ambas direcciones: más horas no implica siempre mejora.
+                  El craving se invierte antes (<code>craving_inv = 10 − craving</code>). La desviación del z es{" "}
+                  <code>máx(DE de las medias diarias, suelo)</code>: 1 punto en escalas 0–10 y 0,5 h en sueño. El
+                  sueño se interpreta en ambas direcciones: más horas no implica siempre mejora.
                 </li>
                 <li>
-                  <strong>Ventana reciente</strong>: media de los últimos <strong>7 días</strong>.
+                  <strong>Ventana reciente</strong>: media diaria de los últimos <strong>7 días</strong>.
                 </li>
                 <li>
                   <strong>z por variable</strong>:{" "}
-                  <code>z = (media_reciente − media_base) / máx(desviación_base, mínimo_técnico)</code>.
-                  El mínimo es 1 punto en escalas 0–10 y 0,5 h en sueño; no son cortes clínicos.
+                  <code>z = (media_reciente − media_referencia) / desviación_efectiva</code>. Si falta un eje, no
+                  hay compuesto.
                 </li>
                 <li>
                   <strong>z compuesto</strong>: media de los <strong>valores absolutos</strong> de los cuatro z.
                 </li>
                 <li>
-                  <strong>Score</strong>: <code>score = 1 / (1 + z_compuesto)</code>, sin saturación artificial a cero.
+                  <strong>Banda</strong>: la fija el |z| (transición desde 1,0; inestable desde 1,3) y un cambio
+                  bruto mínimo de 1 punto (0,5 h en sueño). <strong>Score</strong>:{" "}
+                  <code>score = 1 / (1 + z_compuesto)</code>. Se muestra como similitud y no elige la banda.
                 </li>
               </ol>
 
@@ -425,7 +429,7 @@ export default function ManualPage() {
                   <thead>
                     <tr>
                       <th>Banda</th>
-                      <th>Score</th>
+                      <th>Criterio (structural-v3)</th>
                       <th>Lectura</th>
                     </tr>
                   </thead>
@@ -434,29 +438,29 @@ export default function ManualPage() {
                       <td>
                         <code>stable</code>
                       </td>
-                      <td>≥ 1/2,2 (≈ 0,455)</td>
-                      <td>Los últimos 7 días se parecen a su línea base.</td>
+                      <td>media de |z| &lt; 1,0, o ningún eje con el cambio bruto mínimo</td>
+                      <td>Los últimos 7 días se parecen a la referencia de 28 días.</td>
                     </tr>
                     <tr>
                       <td>
                         <code>transition</code>
                       </td>
-                      <td>≥ 1/2,95 y &lt; 1/2,2</td>
+                      <td>1,0 ≤ media de |z| &lt; 1,3, con cambio bruto mínimo en algún eje</td>
                       <td>Desviación moderada.</td>
                     </tr>
                     <tr>
                       <td>
                         <code>unstable</code>
                       </td>
-                      <td>&lt; 1/2,95 (≈ 0,339)</td>
-                      <td>Se alejan claramente de su línea base.</td>
+                      <td>media de |z| ≥ 1,3, con cambio bruto mínimo en algún eje</td>
+                      <td>Se alejan de su referencia.</td>
                     </tr>
                     <tr>
                       <td>
                         <code>insufficient_data</code>
                       </td>
                       <td>—</td>
-                      <td>Menos de 5 check-ins en 21 días, o ninguno en los últimos 7.</td>
+                      <td>Menos de 5 días con valor en la referencia, ninguno en los últimos 7, o falta un eje.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -464,7 +468,7 @@ export default function ManualPage() {
 
               <h3>Ejemplo numérico</h3>
               <p className="meta">
-                Base: ánimo 6.0 (σ 1.0) · craving_inv 5.0 (σ 1.5) · sueño 7.0 (σ 1.0) · autoeficacia 6.0 (σ 1.0).
+                Referencia: ánimo 6.0 (σ 1.0) · craving_inv 5.0 (σ 1.5) · sueño 7.0 (σ 1.0) · autoeficacia 6.0 (σ 1.0).
                 Últimos 7 días: 4.0 / 3.5 / 5.5 / 5.0.
               </p>
               <pre className="protocol-box">{`z_ánimo        = (4.0 − 6.0) / 1.0 = −2.00
@@ -473,8 +477,12 @@ z_sueño        = (5.5 − 7.0) / 1.0 = −1.50
 z_autoeficacia = (5.0 − 6.0) / 1.0 = −1.00
 
 z_compuesto = (2.00 + 1.00 + 1.50 + 1.00) / 4 = 1.375
-score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
-              <p>Los cuatro z son negativos: la desviación es adversa.</p>
+score       = 1 / (1 + 1.375) = 0.421
+banda       = unstable   (|z| medio ≥ 1,3 y los cambios brutos superan el mínimo)`}</pre>
+              <p>
+                Con los cortes de <code>structural-v2</code> (1,2 / 1,95) este mismo |z| era <code>transition</code>.
+                Una fila ya guardada no se reetiqueta. Los cuatro z son negativos: la desviación es adversa.
+              </p>
 
               <h3>La trampa importante: el score es ciego a la dirección</h3>
               <p>
@@ -1001,7 +1009,7 @@ score       = 1 / (1 + 1.375) = 0.421  →  banda "transition"`}</pre>
               <dl className="plan-dl">
                 {(
                   [
-                    ["Línea base", "Media y desviación típica de las cuatro variables en los últimos 21 días del propio paciente."],
+                    ["Línea base", "Medias diarias de las cuatro variables en los 28 días anteriores a la semana reciente (structural-v3). Las evaluaciones antiguas conservan su ventana."],
                     ["z-score", "Cuántas desviaciones típicas se separa la media reciente de la media base. Negativo = por debajo."],
                     ["z compuesto", "Media de los cuatro |z|."],
                     ["Banda de confianza", "stable / transition / unstable / insufficient_data."],

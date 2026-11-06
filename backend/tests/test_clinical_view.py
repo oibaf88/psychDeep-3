@@ -208,6 +208,22 @@ class StructuralExplanationTests(unittest.TestCase):
         self.assertIn("estable", explanation["summary"])
         self.assertIn("no la señal de cambio", explanation["summary"])
 
+    def test_structural_v3_summary_names_the_preceding_28_day_reference(self):
+        assessment = _assessment(level=0, rule="N0_estable", score=0.8, band="stable")
+        assessment.calculation_trace["inputs"]["structural"]["calculation_version"] = "structural-v3"
+        assessment.input_signals["structural_calculation_version"] = "structural-v3"
+        explanation = clinical_view.structural_explanation(assessment)
+        self.assertIn("28 días", explanation["summary"])
+        self.assertIn("28 días", explanation["scale_note"])
+        self.assertNotIn("21 días", explanation["summary"])
+
+    def test_structural_v2_summary_keeps_its_own_window(self):
+        assessment = self._v2_assessment()
+        assessment.input_signals["confidence_band"] = "stable"
+        explanation = clinical_view.structural_explanation(assessment)
+        self.assertIn("21 días", explanation["summary"])
+        self.assertNotIn("28 días", explanation["summary"])
+
     def test_thin_recent_window_adds_a_caveat(self):
         assessment = _assessment(level=0, rule="N0_estable")
         assessment.calculation_trace["inputs"]["structural"]["recent_sample_count"] = 1
