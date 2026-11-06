@@ -44,7 +44,7 @@ The feature can be enabled only after migrations and privacy/security checks pas
 
 ## Worker and deployment
 
-The background worker is a separate process, not part of the patient-facing chat request. Run it from the backend directory with the same approved database and model-gateway secrets:
+The background worker is a separate process, not part of the patient-facing chat request. `psychdeep-api` does not run it. As of 2026-11-06 the Render service `psychdeep-memory-worker` is declared in `render.yaml` and is not provisioned, so queued jobs stay queued. An operator can run one pass from the backend directory with the same approved database and model-gateway secrets:
 
     python scripts/run_memory_worker.py --limit 1
 

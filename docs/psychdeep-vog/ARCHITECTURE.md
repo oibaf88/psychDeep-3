@@ -1,7 +1,7 @@
 # psychDeep-vOG architecture
 
 ## System of record
-The existing Supabase PostgreSQL project and `psychdeep_v12` schema remain the sole production clinical source of truth. Render hosts the web frontend and API/worker. Model providers sit behind the existing provider-neutral Model Gateway. A provider outage must not disable source storage, deterministic safety processing or access to the last successful memory version.
+The existing Supabase PostgreSQL project and `psychdeep_v12` schema remain the sole production clinical source of truth. Render hosts `psychdeep-web` and `psychdeep-api`. `render.yaml` also declares `psychdeep-memory-worker`; as of 2026-11-06 that worker is not a live service, so queued memory jobs are not drained by the API. Model providers sit behind the existing provider-neutral Model Gateway. A provider outage must not disable source storage, deterministic safety processing or access to the last successful memory version.
 
 ## Logical flow
 ```text

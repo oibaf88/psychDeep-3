@@ -27,6 +27,11 @@ describe("ManualPage", () => {
     expect(screen.getByText("Memoria y lectura")).toBeInTheDocument();
     expect(screen.getByText(/no cambia el nivel de riesgo/)).toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "5. El score estructural" }));
+    expect(screen.getByText(/28 días anteriores/)).toBeInTheDocument();
+    expect(screen.queryByText(/línea base de 21 días/)).not.toBeInTheDocument();
+    expect(screen.getByText(/banda\s+= unstable/)).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "12. Privacidad y auditoría" }));
     expect(screen.getByText(/Mis modelos/)).toBeInTheDocument();
     expect(screen.queryByText(/Gemma 2/)).not.toBeInTheDocument();

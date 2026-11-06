@@ -193,8 +193,11 @@ export function StructuralExplanationCard({ explanation }: { explanation: Struct
         <div>
           <dt>Muestras usadas</dt>
           <dd>
-            {explanation.baseline_sample_count ?? "—"} check-ins de base (21 días) ·{" "}
-            {explanation.recent_sample_count ?? "—"} recientes (7 días)
+            {explanation.baseline_sample_count ?? "—"}{" "}
+            {explanation.calculation_version === "structural-v3"
+              ? "días de referencia (28 días anteriores a la semana reciente)"
+              : "muestras de la ventana guardada en esa evaluación"}{" "}
+            · {explanation.recent_sample_count ?? "—"} recientes (7 días)
           </dd>
         </div>
         <div>
