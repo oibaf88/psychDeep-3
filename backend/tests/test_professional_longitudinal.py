@@ -1,3 +1,4 @@
+from app.models import Consent
 """Authorised professional reads keep ChangeSignal apart from RiskAssessment."""
 import unittest
 import uuid
@@ -53,6 +54,8 @@ class ProfessionalLongitudinalTests(unittest.TestCase):
             PatientProfessionalAssignment(
                 patient_id=self.empty.id, professional_id=self.therapist.id, status="active"
             ),
+            Consent(user_id=self.patient.id, consent_type="professional_sharing", granted=True),
+            Consent(user_id=self.empty.id, consent_type="professional_sharing", granted=True),
         ])
         self.assessment = RiskAssessment(
             user_id=self.patient.id,
