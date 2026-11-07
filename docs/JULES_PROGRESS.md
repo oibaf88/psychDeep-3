@@ -14,7 +14,7 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - **Seguridad (E8):** DONE
 - **RAG de contenidos (E9):** DONE
 - **Panel profesional (E10):** DONE
-- **Evaluación (E11):** PARTIAL
+- **Evaluación (E11):** DONE
 - **Operaciones (E12):** PARTIAL
 
 ## Current technical debt
@@ -22,6 +22,8 @@ A web-based platform for longitudinal mental health monitoring that combines pat
 - Significant number of `datetime.utcnow()` instances across backend causing Python 3.12 deprecation warnings; requires a comprehensive refactor.
 
 ## Recently completed work
+- **Testing (Epic E11):** Implemented continuous evaluation architecture via adversarial assertions in `backend/tests/eval/test_clinical_eval.py` to prevent autonomous prescriptions (Agent 1), state-to-trait conversions (Analyzer), and hallucinated history (Agent 3).
+- **Testing/Security:** Fixed failing backend tests (`test_professional_trace_rbac.py`, `test_daily_statistics_integration.py`, `test_professional_longitudinal.py`, `test_clinical_memory.py`) which broke after restricting clinical data access using granular consent. Ensured robust regression test coverage.
 - **Consent:** Ensured granular revocation flows (E1) are fully robust and visible in the UI by verifying the `ConsentsPage`, `AssignmentsPage` and creating `test_assignments.py`.
 - **Clinical/Scientific Review:** Modificadas las instrucciones de sistema de los Agentes 1 y 3 en `backend/app/content/prompts.py` para prevenir la iatrogenia digital promoviendo la autonomía del paciente, obligar a expresar incertidumbre y prohibir expresamente la invención de antecedentes. Creado informe de revisión clínica en `docs/agentes/06_informe_revision_clinica_llms.md`.
 - **Clinical/Scientific Review:** Integrated the scientific and clinical evaluation for the N3 vs N4 risk engine stratification, verified the prevention of state-to-trait conversion in `profile_update`, and documented the TRIPOD-LLM guidelines in the clinical safety basis documentation.

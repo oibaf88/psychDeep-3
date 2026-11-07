@@ -100,11 +100,11 @@ class ClinicalMemoryTests(unittest.TestCase):
         self.db.commit()
         return user
 
-    def _grant(self, granted=True, revoked=False):
+    def _grant(self, granted=True, revoked=False, purpose="linguistic_analysis"):
         self.db.add(
             Consent(
                 user_id=self.patient.id,
-                consent_type="linguistic_analysis",
+                consent_type=purpose,
                 granted=granted,
                 revoked_at=datetime.now(timezone.utc) if revoked else None,
             )
@@ -206,11 +206,13 @@ class ClinicalMemoryTests(unittest.TestCase):
         allowed = self.client.get(path)
         self.assertEqual(allowed.status_code, 200)
         self.assertIn("hermana", allowed.json()["discourse"][0]["quote"])
+        self._grant(granted=True, revoked=False, purpose="professional_sharing")
         self.current = self.therapist
         self.assertEqual(self.client.get(path).status_code, 200)
 
     def test_therapist_note_does_not_replace_the_quote(self):
         self._grant()
+        self._grant(purpose="professional_sharing")
         self._commit("Hablé de mi hermana.")
         fact = self.db.query(DiscourseFact).one()
         self.current = self.therapist
