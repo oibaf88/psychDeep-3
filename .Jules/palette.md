@@ -15,3 +15,6 @@
 ## 2023-10-25 - Missing explicit label associations in inline inputs
 **Learning:** Found an instance in `CopilotPanel.tsx` where a `<select>` input was nested inside a `<label>` but lacked explicit `id` and `htmlFor` attributes. While implicit wrapping is supported by some screen readers, relying solely on it can cause accessibility failures across different assistive technologies and devices.
 **Action:** Always ensure that inline inputs (like `<select>` or `<input>`) have a unique `id` and are explicitly associated with their wrapping `<label>` using the `htmlFor` attribute.
+## 2024-11-20 - Missing explicit label associations in inline inputs
+**Learning:** Found instances where inputs/selects were nested inside a `<label>` but lacked explicit `id` and `htmlFor` attributes (e.g. `ClinicalTraceability.tsx`). While implicit wrapping is supported by some screen readers, relying solely on it can cause accessibility failures across different assistive technologies.
+**Action:** Always ensure that inline inputs (like `<select>` or `<input>`) have a unique `id` (using `useId()` in React) and are explicitly associated with their wrapping `<label>` using the `htmlFor` attribute.
