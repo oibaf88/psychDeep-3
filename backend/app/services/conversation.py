@@ -482,7 +482,12 @@ def _reply_provenance(
 
 
 def _agent1_crisis_accompaniment(
-    db: Session, user_id, system_prompt: str, messages: list[dict[str, str]] | None = None
+    db: Session,
+    user_id,
+    system_prompt: str,
+    messages: list[dict[str, str]] | None = None,
+    *,
+    correlation_id: uuid.UUID | None = None,
 ) -> ChatResult | None:
     """Agent 1's turn during an alert-level 3/4 conversation.
 
@@ -491,18 +496,34 @@ def _agent1_crisis_accompaniment(
     concrete grounding offer, no resources of its own). The caller always
     appends the server-owned safety copy afterwards, so this returning
     None -- on a provider error, a refusal, or an empty reply -- costs the
-    user nothing but the accompanying sentences.
+    user nothing but the accompanying sentences. A provider exception also
+    writes a failure ``ModelRun``; that write cannot change this return.
     """
+    sent = messages
+    provider_name = None
+    model_id = None
     try:
+        if sent is None:
+            sent = _recent_messages(db, user_id)
         provider = get_llm_provider(db)
-        result = provider.chat(
-            system_prompt,
-            messages if messages is not None else _recent_messages(db, user_id),
-            max_tokens=400,
-        )
+        provider_name, model_id = reply_model_run.call_identity(provider)
+        result = provider.chat(system_prompt, sent, max_tokens=400)
         return result if result.text.strip() else None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Agent1 crisis accompaniment failed; using fixed safety copy only: %s", type(exc).__name__)
+        reply_model_run.record_provider_failure(
+            db,
+            exc=exc,
+            purpose="agent1_chat",
+            audience="patient",
+            user_id=user_id,
+            prompt_version=AGENT1_PROMPT_VERSION,
+            system_prompt=system_prompt,
+            messages=sent,
+            correlation_id=correlation_id,
+            provider=provider_name,
+            model_id=model_id,
+        )
         return None
 
 
@@ -631,7 +652,9 @@ def get_reply(
             # Same outcome as a failed accompaniment: fixed crisis copy only.
             logger.warning("Agent1 crisis history unavailable; using fixed safety copy only: %s", type(exc).__name__)
             return None
-        result_ = _agent1_crisis_accompaniment(db_, user_id_, system_prompt_, messages_)
+        result_ = _agent1_crisis_accompaniment(
+            db_, user_id_, system_prompt_, messages_, correlation_id=correlation_id,
+        )
         if result_ is None:
             return None
         check_ = output_validation.validate_agent1_output(result_.text)
@@ -670,9 +693,14 @@ def get_reply(
         # number, per doc 8: "Nunca presentes esa información como un
         # diagnóstico").
         messages = _recent_messages(db, user.id)
+        # The handler below rebinds `messages` to its error catalogue.
+        prompt_messages = messages
         failed = False
+        provider_name = None
+        model_id = None
         try:
             provider = get_llm_provider(db)
+            provider_name, model_id = reply_model_run.call_identity(provider)
             result = provider.chat(agent1_system_prompt, messages)
             reply_metadata = result.metadata
             reply_text = result.text
@@ -738,6 +766,21 @@ def get_reply(
                         "El fallo queda registrado de forma segura y tus datos y check-ins "
                         "se han guardado con normalidad."
                     )
+            # The sentence above is already decided. This row only counts the
+            # failed call; it must not change reply_text, the alert or the copy.
+            reply_model_run.record_provider_failure(
+                db,
+                exc=exc,
+                purpose="agent1_chat",
+                audience="patient",
+                user_id=user.id,
+                prompt_version=AGENT1_PROMPT_VERSION,
+                system_prompt=agent1_system_prompt,
+                messages=prompt_messages,
+                correlation_id=correlation_id,
+                provider=provider_name,
+                model_id=model_id,
+            )
         ui_mode = "normal"
         resources = None
         # No fixed safety copy at levels 0-2, so no pack to name.

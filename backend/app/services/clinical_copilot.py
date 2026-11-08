@@ -483,6 +483,7 @@ def ask(
     error_kind: str | None = None
     response_model: str | None = None
     requested_model: str | None = None
+    turns: list[dict[str, str]] | None = None
     try:
         if active.provider == llm_config.PROVIDER_LOCAL:
             local_llm_access.assert_can_use_local_llm(professional)
@@ -548,6 +549,21 @@ def ask(
                 if is_local
                 else "Si esto se repite, revisa la conexión guardada en Mis modelos y la clave de ese proveedor en el servidor."
             )
+        )
+        # content is already the turn the therapist will see. The row only
+        # counts the failed call and cannot replace that turn.
+        reply_model_run.record_provider_failure(
+            db,
+            exc=exc,
+            purpose="agent3_copilot",
+            audience="professional",
+            user_id=patient.id,
+            prompt_version=AGENT3_PROMPT_VERSION,
+            system_prompt=system_prompt,
+            messages=turns,
+            correlation_id=answer_id,
+            provider=active.provider,
+            model_id=requested_model or getattr(active, "chat_model", None) or getattr(active, "copilot_model", None),
         )
 
     answer = TherapistCopilotMessage(

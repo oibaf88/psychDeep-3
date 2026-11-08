@@ -1,21 +1,29 @@
 """Agent 1 output validation (G3): unsafe model text is withheld, replaced by
 server-owned support and audited by rule code only.
+
+A provider exception writes a failure ``ModelRun`` and leaves the reply, the
+alert and the crisis copy unchanged.
 """
 import unittest
 import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
+
+from app.content.prompts import AGENT1_CRISIS_INSTRUCTION, AGENT1_PROMPT_VERSION, AGENT1_SYSTEM_PROMPT
 from app.content.safety_resources import (
     AGENT1_OUTPUT_BLOCKED_MESSAGE,
+    CRISIS_RESOURCES,
     LEVEL3_PATIENT_MESSAGE,
     LEVEL4_PATIENT_MESSAGE,
+    SAFETY_PROTOCOL_VERSION,
 )
 from app.models import AuditLog
 from app.models_vnext import ModelRun
-from app.services import conversation, output_validation, risk_engine
+from app.services import conversation, output_validation, reply_model_run, risk_engine
 from app.services.conversation import AnalysisOutcome
-from app.services.llm.base import ChatResult, ProviderMetadata
+from app.services.llm.base import ChatResult, ProviderMetadata, StructuredAnalysisError
 
 
 def codes(text):
@@ -213,22 +221,299 @@ class WithheldReplyModelRunTests(_ReplyHarness, unittest.TestCase):
         self.assertEqual(len(audits), 1)
         self.assertEqual(self.runs, [])
 
-    def test_provider_failure_writes_no_validated_run(self):
+# Statuses ck_model_run_status already allows. Failure rows must stay inside
+# this set; widening it would be a migration.
+_ALLOWED_STATUSES = frozenset({
+    "started", "succeeded", "refused", "invalid_output", "provider_error",
+    "timeout", "configuration_error", "unavailable", "abandoned", "output_withheld",
+})
+
+_GENERIC_FAILURE = (
+    "Ahora mismo no puedo generar una respuesta conversacional. "
+    "El fallo queda registrado de forma segura y tus datos y check-ins "
+    "se han guardado con normalidad."
+)
+
+
+def _stored(run) -> str:
+    return " ".join(str(getattr(run, column.key, "")) for column in ModelRun.__table__.columns)
+
+
+class Agent1ProviderFailureModelRunTests(_ReplyHarness, unittest.TestCase):
+    """A provider exception writes one failure ModelRun and does not change the reply."""
+
+    def _failed_reply(self, level, exc, *, provider_name="openai_compatible", model_id="m", raise_on_resolve=False):
         db = _db()
-        assessment = SimpleNamespace(alert_level=0, assessment_reason="synthetic", input_signals={})
+        user_id = uuid.uuid4()
+        assessment = SimpleNamespace(alert_level=level, assessment_reason="synthetic", input_signals={})
         analysis = AnalysisOutcome(uuid.uuid4(), None, None, "succeeded", None)
-        broken = SimpleNamespace(chat=MagicMock(side_effect=RuntimeError("boom")))
+        broken = SimpleNamespace(
+            chat=MagicMock(side_effect=exc),
+            provider_name=provider_name,
+            _chat_model=model_id,
+        )
+        provider = (
+            patch.object(conversation, "get_llm_provider", side_effect=exc)
+            if raise_on_resolve
+            else patch.object(conversation, "get_llm_provider", return_value=broken)
+        )
         with (
             patch.object(conversation, "analyze_text_and_store", return_value=analysis),
             patch.object(risk_engine, "run_and_persist", return_value=assessment),
-            patch.object(conversation, "get_llm_provider", return_value=broken),
+            provider,
+            patch.object(conversation, "_has_active_professional", return_value=False),
             patch.object(conversation.agent1_context, "build", return_value="CONTEXTO SINTÉTICO"),
         ):
-            conversation.get_reply(db, SimpleNamespace(id=uuid.uuid4()), "mensaje sintético")
-        self.assertFalse([
-            c.args[0] for c in db.add.call_args_list
-            if isinstance(c.args[0], ModelRun) and c.args[0].purpose == "agent1_chat"
-        ])
+            reply = conversation.get_reply(db, SimpleNamespace(id=user_id), "mensaje sintético")
+        added = [call.args[0] for call in db.add.call_args_list]
+        runs = [row for row in added if isinstance(row, ModelRun) and row.purpose == "agent1_chat"]
+        audits = [row for row in added if isinstance(row, AuditLog)]
+        assistant = [row for row in added if getattr(row, "role", None) == "assistant"]
+        return reply, runs, audits, assistant, user_id
+
+    def test_call_identity_reads_adapter_class_names(self):
+        class AnthropicProvider:
+            _chat_model = "claude-x"
+
+        class OpenAIProvider:
+            _chat_model = "gpt-x"
+
+        class OpenAICompatibleProvider:
+            _chat_model = "local-x"
+
+        class CloudflareAccessOpenAICompatibleProvider(OpenAICompatibleProvider):
+            pass
+
+        labelled = AnthropicProvider()
+        labelled.provider_name = "openai_compatible"
+        self.assertEqual(reply_model_run.call_identity(AnthropicProvider()), ("anthropic", "claude-x"))
+        self.assertEqual(reply_model_run.call_identity(OpenAIProvider()), ("openai", "gpt-x"))
+        self.assertEqual(reply_model_run.call_identity(OpenAICompatibleProvider()), ("openai_compatible", "local-x"))
+        self.assertEqual(
+            reply_model_run.call_identity(CloudflareAccessOpenAICompatibleProvider()),
+            ("openai_compatible", "local-x"),
+        )
+        self.assertEqual(reply_model_run.call_identity(labelled), ("openai_compatible", "claude-x"))
+        self.assertEqual(reply_model_run.call_identity(object()), (None, None))
+
+    def test_failure_status_reuses_allowed_values(self):
+        from app.services.model_gateway import ModelUnavailable
+        from app.services.personal_llm import LocalModelUnavailable
+        from app.services.local_llm_access import LocalLlmAccessDenied
+
+        cases = [
+            (StructuredAnalysisError("timeout"), "timeout"),
+            (StructuredAnalysisError("configuration_error"), "configuration_error"),
+            (StructuredAnalysisError("provider_error"), "provider_error"),
+            (StructuredAnalysisError("unavailable"), "unavailable"),
+            (StructuredAnalysisError("refused"), "refused"),
+            (StructuredAnalysisError("invalid_output"), "invalid_output"),
+            (StructuredAnalysisError("not_a_real_status"), "provider_error"),
+            (TimeoutError(), "timeout"),
+            (httpx.ReadTimeout("slow secret"), "timeout"),
+            (ModelUnavailable("MODEL_UNAVAILABLE"), "unavailable"),
+            (LocalModelUnavailable("túnel sin modelo"), "unavailable"),
+            (LocalLlmAccessDenied("detalle interno"), "unavailable"),
+            (RuntimeError("boom"), "provider_error"),
+            (RuntimeError("empty_reply"), "invalid_output"),
+            (RuntimeError("OPENAI_API_KEY_NOT_CONFIGURED"), "configuration_error"),
+            (RuntimeError("LOCAL_ENDPOINT_HOST_NOT_APPROVED"), "configuration_error"),
+        ]
+        self.assertLessEqual(reply_model_run.FAILURE_STATUSES, _ALLOWED_STATUSES)
+        for exc, expected in cases:
+            with self.subTest(expected=expected, exc=type(exc).__name__):
+                status = reply_model_run.status_for_provider_failure(exc)
+                self.assertEqual(status, expected)
+                self.assertIn(status, reply_model_run.FAILURE_STATUSES)
+                self.assertNotIn(status, {"started", "succeeded", "output_withheld", "abandoned"})
+
+    def test_failure_row_hashes_the_prompt_and_drops_the_exception(self):
+        secret = "mensaje clínico que no puede quedar en la fila"
+        db = _db()
+        row = reply_model_run.record_provider_failure(
+            db,
+            exc=RuntimeError(f"provider said {secret}"),
+            purpose="agent1_chat",
+            audience="patient",
+            user_id=uuid.uuid4(),
+            prompt_version="agent1-test",
+            system_prompt=secret,
+            messages=[{"role": "user", "content": secret}],
+            correlation_id=uuid.uuid4(),
+            provider="openai_compatible",
+            model_id="m",
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row.status, "provider_error")
+        self.assertEqual(row.deployment_alias, "direct-openai_compatible")
+        self.assertEqual(row.provider_type, "openai_compatible")
+        self.assertEqual(
+            row.input_hash,
+            reply_model_run.input_hash(secret, [{"role": "user", "content": secret}]),
+        )
+        self.assertIsNone(row.output_validator_version)
+        self.assertIsNone(row.output_violation_codes)
+        stored = _stored(row)
+        self.assertNotIn(secret, stored)
+        self.assertNotIn("provider said", stored)
+
+        timeout = reply_model_run.record_provider_failure(
+            db,
+            exc=httpx.ReadTimeout("https://secret-tunnel.example/v1 timed out"),
+            purpose="agent1_chat",
+            audience="patient",
+            user_id=uuid.uuid4(),
+            prompt_version="agent1-test",
+            system_prompt="prompt",
+            messages=[],
+            correlation_id=uuid.uuid4(),
+            provider="openai_compatible",
+            model_id="m",
+        )
+        self.assertEqual(timeout.status, "timeout")
+        self.assertEqual(timeout.deployment_alias, "direct-openai_compatible")
+        self.assertNotIn("secret-tunnel", _stored(timeout))
+        self.assertNotIn("timed out", _stored(timeout))
+
+    def test_provider_failure_records_provider_error_and_keeps_the_reply(self):
+        reply, runs, audits, assistant, user_id = self._failed_reply(0, RuntimeError("boom secret"))
+        self.assertEqual(reply["reply"], _GENERIC_FAILURE)
+        self.assertEqual(reply["ui_mode"], "normal")
+        self.assertIsNone(reply["resources"])
+        self.assertIsNone(reply["safety_protocol_version"])
+        self.assertEqual(audits, [])
+        self.assertEqual(len(runs), 1)
+        run = runs[0]
+        self.assertEqual(run.status, "provider_error")
+        self.assertEqual(run.purpose, "agent1_chat")
+        self.assertEqual(run.audience, "patient")
+        self.assertEqual(run.user_id, user_id)
+        self.assertEqual(run.deployment_alias, "direct-openai_compatible")
+        self.assertEqual(run.provider_type, "openai_compatible")
+        self.assertEqual(run.model_id, "m")
+        self.assertEqual(run.prompt_version, AGENT1_PROMPT_VERSION)
+        self.assertTrue(run.policy_version)
+        self.assertEqual(run.correlation_id, reply["correlation_id"])
+        self.assertEqual(
+            run.input_hash,
+            reply_model_run.input_hash(AGENT1_SYSTEM_PROMPT + "\n\nCONTEXTO SINTÉTICO", []),
+        )
+        self.assertIsNone(run.output_validator_version)
+        self.assertIsNone(run.output_violation_codes)
+        stored = _stored(run)
+        for fragment in ("boom secret", "mensaje sintético", "CONTEXTO SINTÉTICO", "riesgo"):
+            self.assertNotIn(fragment, stored)
+        self.assertEqual(len(assistant), 1)
+        self.assertEqual(assistant[0].content, _GENERIC_FAILURE)
+        self.assertIsNone(getattr(assistant[0], "model", None))
+        self.assertNotIn("boom secret", assistant[0].content)
+
+    def test_timeout_uses_provider_metadata_and_the_existing_timeout_reply(self):
+        exc = StructuredAnalysisError(
+            "timeout",
+            metadata=ProviderMetadata(
+                provider="openai_compatible",
+                requested_model="local-weights",
+                base_url="https://secret-tunnel.example/v1",
+                request_id="req-do-not-store",
+                latency_ms=17,
+            ),
+            error_code="local_endpoint_timeout",
+        )
+        reply, runs, _audits, _assistant, _user = self._failed_reply(
+            0, exc, provider_name="anthropic", model_id="other-model",
+        )
+        self.assertEqual(
+            reply["reply"],
+            "Ahora mismo no puedo generar una respuesta conversacional. "
+            "El fallo queda registrado de forma segura y tus datos y check-ins "
+            "se han guardado con normalidad.",
+        )
+        self.assertNotIn("secret-tunnel", reply["reply"])
+        self.assertNotIn("local_endpoint_timeout", reply["reply"])
+        run = runs[0]
+        self.assertEqual(run.status, "timeout")
+        self.assertEqual(run.deployment_alias, "direct-openai_compatible")
+        self.assertEqual(run.model_id, "local-weights")
+        self.assertEqual(run.latency_ms, 17)
+        stored = _stored(run)
+        self.assertNotIn("secret-tunnel", stored)
+        self.assertNotIn("req-do-not-store", stored)
+        self.assertNotIn("local_endpoint_timeout", stored)
+        self.assertNotIn("mensaje sintético", stored)
+
+    def test_empty_crisis_prose_is_not_a_failure_run(self):
+        reply, audits, _assistant = self._reply(4, "   ")
+        self.assertEqual(reply["reply"], LEVEL4_PATIENT_MESSAGE)
+        self.assertEqual(reply["ui_mode"], "crisis")
+        self.assertEqual(reply["resources"], CRISIS_RESOURCES)
+        self.assertEqual(audits, [])
+        self.assertEqual(self.runs, [])
+
+    def test_level4_provider_failure_keeps_fixed_crisis_copy(self):
+        reply, runs, audits, assistant, _user = self._failed_reply(4, RuntimeError("boom"))
+        self.assertEqual(reply["reply"], LEVEL4_PATIENT_MESSAGE)
+        self.assertEqual(reply["ui_mode"], "crisis")
+        self.assertEqual(reply["resources"], CRISIS_RESOURCES)
+        self.assertEqual(reply["safety_protocol_version"], SAFETY_PROTOCOL_VERSION)
+        self.assertEqual(audits, [])
+        self.assertEqual(len(runs), 1)
+        run = runs[0]
+        self.assertEqual(run.status, "provider_error")
+        self.assertEqual(run.deployment_alias, "direct-openai_compatible")
+        self.assertEqual(run.correlation_id, reply["correlation_id"])
+        self.assertIsNone(run.output_validator_version)
+        self.assertEqual(
+            run.input_hash,
+            reply_model_run.input_hash(
+                AGENT1_SYSTEM_PROMPT + AGENT1_CRISIS_INSTRUCTION + "\n\nCONTEXTO SINTÉTICO",
+                [],
+            ),
+        )
+        stored = _stored(run)
+        self.assertNotIn("boom", stored)
+        self.assertNotIn("CONTEXTO SINTÉTICO", stored)
+        self.assertEqual(assistant[0].content, LEVEL4_PATIENT_MESSAGE)
+        self.assertIsNone(getattr(assistant[0], "model", None))
+
+    def test_local_model_unavailable_reply_stays_and_its_text_is_not_on_the_run(self):
+        from app.services.personal_llm import LocalModelUnavailable
+
+        detail = "túnel sin modelo cargado"
+        reply, runs, _audits, _assistant, _user = self._failed_reply(0, LocalModelUnavailable(detail))
+        self.assertEqual(reply["reply"], f"{detail} Tus datos y check-ins se han guardado con normalidad.")
+        self.assertEqual(reply["ui_mode"], "normal")
+        run = runs[0]
+        self.assertEqual(run.status, "unavailable")
+        self.assertEqual(run.deployment_alias, "direct-openai_compatible")
+        self.assertNotIn(detail, _stored(run))
+        self.assertNotIn("túnel", _stored(run))
+
+    def test_access_denial_before_the_provider_records_unavailable(self):
+        from app.services.local_llm_access import LocalLlmAccessDenied
+
+        reply, runs, _audits, _assistant, _user = self._failed_reply(
+            0, LocalLlmAccessDenied("detalle que no debe guardarse"), raise_on_resolve=True,
+        )
+        self.assertEqual(reply["reply"], _GENERIC_FAILURE)
+        self.assertNotIn("detalle", reply["reply"])
+        run = runs[0]
+        self.assertEqual(run.status, "unavailable")
+        self.assertEqual(run.deployment_alias, "direct-unknown")
+        self.assertNotIn("detalle", _stored(run))
+
+    def test_recording_failure_never_changes_the_failure_reply_or_crisis_copy(self):
+        with patch("app.services.reply_model_run.get_settings", side_effect=RuntimeError("db down")):
+            reply, runs, _audits, _assistant, _user = self._failed_reply(0, RuntimeError("boom"))
+            crisis, crisis_runs, _audits, _assistant, _user = self._failed_reply(4, RuntimeError("boom"))
+        self.assertEqual(reply["reply"], _GENERIC_FAILURE)
+        self.assertNotIn("db down", reply["reply"])
+        self.assertNotIn("boom", reply["reply"])
+        self.assertEqual(runs, [])
+        self.assertEqual(crisis["reply"], LEVEL4_PATIENT_MESSAGE)
+        self.assertEqual(crisis["resources"], CRISIS_RESOURCES)
+        self.assertEqual(crisis["ui_mode"], "crisis")
+        self.assertEqual(crisis_runs, [])
 
 
 if __name__ == "__main__":
