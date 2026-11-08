@@ -7,12 +7,14 @@ rule codes only. Stated engine levels and patient-reported quantities stay
 allowed for a professional reader.
 """
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.models import AuditLog, TherapistCopilotMessage
 from app.models_vnext import ModelRun
 from app.services import clinical_copilot, output_validation
-from tests.test_clinical_copilot import _fake_provider, _patient, _populated_db, _professional
+from app.services.llm.base import ProviderMetadata, StructuredAnalysisError
+from tests.test_clinical_copilot import COPILOT_MODEL, _fake_provider, _patient, _populated_db, _professional
 
 
 def codes(text):
@@ -110,14 +112,23 @@ class CopilotAskTests(_AskHarness, unittest.TestCase):
             self.assertIsInstance(row, (TherapistCopilotMessage, AuditLog, ModelRun))
 
 
+def _stored(run) -> str:
+    return " ".join(str(getattr(run, column.key, "")) for column in ModelRun.__table__.columns)
+
+
 class CopilotModelRunTests(_AskHarness, unittest.TestCase):
-    """Each validated copilot answer writes one canonical ModelRun whose status
-    says whether output validation withheld it: rule codes, never text."""
+    """Validated copilot answers write succeeded or output_withheld. Provider
+    failures write an existing failure status and leave the explained turn."""
 
     def _run(self, db):
         runs = [row for row in db.added if isinstance(row, ModelRun)]
         self.assertEqual(len(runs), 1)
         return runs[0]
+
+    def _assert_no_dossier_text(self, run):
+        stored = _stored(run)
+        for fragment in ("presenta", "900", "¿Cómo está?", "Paciente Demo", "mal día", "provider down", "empty_reply"):
+            self.assertNotIn(fragment, stored)
 
     def test_withheld_answer_records_output_withheld_run(self):
         unsafe = "El paciente no presenta riesgo; que llame al 900 123 456."
@@ -142,6 +153,121 @@ class CopilotModelRunTests(_AskHarness, unittest.TestCase):
         self.assertEqual(run.status, "succeeded")
         self.assertEqual(run.output_violation_codes, [])
         self.assertIsNone(answer.error_kind)
+
+    def test_provider_failure_records_provider_error_and_keeps_the_explained_turn(self):
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("provider down")
+
+        db, patient, answer = self._ask(_boom)
+        self.assertEqual(answer.error_kind, "RuntimeError")
+        self.assertIn("No he podido generar la respuesta", answer.content)
+        self.assertIn("(error del proveedor: RuntimeError)", answer.content)
+        self.assertIn("check-ins, diario, chat", answer.content)
+        self.assertNotIn("provider down", answer.content)
+        self.assertEqual(answer.provider, clinical_copilot.llm_config.resolve(db).provider)
+        run = self._run(db)
+        self.assertEqual(run.status, "provider_error")
+        self.assertEqual(run.purpose, "agent3_copilot")
+        self.assertEqual(run.audience, "professional")
+        self.assertEqual(run.user_id, patient.id)
+        self.assertEqual(run.correlation_id, answer.id)
+        self.assertEqual(run.prompt_version, clinical_copilot.AGENT3_PROMPT_VERSION)
+        self.assertEqual(run.deployment_alias, f"direct-{answer.provider}")
+        self.assertEqual(run.provider_type, answer.provider)
+        self.assertEqual(run.model_id, COPILOT_MODEL)
+        self.assertRegex(run.input_hash, r"^[0-9a-f]{64}$")
+        self.assertIsNone(run.output_validator_version)
+        self.assertIsNone(run.output_violation_codes)
+        self._assert_no_dossier_text(run)
+
+    def test_configuration_error_uses_exception_metadata_not_the_stored_turn(self):
+        def _boom(*_args, **_kwargs):
+            raise StructuredAnalysisError(
+                "configuration_error",
+                metadata=ProviderMetadata(
+                    provider="anthropic",
+                    requested_model="claude-test",
+                    base_url="https://secret-tunnel.example/v1",
+                    request_id="req-do-not-store",
+                    latency_ms=17,
+                ),
+                error_code="http_401",
+            )
+
+        db, _patient_, answer = self._ask(_boom)
+        self.assertEqual(answer.error_kind, "StructuredAnalysisError")
+        self.assertIn("(error del proveedor: StructuredAnalysisError)", answer.content)
+        self.assertNotIn("http_401", answer.content)
+        self.assertNotIn("secret-tunnel", answer.content)
+        self.assertEqual(answer.provider, clinical_copilot.llm_config.resolve(db).provider)
+        run = self._run(db)
+        self.assertEqual(run.status, "configuration_error")
+        self.assertEqual(run.deployment_alias, "direct-anthropic")
+        self.assertEqual(run.provider_type, "anthropic")
+        self.assertEqual(run.model_id, "claude-test")
+        self.assertEqual(run.latency_ms, 17)
+        stored = _stored(run)
+        for fragment in ("http_401", "secret-tunnel", "req-do-not-store", "Paciente Demo", "mal día"):
+            self.assertNotIn(fragment, stored)
+
+    def test_empty_reply_records_invalid_output_and_keeps_the_explained_turn(self):
+        db, _patient_, answer = self._ask("   ")
+        self.assertEqual(answer.error_kind, "RuntimeError")
+        self.assertIn("No he podido generar la respuesta", answer.content)
+        self.assertNotIn("empty_reply", answer.content)
+        run = self._run(db)
+        self.assertEqual(run.status, "invalid_output")
+        self.assertIsNone(run.output_validator_version)
+        self.assertIsNone(run.output_violation_codes)
+        self.assertNotIn("empty_reply", _stored(run))
+        self._assert_no_dossier_text(run)
+
+    def test_provider_construction_failure_records_configuration_error(self):
+        db = _populated_db()
+        with patch.object(
+            clinical_copilot,
+            "build_provider",
+            side_effect=RuntimeError("LOCAL_ENDPOINT_HOST_NOT_APPROVED"),
+        ):
+            answer = clinical_copilot.ask(
+                db, professional=_professional(), patient=_patient(), question="¿Cómo está?"
+            )
+        self.assertEqual(answer.error_kind, "RuntimeError")
+        self.assertIn("No he podido generar la respuesta", answer.content)
+        self.assertNotIn("LOCAL_ENDPOINT_HOST_NOT_APPROVED", answer.content)
+        run = self._run(db)
+        self.assertEqual(run.status, "configuration_error")
+        self.assertEqual(run.deployment_alias, f"direct-{answer.provider}")
+        active = clinical_copilot.llm_config.resolve(db)
+        configured = (active.chat_model or active.copilot_model or "").strip()
+        self.assertEqual(run.model_id, configured or "unknown")
+        self.assertNotIn("LOCAL_ENDPOINT_HOST_NOT_APPROVED", _stored(run))
+        self._assert_no_dossier_text(run)
+
+    def test_recording_failure_keeps_the_explained_turn(self):
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("provider down")
+
+        with patch("app.services.reply_model_run.get_settings", side_effect=RuntimeError("db down")):
+            db, _patient_, answer = self._ask(_boom)
+        self.assertEqual(answer.error_kind, "RuntimeError")
+        self.assertIn("No he podido generar la respuesta", answer.content)
+        self.assertNotIn("db down", answer.content)
+        self.assertNotIn("provider down", answer.content)
+        self.assertEqual([row for row in db.added if isinstance(row, ModelRun)], [])
+
+    def test_local_access_denial_writes_no_failure_run(self):
+        db = _populated_db()
+        professional = _professional()
+        professional.local_llm_approved = False
+        local_config = SimpleNamespace(provider="openai_compatible", is_local=True, chat_model="lm")
+        with patch.object(clinical_copilot.llm_config, "resolve", return_value=local_config):
+            answer = clinical_copilot.ask(
+                db, professional=professional, patient=_patient(), question="¿Cómo está?"
+            )
+        self.assertEqual(answer.error_kind, "LocalLlmAccessDenied")
+        self.assertIn("administrador clínico", answer.content)
+        self.assertEqual([row for row in db.added if isinstance(row, ModelRun)], [])
 
 
 if __name__ == "__main__":
