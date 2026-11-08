@@ -73,28 +73,35 @@ The migration backfills canonical compatibility rows with references to legacy s
 
 ## Check-in trajectory
 
-`POST /api/v1/checkins` requires the patient role and granted `core_processing` consent. It then:
+`POST /api/v1/checkins` requires the patient role and a current grant of `data_processing` (`CORE_PROCESSING` in `backend/app/services/consent.py`). A missing grant is HTTP 403. The handler then:
 
 1. Stores the check-in and commits it.
 2. Dual-writes `mood`, `craving`, `sleep_hours` and `self_efficacy` into `observations`. Notes become a `checkin_context` observation. That write commits separately.
 3. Recomputes the canonical trajectory (`refresh_trajectory` → `run_canonical_analytics`, algorithm `canonical-structural-v3`).
 4. Runs the deterministic risk engine. This step still runs when step 3 fails.
 
-`POST /api/v1/observations` stores an observation and does not recompute the trajectory. `POST /api/v1/analytics/run` recomputes it and does not calculate risk. `GET /api/v1/state` only reads stored rows: `safety` is the latest `RiskAssessment`; `longitudinal` is the current `BaselineVersion` plus the newest `ChangeSignal` for each feature on that baseline. Neither read calls a model.
+`POST /api/v1/observations` stores an observation and does not recompute the trajectory. `POST /api/v1/analytics/run` requires the same `data_processing` grant, recomputes the trajectory, and does not calculate risk. After that commit it may write a deterministic fingerprint of each new `ChangeSignal` (`embed_change_signals`) when `linguistic_analysis` is currently granted. A check-in refresh does not write those rows. The fingerprint is 16 floats from SHA-256 of feature, value, band and algorithm. It does not call an embedding model and it does not read or write `alert_level`. `GET /api/v1/state` only reads stored rows: `safety` is the latest `RiskAssessment`; `longitudinal` is the current `BaselineVersion` plus the newest `ChangeSignal` for each feature on that baseline. Neither read calls a model.
+
+Parameters live in `backend/app/services/change_config.py` (`change-bands-v1-population-prior`). The same module feeds the risk engine's structural input (`structural-v3`, `risk-engine-v1.6`) and the canonical path (`canonical-structural-v3`). Stored rows keep `calibration_status = provisional_population_prior`. These bands are not a clinical sign-off; see [ADR 0003](docs/adr/0003-evidence-based-change-bands.md).
 
 | Input | Rule |
 | --- | --- |
-| Recent window | the last 7 days |
-| Baseline window | the 21 days before the recent window; the recent window is never part of its own reference |
-| Axis eligibility | at least 5 observations |
-| Craving | scored as `10 - reported craving` (`craving_inv`) |
-| Band | absolute z ≤ 1.2 `stable`; ≤ 1.95 `transition`; otherwise `unstable` |
-| Missing recent or baseline values | `band=insufficient_data` and `change_value` null |
-| Composite | `structural_composite` is another `ChangeSignal`, not a risk level |
+| Recent window | the last 7 days, ending at now |
+| Reference window | the 28 days immediately before the recent window; no timestamp is in both |
+| Unit | mean per Europe/Madrid calendar day; several check-ins on one day count once |
+| Axis eligibility | at least 5 distinct reference days with a value; otherwise `insufficient_data` |
+| Craving axis | z uses `craving_inv = 10 - reported craving`. Patient `display` puts craving back on the reported 0–10 scale |
+| SD | max(personal SD of those day means, floor): 1 point for mood, `craving_inv` and self-efficacy; 0.5 h for sleep |
+| Statistical band | \|z\| ≥ 1.3 `unstable`; ≥ 1.0 `transition`; otherwise `stable`. `change_value` is that z, or null when the band is `insufficient_data` |
+| Raw guard | per axis, transition also needs ≥ 1 point (0.5 h of sleep) and unstable also needs ≥ 2 points (0.5 h of sleep); a smaller move is downgraded. The composite leaves `stable` only when at least one axis meets its transition guard |
+| Staleness | `BASELINE_MAX_AGE_DAYS` is 21. That is how long an unreplaced risk-engine reference may be reused. It is not the reference length |
+| Composite | `structural_composite` is another `ChangeSignal`, not a risk level. The similarity score `1 / (1 + mean \|z\|)` does not choose the band |
 
 A failed refresh logs the exception type and, when available, the PostgreSQL constraint name, then rolls back the analytics transaction. The check-in and observation dual-write stay, because they were already committed. On production startup, a deterministic catch-up pass recomputes the canonical trajectory only for users whose latest numeric observation is newer than their latest `canonical-structural-v3` baseline (or who have no v3 baseline). This repairs missed refreshes without invoking an LLM or recalculating clinical risk; repeat startups skip users whose baseline already includes their latest observation. Previous canonical baseline rows (`canonical-structural-v1` and `-v2`) are marked `superseded` rather than deleted. Each `BaselineVersion` records the comparison window it left out in `exclusions`, with per-type observation counts, and `GET /api/v1/baselines/current`, `GET /api/v1/state` and the professional reads return that list. Observations from only the last week therefore give `insufficient_data` rather than a self-comparison that reads as `stable`.
 
-Hoy reads `longitudinal` from that state payload: change versus the personal baseline, with a missing comparison described as missing data, kept apart from `safety.alert_level`. Hoy also charts the 30-day self-report series. That chart shows observations and does not calculate the change. Tendencias reads `/api/v1/timeline`, `/api/v1/baselines/current` and `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page.
+Hoy reads `longitudinal` from `GET /api/v1/state` and charts the 30-day series from `GET /api/v1/timeline?window_days=30`. The chart shows observations and does not calculate the change. Tendencias uses those same two reads. It does not call `/api/v1/baselines/current` or `/api/v1/changes`. A calculated band is explained in Spanish. An uncalculated feature is described as a missing comparison, and the page says that a missing calculation is not evidence that things are fine. The raw band code stays off the page. Change stays apart from `safety.alert_level`.
+
+`TimeAwareSequenceModel` (`backend/app/services/sequence_model.py`) is in the API image and is not called from check-in, `GET /api/v1/state` or `POST /api/v1/analytics/run`. It does not write `RiskAssessment.alert_level`. The part that does run in product code is `sequence_refs` (`backend/app/services/sequence_sources.py`): memory retrieval drops refs that start with `clinical_document:` before it follows them. `clinical_document_analysis` does not make that prefix eligible.
 
 ## Curated knowledge
 
@@ -143,7 +150,7 @@ Current prototype keeps the already-provisioned free components:
 - Existing Supabase `psychdeep` project as the only clinical database.
 - Local inference through the existing Cloudflare Tunnel when selected.
 - Anthropic remains an explicitly selectable approved provider when its server-side key is configured; its usage is not part of the zero-cost guarantee.
-- No new paid database, worker, queue or managed GPU is required for this stage.
+- No new paid database, queue or managed GPU is required for this stage. `render.yaml` lists `psychdeep-memory-worker`, but that worker is not a live Render service and the API does not drain its queue.
 
 See [DEPLOY.md](DEPLOY.md) for the deployment sequence and `docs/` for ADRs, runbooks and release gates.
 

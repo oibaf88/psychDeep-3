@@ -17,11 +17,14 @@ historic explanation cannot drift when newer data arrives.
 Two things this module exists to make explicit, because both confused
 readers of the previous UI:
 
-1. ``structural_score`` is NOT a risk score. It measures how similar the
-   last 7 days of check-ins are to the patient's own 21-day baseline.
-   1.00 means "indistinguishable from their own normal", 0.00 means "very
-   far from their own normal". A high score therefore says *stable*, not
-   *safe*.
+1. ``structural_score`` is NOT a risk score. The running engine
+   (``structural-v3``) measures how similar the last 7 days of check-ins
+   are to the 28 days before that week. Older stored versions keep the
+   window they were calculated with (``structural-v2`` used 21 days).
+   ``BASELINE_MAX_AGE_DAYS`` (21) is how long an unreplaced reference may
+   be reused, not the window length. 1.00 means "indistinguishable from
+   their own reference", 0.00 means "very far from it". A high score
+   therefore says *stable*, not *safe*.
 2. Because of (1), a patient can legitimately sit at ``0.91 / stable`` and
    still be at alert level 4: the level was raised by a confirmed fact or
    by a linguistic signal in chat/diary, neither of which is part of the
@@ -479,7 +482,8 @@ def level_explanation(
     signals = _as_dict(assessment.input_signals)
     score = _number(signals.get("structural_score"))
     band = signals.get("confidence_band")
-    if signals.get("structural_calculation_version") in baseline_service.DETERIORATION_VERSIONS:
+    version = signals.get("structural_calculation_version")
+    if version in baseline_service.DETERIORATION_VERSIONS:
         info = dict(info)
         if family == FAMILY_STRUCTURAL:
             info["plain"] = (
@@ -494,6 +498,12 @@ def level_explanation(
                 "No se alcanza un umbral operativo de deterioro ni una regla superior. La "
                 "similitud estructural puede ser baja si hubo mejoras. Esto no confirma seguridad "
                 "ni sustituye una evaluación clínica."
+            )
+        if version == "structural-v3" and code == "N1_datos_insuficientes_o_sin_criterios":
+            info["plain"] = (
+                "No hay suficientes días en la referencia de 28 días anteriores a la semana reciente "
+                "(mínimo 5 días con valor por eje) para construir una línea base personal, así que el "
+                "score estructural no existe todavía."
             )
 
     if family == FAMILY_CONFIRMED_FACT:
@@ -544,10 +554,17 @@ def level_explanation(
                 "Revisa las variables y la regla de aquella versión del motor."
             )
     elif score is None:
-        reconciliation = (
-            "No hay score estructural en esta evaluación: el paciente aún no tiene línea base "
-            "(mínimo 5 check-ins en 21 días) o no ha hecho check-ins en los últimos 7 días."
-        )
+        if version == "structural-v3":
+            reconciliation = (
+                "No hay score estructural en esta evaluación: faltan días en la referencia "
+                "(mínimo 5 por eje en los 28 días anteriores a la semana reciente) o no hay "
+                "check-ins en los últimos 7 días."
+            )
+        else:
+            reconciliation = (
+                "No hay score estructural en esta evaluación: el paciente aún no tiene línea base "
+                "(mínimo 5 check-ins en 21 días) o no ha hecho check-ins en los últimos 7 días."
+            )
 
     if reconciliation:
         reconciliation += NOT_A_CHANGE_SIGNAL
@@ -748,6 +765,11 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         default=None,
     )
 
+    window_label = (
+        "la referencia de los 28 días anteriores a la semana reciente"
+        if is_v3
+        else "su ventana de 21 días"
+    )
     if score is None or band in (None, "insufficient_data"):
         summary = (
             "No hay una similitud calculable en esta evaluación del motor. "
@@ -755,7 +777,7 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         )
     elif band == "stable":
         summary = (
-            f"{score:.2f} · estable. Sus check-ins de los últimos 7 días se parecen a la ventana de 21 días "
+            f"{score:.2f} · estable. Sus check-ins de los últimos 7 días se parecen a {window_label} "
             "que usa el motor de riesgo. Esto describe continuidad de esa entrada, no la señal de cambio ni bienestar."
         )
     elif band == "transition":
@@ -765,7 +787,7 @@ def structural_explanation(assessment: RiskAssessment | None) -> dict[str, Any]:
         )
     else:
         summary = (
-            f"{score:.2f} · inestable. La similitud del motor se aleja de su ventana de 21 días. "
+            f"{score:.2f} · inestable. La similitud del motor se aleja de {window_label}. "
             "No es la señal de cambio ni un nivel de alerta."
         )
 
