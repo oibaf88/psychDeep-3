@@ -111,7 +111,7 @@ export default function ProfessionalDashboard() {
               {canSeeClinicalColumns && (
                 <th
                   scope="col"
-                  title="Entrada del motor de riesgo: similitud de los check-ins de 7 días con la ventana de 21 días que usa ese motor. No es la señal de cambio y no es el nivel de alerta. Si falta, no es cero ni ausencia de riesgo."
+                  title="Entrada del motor de riesgo: similitud de la media diaria de los últimos 7 días con los 28 días anteriores (structural-v3). No es la señal de cambio y no es el nivel de alerta. Si falta, no es cero ni ausencia de riesgo."
                 >
                   Similitud del motor ⓘ
                 </th>

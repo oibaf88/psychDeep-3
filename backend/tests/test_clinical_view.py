@@ -138,6 +138,20 @@ class LevelExplanationTests(unittest.TestCase):
         assessment.triggering_rules = []
         self.assertEqual(clinical_view.selected_rule_code(assessment), "N3_unstable_persistente")
 
+    def test_v3_insufficient_data_names_the_preceding_reference(self):
+        assessment = _assessment(
+            level=1,
+            rule="N1_datos_insuficientes_o_sin_criterios",
+            score=None,
+            band="insufficient_data",
+        )
+        assessment.input_signals["structural_calculation_version"] = "structural-v3"
+        explanation = clinical_view.level_explanation(assessment)
+        self.assertIn("28 días anteriores", explanation["rule_explanation"])
+        self.assertIn("28 días anteriores", explanation["structural_reconciliation"])
+        self.assertNotIn("21 días", explanation["rule_explanation"])
+        self.assertNotIn("21 días", explanation["structural_reconciliation"])
+
 
 class StructuralExplanationTests(unittest.TestCase):
     def _v2_assessment(self, z_scores=None):
@@ -293,6 +307,23 @@ class StructuralExplanationTests(unittest.TestCase):
         self.assertIsNone(explanation["deterioration_band"])
         self.assertTrue(any("conserva el cálculo guardado" in text for text in explanation["caveats"]))
         self.assertTrue(any("max(0, 1 − media de |z| / 3)" in text for text in explanation["caveats"]))
+
+    def test_v3_summary_names_the_preceding_28_day_reference(self):
+        assessment = _assessment(level=0, rule="N0_estable", score=0.8, band="stable")
+        assessment.input_signals["structural_calculation_version"] = "structural-v3"
+        assessment.calculation_trace["inputs"]["structural"]["calculation_version"] = "structural-v3"
+        explanation = clinical_view.structural_explanation(assessment)
+        self.assertIn("28 días anteriores", explanation["summary"])
+        self.assertNotIn("21 días", explanation["summary"])
+        self.assertTrue(any("28 días ANTERIORES" in text for text in explanation["caveats"]))
+
+    def test_unversioned_summary_keeps_the_historical_21_day_wording(self):
+        explanation = clinical_view.structural_explanation(
+            _assessment(level=0, rule="N0_estable", score=0.8, band="stable")
+        )
+        self.assertEqual(explanation["calculation_version"], "structural-v1")
+        self.assertIn("ventana de 21 días", explanation["summary"])
+        self.assertNotIn("28 días", explanation["summary"])
 
 
 class ExcerptTests(unittest.TestCase):

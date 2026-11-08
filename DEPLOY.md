@@ -1,6 +1,23 @@
 # psychDeep-vOG deployment runbook
 
+This file is the deployment runbook. There is no separate `DEPLOYMENT.md`.
+
+Public app: https://psychdeep.bfab.io. API health: `GET https://psychdeep-api.onrender.com/api/v1/health`.
+
 This runbook deploys the hybrid-inference vNext architecture without adding paid infrastructure during the prototype stage.
+
+## Live release (checked 2026-11-08)
+
+| Service | Render id | Live commit | Deploy |
+| --- | --- | --- | --- |
+| `psychdeep-api` | `srv-d9s0p0navr4c73a7tcfg` | `87f7601173066ca86eeded455a52f537ad59b00f` | `dep-dbbj7167bikc73aokv4g` |
+| `psychdeep-web` | `srv-d9s0p0navr4c73a7tcf0` | `ca4447b1bad4b94fc482df6c6e97b3900cfadf58` | `dep-dbbioh0m7kps73f4js50` |
+
+`master` is `87f7601` (2026-10-20, PR #234). The API health payload reports that same `release` and `risk_engine_version` `risk-engine-v1.6`. The web service builds only `frontend/`, so backend-only commits do not redeploy it. Frontend files are unchanged between the live web commit and `87f7601`, so the site matches the frontend on `master`.
+
+`psychdeep-memory-worker` is declared in `render.yaml` (`plan: 0.5c-512mb`) and is not a live service. The API does not call `run_memory_worker_once`.
+
+Supabase project `psychdeep` (`ifwexmoltnybvmrsuwtu`), schema `psychdeep_v12`, region `eu-north-1`. Newest recorded migration on 2026-11-08: `safety_protocol_on_crisis_turns` (`20261020085134`). Do not start the API with `APP_ENV=local` against this database.
 
 ## Target
 
@@ -13,7 +30,7 @@ This runbook deploys the hybrid-inference vNext architecture without adding paid
 | Model profile B | Anthropic / optional approved managed compatible endpoint | explicit admin selection only; no automatic fallback |
 | CI/CD | GitHub Actions + Render auto-deploy | migrations/tests before merge |
 
-No Render Postgres, paid worker, paid cron, managed GPU or additional Supabase project is required.
+No Render Postgres, paid cron, managed GPU or additional Supabase project is required. The blueprint lists a paid memory worker; it is not provisioned, and this prototype does not depend on it.
 
 ## 0. Release gates before touching production
 

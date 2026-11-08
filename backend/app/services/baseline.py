@@ -35,18 +35,11 @@ BASELINE_WINDOW_DAYS = change_config.REFERENCE_WINDOW_DAYS
 RECENT_WINDOW_DAYS = change_config.RECENT_WINDOW_DAYS
 MIN_CHECKINS_FOR_BASELINE = change_config.MIN_REFERENCE_DAYS
 
-# How long an active baseline describes the present.
-#
-# It used to be forever: `get_active_baseline(...) or compute_or_refresh_...`
-# created one on first use and never looked again, so a person's "normal" was
-# fixed by their first three weeks in treatment and stayed there. Someone who
-# genuinely improved kept being measured against how they were at their worst,
-# and someone who deteriorated slowly drifted out of their own baseline
-# without any single reading looking unusual.
-#
-# Recomputed on a 21-day window, so the baseline follows the person at the
-# same pace it was built from. Long enough that a bad fortnight does not
-# redefine normal; short enough that a season of change eventually does.
+# How long an active baseline may still describe the present before it is
+# marked stale. This is not the reference length. The reference length is
+# ``change_config.REFERENCE_WINDOW_DAYS`` (28 days immediately before the
+# recent 7). A bad fortnight should not redefine normal; a season of change
+# eventually should.
 BASELINE_MAX_AGE_DAYS = 21
 
 # craving is "inverted" (lower is better) so we flip sign before z-scoring

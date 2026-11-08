@@ -30,5 +30,10 @@ describe("ManualPage", () => {
     await user.click(screen.getByRole("button", { name: "12. Privacidad y auditoría" }));
     expect(screen.getByText(/Mis modelos/)).toBeInTheDocument();
     expect(screen.queryByText(/Gemma 2/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "5. El score estructural" }));
+    expect(screen.getAllByText(/28 días anteriores/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/caducidad, no la longitud de la ventana/)).toBeInTheDocument();
+    expect(screen.queryByText(/últimos 21 días/)).not.toBeInTheDocument();
   });
 });
